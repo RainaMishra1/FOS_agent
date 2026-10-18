@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "FOS Agent | Field Agent Management System",
+  title: "FOS — Field Operations & Agent Management System",
   description:
-    "Location-based field agent tracking, geofenced customer visits, and multi-stop route optimization.",
+    "Location-based field agent tracking, geofenced 100m customer visits, and multi-stop route optimization.",
 };
 
 export default function RootLayout({
@@ -14,9 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="antialiased selection:bg-indigo-500 selection:text-white">
-        {children}
+      <body className="antialiased selection:bg-beige-terracotta selection:text-white">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
 }
+

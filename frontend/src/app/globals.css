@@ -3,18 +3,33 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 241, 245, 249;
+  --bg-main: #F5F1E8;
+  --text-main: #302D28;
+  --text-muted: #777064;
+  --border-subtle: #E4DCCF;
+  --card-bg: #FFFEFA;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  color: var(--text-main);
+  background-color: var(--bg-main);
   min-height: 100vh;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
+
+/* Elegant restrained scrollbar matching beige aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #EAE1D2;
+}
+::-webkit-scrollbar-thumb {
+  background: #D5CABE;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B8AC9D;
+}
+

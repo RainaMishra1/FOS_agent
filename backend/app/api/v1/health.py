@@ -126,3 +126,17 @@ async def check_database_connectivity(
         )
 
 
+@router.get("/health/db-diagnostics", tags=["Health"])
+@router.get("/db-diagnostics", tags=["Health"])
+async def get_db_diagnostics():
+    """Safe database and DNS diagnostics. Does not expose credentials."""
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Diagnostics endpoint is disabled in production.",
+        )
+    from app.db.diagnose import run_full_diagnosis
+    return run_full_diagnosis()
+
+
+

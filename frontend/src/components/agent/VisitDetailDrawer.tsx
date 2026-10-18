@@ -1,0 +1,245 @@
+"use client";
+
+import React, { useState } from "react";
+import { AgentVisit } from "@/types/agent";
+import { useAgent } from "@/context/AgentContext";
+import StatusBadge from "@/components/StatusBadge";
+import GeofenceSimulator from "./GeofenceSimulator";
+import CompleteVisitModal from "./CompleteVisitModal";
+import {
+  X,
+  Phone,
+  Mail,
+  MapPin,
+  Clock,
+  Compass,
+  CheckCircle2,
+  Calendar,
+  Building2,
+  ArrowRight,
+  ExternalLink,
+  ShieldCheck,
+  AlertCircle,
+  Navigation,
+} from "lucide-react";
+import Link from "next/link";
+
+interface VisitDetailDrawerProps {
+  visit: AgentVisit | null;
+  onClose: () => void;
+}
+
+export default function VisitDetailDrawer({
+  visit,
+  onClose,
+}: VisitDetailDrawerProps) {
+  const { isOnDuty } = useAgent();
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [phoneDialed, setPhoneDialed] = useState(false);
+
+  if (!visit) return null;
+
+  const handleCall = () => {
+    setPhoneDialed(true);
+    setTimeout(() => setPhoneDialed(false), 3000);
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200">
+        <div
+          className="relative w-full sm:max-w-xl max-h-[90vh] bg-beige-card border-t sm:border border-beige-border sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="p-4 sm:p-5 border-b border-beige-border flex items-start justify-between bg-beige-sand/30">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border">
+                  Stop #{visit.orderIndex} • {visit.id}
+                </span>
+                <StatusBadge status={visit.status} size="sm" />
+                <StatusBadge status={visit.priority} size="sm" />
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-beige-text leading-tight">
+                {visit.customerName}
+              </h3>
+              {visit.company && (
+                <p className="text-xs text-beige-muted flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5" />
+                  {visit.company}
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl text-beige-muted hover:text-beige-text hover:bg-beige-sand transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Scrollable Body */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 text-xs">
+            {/* Quick Actions Row */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleCall}
+                className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-beige-sand/70 hover:bg-beige-sand border border-beige-border font-semibold text-beige-text transition shadow-2xs active:scale-[0.98]"
+              >
+                <Phone className="w-3.5 h-3.5 text-beige-olive" />
+                <span>{phoneDialed ? "Connecting..." : "Call Contact"}</span>
+              </button>
+
+              <Link
+                href="/agent/routes"
+                onClick={onClose}
+                className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-beige-terracotta-subtle/80 hover:bg-beige-terracotta-subtle border border-beige-terracotta/30 font-semibold text-beige-terracotta transition shadow-2xs active:scale-[0.98]"
+              >
+                <Navigation className="w-3.5 h-3.5" />
+                <span>View on Route</span>
+              </Link>
+            </div>
+
+            {/* Customer & Contact Info */}
+            <div className="p-3.5 rounded-xl bg-beige-sand/30 border border-beige-border space-y-2.5">
+              <span className="font-bold text-beige-text uppercase tracking-wider text-[10px] block">
+                Contact & Destination
+              </span>
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-beige-terracotta shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-beige-text">{visit.address}</p>
+                    <p className="text-[11px] text-beige-muted">
+                      Bengaluru • Mock Coords: {visit.coordinates.lat.toFixed(4)}°N, {visit.coordinates.lng.toFixed(4)}°E
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-beige-border/60">
+                  <Phone className="w-3.5 h-3.5 text-beige-muted shrink-0" />
+                  <span className="text-beige-text font-medium">{visit.contactPerson}</span>
+                  <span className="text-beige-muted ml-auto font-mono text-[11px]">{visit.phone}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5 text-beige-muted shrink-0" />
+                  <span className="text-beige-muted truncate">{visit.email}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Schedule & Visit Purpose */}
+            <div className="p-3.5 rounded-xl bg-beige-card border border-beige-border space-y-2">
+              <span className="font-bold text-beige-text uppercase tracking-wider text-[10px] block">
+                Schedule & Mission Purpose
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-beige-sand/40 border border-beige-border/60">
+                  <Calendar className="w-3.5 h-3.5 text-beige-muted" />
+                  <div>
+                    <span className="text-beige-muted block text-[10px]">Date</span>
+                    <strong className="text-beige-text">{visit.scheduledDate}</strong>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-beige-sand/40 border border-beige-border/60">
+                  <Clock className="w-3.5 h-3.5 text-beige-muted" />
+                  <div>
+                    <span className="text-beige-muted block text-[10px]">Time Window</span>
+                    <strong className="text-beige-text">{visit.scheduledTime} ({visit.estimatedDuration})</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-beige-sand/20 border border-beige-border/50 mt-1">
+                <span className="text-[10px] font-semibold text-beige-muted block">Purpose:</span>
+                <p className="text-beige-text text-xs mt-0.5 leading-relaxed">{visit.purpose}</p>
+              </div>
+
+              {visit.tags && visit.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {visit.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-beige-sand text-beige-muted border border-beige-border/70"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Geofencing Verification Box */}
+            <div>
+              <GeofenceSimulator visit={visit} onCheckInSuccess={() => {}} />
+            </div>
+
+            {/* Completion Notes / History if completed */}
+            {visit.status === "completed" && visit.completionNotes && (
+              <div className="p-3.5 rounded-xl bg-beige-olive-subtle/50 border border-beige-olive/30 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-beige-olive text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Visit Completed at {visit.completedTime || "Recorded"}
+                  </span>
+                  <span className="text-[10px] font-mono text-beige-olive">
+                    ±{visit.accuracyMeters || 12}m Accuracy
+                  </span>
+                </div>
+                <p className="text-xs text-beige-text">{visit.completionNotes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="p-4 border-t border-beige-border bg-beige-sand/30 flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="py-2.5 px-4 rounded-xl text-xs font-semibold bg-beige-card hover:bg-beige-sand border border-beige-border text-beige-text transition"
+            >
+              Close
+            </button>
+
+            {visit.status === "in_progress" || visit.geofenceVerified ? (
+              <button
+                onClick={() => setShowCompleteModal(true)}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-md transition flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Complete Visit
+              </button>
+            ) : visit.status === "completed" ? (
+              <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-beige-olive-subtle text-beige-olive text-center border border-beige-olive/30">
+                ✓ Visit Completed
+              </div>
+            ) : (
+              <button
+                disabled={!isOnDuty}
+                onClick={() => {
+                  // Will be handled via geofence simulator inside body
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-beige-sand text-beige-muted border border-beige-border cursor-default text-center"
+              >
+                Use Geofence Above to Check In
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showCompleteModal && (
+        <CompleteVisitModal
+          visit={visit}
+          onClose={() => setShowCompleteModal(false)}
+          onSuccess={() => {
+            setShowCompleteModal(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
