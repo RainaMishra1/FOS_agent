@@ -40,13 +40,70 @@ const AgentContext = createContext<AgentContextType | undefined>(undefined);
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [currentAgent, setCurrentAgent] = useState<AgentProfile>(initialAgentProfile);
   const [isOnDuty, setIsOnDuty] = useState<boolean>(true);
-  const [visits, setVisits] = useState<AgentVisit[]>(initialAgentVisits);
+  const [visits, setVisits] = useState<AgentVisit[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("fos_agent_visits");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // fallback
+        }
+      }
+    }
+    return initialAgentVisits;
+  });
   const [historyVisits, setHistoryVisits] = useState<AgentVisit[]>(mockHistoricalVisits);
   const [selectedVisit, setSelectedVisit] = useState<AgentVisit | null>(null);
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info";
     message: string;
   } | null>(null);
+
+  // Cross-dashboard event listener for newly dispatched assignments from Admin
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleNewVisit = (e: Event) => {
+      const customEvent = e as CustomEvent<AgentVisit>;
+      if (customEvent.detail) {
+        setVisits((prev) => {
+          if (prev.some((v) => v.id === customEvent.detail.id)) return prev;
+          const next = [...prev, customEvent.detail];
+          localStorage.setItem("fos_agent_visits", JSON.stringify(next));
+          return next;
+        });
+        showNotification(
+          "info",
+          `New Field Assignment Dispatched: ${customEvent.detail.customerName} (${customEvent.detail.scheduledTime})`
+        );
+      }
+    };
+
+    const handleRouteUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ agentId: string; visits: AgentVisit[] }>;
+      if (customEvent.detail && customEvent.detail.visits) {
+        setVisits(customEvent.detail.visits);
+        showNotification(
+          "success",
+          `Route sequence updated by Dispatch Admin (${customEvent.detail.visits.length} stops)`
+        );
+      }
+    };
+
+    const handleReset = () => {
+      setVisits(initialAgentVisits);
+    };
+
+    window.addEventListener("fos_new_visit_assigned", handleNewVisit);
+    window.addEventListener("fos_route_updated", handleRouteUpdated);
+    window.addEventListener("fos_operations_reset", handleReset);
+    return () => {
+      window.removeEventListener("fos_new_visit_assigned", handleNewVisit);
+      window.removeEventListener("fos_route_updated", handleRouteUpdated);
+      window.removeEventListener("fos_operations_reset", handleReset);
+    };
+  }, []);
 
   const showNotification = (type: "success" | "error" | "info", message: string) => {
     setNotification({ type, message });

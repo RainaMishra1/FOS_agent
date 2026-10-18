@@ -5,6 +5,7 @@ import { mockAssignments, mockAgents, mockCustomers } from "@/lib/mockData";
 import { Assignment, TaskStatus } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
+import Link from "next/link";
 import {
   CalendarCheck,
   Search,
@@ -17,6 +18,7 @@ import {
   MoreVertical,
   X,
   ChevronDown,
+  Route,
 } from "lucide-react";
 
 export default function AssignmentsPage() {
@@ -63,13 +65,23 @@ export default function AssignmentsPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAssignModalOpen(true)}
-          className="px-4 py-2 rounded-xl text-xs font-semibold bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-sm flex items-center gap-1.5 transition self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Task Assignment</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Link
+            href="/routes"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-sidebar text-beige-text border border-beige-border flex items-center gap-1.5 transition"
+          >
+            <Route className="w-4 h-4 text-beige-terracotta" />
+            <span>Plan Routes</span>
+          </Link>
+
+          <button
+            onClick={() => setIsAssignModalOpen(true)}
+            className="px-4 py-2 rounded-xl text-xs font-semibold bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-sm flex items-center gap-1.5 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Task Assignment</span>
+          </button>
+        </div>
       </div>
 
       {/* Status Update Toast */}

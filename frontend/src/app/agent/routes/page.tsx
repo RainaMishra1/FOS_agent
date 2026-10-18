@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useAgent } from "@/context/AgentContext";
 import { AgentVisit } from "@/types/agent";
@@ -8,6 +8,11 @@ import AgentMapPreview from "@/components/agent/AgentMapPreview";
 import StatusBadge from "@/components/StatusBadge";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
+import {
+  calculateRouteSequenceMetrics,
+  optimizeRouteNearestNeighbour,
+  BaseRouteStop,
+} from "@/lib/routeOptimizer";
 import {
   Route,
   Navigation,
@@ -22,6 +27,8 @@ import {
   RefreshCw,
   Phone,
   ExternalLink,
+  RotateCcw,
+  Info,
 } from "lucide-react";
 
 export default function AgentRoutePage() {
@@ -31,35 +38,118 @@ export default function AgentRoutePage() {
   const [isReoptimizing, setIsReoptimizing] = useState(false);
   const [optimizationNotice, setOptimizationNotice] = useState<string | null>(null);
 
-  // Today's stops ordered by orderIndex
-  const todayVisits = visits
-    .filter(
-      (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
-    )
-    .sort((a, b) => a.orderIndex - b.orderIndex);
+  // Today's stops sorted by orderIndex
+  const todayVisits = useMemo(() => {
+    return visits
+      .filter(
+        (v) =>
+          v.scheduledDate === "2026-10-18" ||
+          v.status === "completed" ||
+          v.status === "in_progress"
+      )
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+  }, [visits]);
 
-  // Demo estimates
-  const totalEstimatedDistance = "18.4 km";
-  const totalEstimatedDuration = "3 hrs 45 mins";
+  // Convert visits to BaseRouteStop format for math optimization
+  const baseStops: BaseRouteStop[] = useMemo(() => {
+    return todayVisits.map((v) => ({
+      id: v.id,
+      name: v.customerName,
+      customerName: v.customerName,
+      address: v.address,
+      coordinates: v.coordinates,
+      scheduledTime: v.scheduledTime,
+      scheduledDate: v.scheduledDate,
+      priority: v.priority,
+      status: v.status,
+      company: v.company,
+      estimatedDuration: v.estimatedDuration,
+    }));
+  }, [todayVisits]);
+
+  // Compute live Haversine metrics based on the current stop sequence
+  const routeMetrics = useMemo(() => {
+    return calculateRouteSequenceMetrics(
+      currentAgent.currentCoordinates,
+      baseStops,
+      baseStops,
+      `${currentAgent.name} Current Location`
+    );
+  }, [currentAgent, baseStops]);
+
   const completedCount = todayVisits.filter((v) => v.status === "completed").length;
 
-  const legEstimates = [
-    { distance: "From Depot", duration: "10 mins (2.4 km)" },
-    { distance: "3.8 km", duration: "~14 mins drive" },
-    { distance: "2.1 km", duration: "~9 mins drive" },
-    { distance: "4.5 km", duration: "~18 mins drive" },
-    { distance: "5.6 km", duration: "~22 mins drive" },
-  ];
+  // Run local nearest-neighbour heuristic on today's uncompleted stops
+  const handleOptimizeRoute = () => {
+    if (todayVisits.length < 2) return;
 
-  const handleSimulateReRoute = () => {
     setIsReoptimizing(true);
     setOptimizationNotice(null);
+
     setTimeout(() => {
+      // Completed visits stay fixed in place; optimize remaining visits
+      const completedStops = todayVisits.filter((v) => v.status === "completed");
+      const remainingStops = todayVisits.filter((v) => v.status !== "completed");
+
+      const startCoord =
+        completedStops.length > 0
+          ? completedStops[completedStops.length - 1].coordinates
+          : currentAgent.currentCoordinates;
+
+      const remainingBase: BaseRouteStop[] = remainingStops.map((v) => ({
+        id: v.id,
+        name: v.customerName,
+        customerName: v.customerName,
+        address: v.address,
+        coordinates: v.coordinates,
+        scheduledTime: v.scheduledTime,
+        priority: v.priority,
+        status: v.status,
+        company: v.company,
+        estimatedDuration: v.estimatedDuration,
+      }));
+
+      const optResult = optimizeRouteNearestNeighbour(
+        startCoord,
+        remainingBase,
+        "Current Position"
+      );
+
+      // Re-map visits with new order indices
+      const reorderedRemaining: AgentVisit[] = optResult.orderedStops.map((st, idx) => {
+        const original = remainingStops.find((v) => v.id === st.id)!;
+        return {
+          ...original,
+          orderIndex: completedStops.length + idx + 1,
+        };
+      });
+
+      const updatedAll = [...completedStops, ...reorderedRemaining];
+
+      if (typeof window !== "undefined") {
+        try {
+          const stored = localStorage.getItem("fos_agent_visits");
+          const existingAll: AgentVisit[] = stored ? JSON.parse(stored) : visits;
+          const merged = existingAll.map((v) => {
+            const found = updatedAll.find((u) => u.id === v.id);
+            return found || v;
+          });
+          localStorage.setItem("fos_agent_visits", JSON.stringify(merged));
+          window.dispatchEvent(
+            new CustomEvent("fos_route_updated", {
+              detail: { agentId: currentAgent.id, visits: merged },
+            })
+          );
+        } catch {
+          // fallback
+        }
+      }
+
       setIsReoptimizing(false);
       setOptimizationNotice(
-        "Route sequence dynamically updated! Avoided Residency Road congestion; saved ~12 mins (Demo Estimate)."
+        `Route sequence optimized via Nearest-Neighbour heuristic! Saved ~${optResult.distanceSavingsKm} km (${optResult.percentageSavings}% straight-line savings).`
       );
-    }, 800);
+    }, 600);
   };
 
   return (
@@ -82,12 +172,12 @@ export default function AgentRoutePage() {
 
         <button
           type="button"
-          onClick={handleSimulateReRoute}
-          disabled={isReoptimizing}
+          onClick={handleOptimizeRoute}
+          disabled={isReoptimizing || todayVisits.length < 2}
           className="self-start sm:self-auto py-1.5 px-3 rounded-xl text-xs font-semibold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
         >
           <Sparkles className={`w-3.5 h-3.5 ${isReoptimizing ? "animate-spin" : ""}`} />
-          <span>{isReoptimizing ? "Optimizing..." : "Simulate Re-Route"}</span>
+          <span>{isReoptimizing ? "Solving Route..." : "Optimize Sequence"}</span>
         </button>
       </div>
 
@@ -108,12 +198,12 @@ export default function AgentRoutePage() {
       )}
 
       {/* Demo Estimate Disclaimer Card */}
-      <div className="p-3 rounded-xl bg-beige-amber-subtle/70 border border-beige-amber/30 text-[11px] text-beige-amber flex items-start gap-2">
-        <Navigation className="w-4 h-4 shrink-0 mt-0.5 text-beige-amber" />
+      <div className="p-3 rounded-xl bg-beige-sand/70 border border-beige-border text-[11px] text-beige-muted flex items-start gap-2">
+        <Navigation className="w-4 h-4 shrink-0 mt-0.5 text-beige-terracotta" />
         <div>
-          <strong className="block font-semibold">Illustrative Route Data:</strong>
+          <strong className="block font-semibold text-beige-text">Straight-Line Route Disclaimer:</strong>
           <span>
-            All distances, durations, and sequence rankings are simulated frontend demo estimates. No live navigation APIs or real GPS tracking are contacted.
+            {routeMetrics.disclaimer}
           </span>
         </div>
       </div>
@@ -132,18 +222,18 @@ export default function AgentRoutePage() {
 
         <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
           <span className="text-[10px] text-beige-muted block">Total Distance</span>
-          <strong className="text-base font-bold text-beige-text">
-            {totalEstimatedDistance}
+          <strong className="text-base font-bold text-beige-text font-mono">
+            {routeMetrics.formattedTotalDistance}
           </strong>
-          <span className="text-[10px] text-beige-muted block mt-0.5">Demo Estimate</span>
+          <span className="text-[10px] text-beige-muted block mt-0.5">Straight-Line Demo</span>
         </div>
 
         <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
           <span className="text-[10px] text-beige-muted block">Est. Duration</span>
-          <strong className="text-base font-bold text-beige-text">
-            {totalEstimatedDuration}
+          <strong className="text-base font-bold text-beige-olive font-mono">
+            {routeMetrics.formattedTotalDuration}
           </strong>
-          <span className="text-[10px] text-beige-muted block mt-0.5">Includes on-site time</span>
+          <span className="text-[10px] text-beige-muted block mt-0.5">Transit + on-site</span>
         </div>
 
         <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
@@ -153,7 +243,7 @@ export default function AgentRoutePage() {
         </div>
       </div>
 
-      {/* Prominent Interactive Route Map */}
+      {/* Interactive Route Map Preview */}
       <section className="space-y-1.5">
         <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
           <Compass className="w-3.5 h-3.5 text-beige-terracotta" />
@@ -181,7 +271,7 @@ export default function AgentRoutePage() {
             const isCompleted = visit.status === "completed";
             const isInProgress = visit.status === "in_progress";
             const isWithinGeofence = visit.mockDistanceMeters <= 100;
-            const leg = legEstimates[index] || { distance: "3.0 km", duration: "~10 mins" };
+            const leg = routeMetrics.legs[index];
 
             return (
               <div
@@ -214,9 +304,13 @@ export default function AgentRoutePage() {
                     </span>
                   </div>
 
-                  <span className="text-beige-muted font-mono">
-                    {leg.duration} ({leg.distance})
-                  </span>
+                  {leg ? (
+                    <span className="text-beige-muted font-mono">
+                      {leg.formattedDistance} (~{leg.formattedTransitTime})
+                    </span>
+                  ) : (
+                    <span className="text-beige-muted font-mono">Next stop</span>
+                  )}
                 </div>
 
                 {/* Customer Details */}

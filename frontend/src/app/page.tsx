@@ -17,6 +17,7 @@ import {
   Building2,
   Smartphone,
   ShieldAlert,
+  Route,
 } from "lucide-react";
 import MetricCard from "@/components/MetricCard";
 import MapView from "@/components/MapView";
@@ -50,11 +51,19 @@ export default function OverviewPage() {
 
         <div className="flex items-center gap-2.5">
           <Link
+            href="/routes"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-sidebar text-beige-text border border-beige-border flex items-center gap-1.5 transition"
+          >
+            <Route className="w-4 h-4 text-beige-terracotta" />
+            <span>Route Planner</span>
+          </Link>
+
+          <Link
             href="/map"
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-sidebar text-beige-text border border-beige-border flex items-center gap-1.5 transition"
           >
             <Compass className="w-4 h-4 text-beige-terracotta" />
-            <span>Full Map View</span>
+            <span>Full Map</span>
           </Link>
 
           <button

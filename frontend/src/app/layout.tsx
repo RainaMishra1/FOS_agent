@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import { OperationsProvider } from "@/context/OperationsContext";
 
 export const metadata: Metadata = {
   title: "FOS — Field Operations & Agent Management System",
@@ -16,9 +17,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased selection:bg-beige-terracotta selection:text-white">
-        <AppShell>{children}</AppShell>
+        <OperationsProvider>
+          <AppShell>{children}</AppShell>
+        </OperationsProvider>
       </body>
     </html>
   );
 }
+
 
