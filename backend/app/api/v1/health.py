@@ -32,7 +32,9 @@ class DatabaseCheckResponse(BaseModel):
     database_connected: bool
     postgis_enabled: bool
     postgis_version: Optional[str] = None
+    postgis_full_version: Optional[str] = None
     installed_extensions: List[ExtensionInfo] = []
+    existing_tables: List[str] = []
     error: Optional[str] = None
     timestamp: str
 
@@ -56,6 +58,7 @@ def _sanitize_error(error_message: str) -> str:
     return sanitized
 
 
+@router.get("/health/database", response_model=DatabaseCheckResponse, tags=["Health"])
 @router.get("/health/db", response_model=DatabaseCheckResponse, tags=["Health"])
 @router.get("/db-check", response_model=DatabaseCheckResponse, tags=["Health"])
 async def check_database_connectivity(
@@ -90,6 +93,24 @@ async def check_database_connectivity(
         postgis_ext = next((ext for ext in extensions if ext.name.lower() == "postgis"), None)
         postgis_enabled = postgis_ext is not None
         postgis_version = postgis_ext.version if postgis_ext else None
+        postgis_full_version = None
+
+        if postgis_enabled:
+            try:
+                gis_ver = await asyncio.wait_for(
+                    db.execute(text("SELECT PostGIS_Full_Version()")),
+                    timeout=5.0,
+                )
+                postgis_full_version = gis_ver.scalar_one_or_none()
+            except Exception:
+                pass
+
+        # 3. Query existing tables in public schema
+        table_results = await asyncio.wait_for(
+            db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name")),
+            timeout=5.0,
+        )
+        existing_tables = [row[0] for row in table_results.fetchall()]
 
         return DatabaseCheckResponse(
             status="connected" if postgis_enabled else "connected_without_postgis",
@@ -97,7 +118,9 @@ async def check_database_connectivity(
             database_connected=True,
             postgis_enabled=postgis_enabled,
             postgis_version=postgis_version,
+            postgis_full_version=postgis_full_version,
             installed_extensions=extensions,
+            existing_tables=existing_tables,
             error=None,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
@@ -137,6 +160,25 @@ async def get_db_diagnostics():
         )
     from app.db.diagnose import run_full_diagnosis
     return run_full_diagnosis()
+
+
+@router.get("/health/migrate", tags=["Health"])
+@router.post("/health/migrate", tags=["Health"])
+async def trigger_migrations():
+    """Applies Alembic migrations up to head in development environment."""
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Migrations cannot be executed via HTTP in production.",
+        )
+    from app.db.migrate import apply_migrations_async
+    try:
+        res = await apply_migrations_async()
+        return res
+    except Exception as exc:
+        safe_err = _sanitize_error(str(exc))
+        return {"status": "error", "error_type": exc.__class__.__name__, "message": safe_err}
+
 
 
 

@@ -96,5 +96,20 @@ export interface SystemSettings {
   enforceGeofenceCheckin: boolean;
 }
 
+export type UserRole = "admin" | "agent";
+
+export interface UserProfile {
+  id: string;
+  full_name: string;
+  email?: string | null;
+  role: UserRole;
+  phone?: string | null;
+  avatar_url?: string | null;
+  agent_id?: string | null;
+  agent_code?: string | null;
+  agent_status?: string | null;
+  territory?: string | null;
+}
+
 export * from "./agent";
 

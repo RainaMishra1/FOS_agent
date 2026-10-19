@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import { AuthProvider } from "@/context/AuthContext";
 import { OperationsProvider } from "@/context/OperationsContext";
 
 export const metadata: Metadata = {
@@ -17,12 +18,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased selection:bg-beige-terracotta selection:text-white">
-        <OperationsProvider>
-          <AppShell>{children}</AppShell>
-        </OperationsProvider>
+        <AuthProvider>
+          <OperationsProvider>
+            <AppShell>{children}</AppShell>
+          </OperationsProvider>
+        </AuthProvider>
       </body>
     </html>
   );
 }
-
-

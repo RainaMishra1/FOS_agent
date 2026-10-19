@@ -2,7 +2,9 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   User,
   Power,
@@ -20,7 +22,9 @@ import {
   Compass,
   CheckCircle2,
   AlertTriangle,
+  LogOut,
 } from "lucide-react";
+
 
 export default function AgentProfilePage() {
   const {
@@ -32,13 +36,21 @@ export default function AgentProfilePage() {
     resetDemoData,
     stats,
   } = useAgent();
+  const router = useRouter();
+  const { signOut } = useAuth();
 
   const [supportRequested, setSupportRequested] = useState(false);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+  };
 
   const handleSupport = () => {
     setSupportRequested(true);
     setTimeout(() => setSupportRequested(false), 3000);
   };
+
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
@@ -219,8 +231,8 @@ export default function AgentProfilePage() {
         </Link>
       </div>
 
-      {/* Reset State Button */}
-      <div className="pt-2">
+      {/* Reset State Button & Sign Out */}
+      <div className="pt-2 space-y-2">
         <button
           type="button"
           onClick={resetDemoData}
@@ -229,7 +241,17 @@ export default function AgentProfilePage() {
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Reset Demo Data &amp; Reset Mock Distances</span>
         </button>
+
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-[#FDF2F0] hover:bg-beige-terracotta hover:text-white text-beige-terracotta border border-beige-terracotta/30 transition flex items-center justify-center gap-2 shadow-2xs"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Sign Out of Mobile Portal</span>
+        </button>
       </div>
     </div>
   );
 }
+

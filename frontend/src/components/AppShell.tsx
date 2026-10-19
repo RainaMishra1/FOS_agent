@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Compass,
   LayoutDashboard,
@@ -22,8 +22,11 @@ import {
   CheckCircle2,
   ShieldCheck,
   Search,
+  LogOut,
+  Loader2,
 } from "lucide-react";
 import HealthChecker from "./HealthChecker";
+import { useAuth } from "@/context/AuthContext";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -31,15 +34,63 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showHealthModal, setShowHealthModal] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(3);
 
-  // If viewing the mobile-first agent portal, bypass the admin desktop shell
-  if (pathname?.startsWith("/agent")) {
+  const isLoginPage = pathname === "/login";
+  const isAgentRoute = Boolean(pathname?.startsWith("/agent"));
+
+  // 1. Client-side Route Guard for Admin Portal (called unconditionally for consistent hook execution)
+  useEffect(() => {
+    if (isLoginPage || isAgentRoute) {
+      return;
+    }
+
+    if (!isLoading) {
+      if (!isAuthenticated) {
+        const redirectParam = pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
+        router.push(`/login${redirectParam}`);
+      } else if (role === "agent") {
+        // Field agents must not access the admin control center
+        router.push("/agent/dashboard");
+      }
+    }
+  }, [isLoading, isAuthenticated, role, pathname, router, isLoginPage, isAgentRoute]);
+
+  // 2. Bypass layout chrome for login or mobile-first agent portal AFTER all hooks are called
+  if (isLoginPage || isAgentRoute) {
     return <>{children}</>;
+  }
+
+
+  // Loading state while verifying Supabase session
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
+        <div className="w-12 h-12 rounded-2xl bg-beige-terracotta text-white flex items-center justify-center animate-pulse shadow-md mb-3">
+          <Compass className="w-6 h-6 animate-spin" />
+        </div>
+        <p className="text-xs font-semibold text-beige-text">Verifying Field Operations Session...</p>
+        <span className="text-[10px] text-beige-muted mt-1">Authenticating with Supabase Auth</span>
+      </div>
+    );
+  }
+
+  // If not authenticated or non-admin, render brief placeholder while redirect triggers
+  if (!isAuthenticated || role === "agent") {
+    return (
+      <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 text-beige-terracotta animate-spin mb-2" />
+        <p className="text-xs text-beige-muted">Redirecting to authorized portal...</p>
+      </div>
+    );
   }
 
   const navItems = [
@@ -86,6 +137,19 @@ export default function AppShell({ children }: AppShellProps) {
     year: "numeric",
   }).format(new Date());
 
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+  };
+
+  const displayName = profile?.full_name || user?.email?.split("@")[0] || "Operations Admin";
+  const initials = displayName
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <div className="min-h-screen bg-beige-bg text-beige-text flex flex-col lg:flex-row antialiased">
       {/* Mobile Menu Backdrop */}
@@ -112,10 +176,10 @@ export default function AppShell({ children }: AppShellProps) {
               {!sidebarCollapsed && (
                 <div className="truncate">
                   <span className="font-bold text-sm tracking-tight text-beige-text block">
-                    FOS <span className="font-normal text-beige-muted text-xs">— Field Operations</span>
+                    FOS <span className="font-normal text-beige-muted text-xs">— Operations</span>
                   </span>
                   <span className="text-[10px] text-beige-muted uppercase tracking-wider block">
-                    Enterprise Edition
+                    Enterprise Admin
                   </span>
                 </div>
               )}
@@ -184,9 +248,8 @@ export default function AppShell({ children }: AppShellProps) {
           </div>
         </div>
 
-
         {/* Sidebar Footer & Backend Status */}
-        <div className="p-3 border-t border-beige-border/80">
+        <div className="p-3 border-t border-beige-border/80 space-y-2">
           <button
             onClick={() => setShowHealthModal(true)}
             className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-beige-card/70 hover:bg-beige-card border border-beige-border text-xs text-left transition shadow-xs ${
@@ -198,9 +261,21 @@ export default function AppShell({ children }: AppShellProps) {
             {!sidebarCollapsed && (
               <div className="truncate">
                 <span className="font-semibold text-beige-text block text-[11px]">Backend Services</span>
-                <span className="text-[10px] text-beige-muted">Phase 2 DB Ready</span>
+                <span className="text-[10px] text-beige-muted">Auth & DB Active</span>
               </div>
             )}
+          </button>
+
+          {/* Sign Out Button in Sidebar */}
+          <button
+            onClick={handleSignOut}
+            className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs text-beige-muted hover:text-beige-terracotta hover:bg-beige-card transition ${
+              sidebarCollapsed ? "justify-center" : ""
+            }`}
+            title="Sign Out of Session"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            {!sidebarCollapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
@@ -298,15 +373,56 @@ export default function AppShell({ children }: AppShellProps) {
               )}
             </div>
 
-            {/* User Profile */}
-            <div className="flex items-center gap-2 pl-2 border-l border-beige-border/80">
-              <div className="w-8 h-8 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                AO
-              </div>
-              <div className="hidden sm:block text-left text-xs">
-                <span className="font-semibold text-beige-text block leading-tight">Anil Ops</span>
-                <span className="text-[10px] text-beige-muted block">Operations Admin</span>
-              </div>
+            {/* User Profile & Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-2 pl-2 border-l border-beige-border/80 text-left hover:opacity-85 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                  {initials}
+                </div>
+                <div className="hidden sm:block text-left text-xs">
+                  <span className="font-semibold text-beige-text block leading-tight">
+                    {displayName}
+                  </span>
+                  <span className="text-[10px] text-beige-muted block capitalize">
+                    {role || "Administrator"}
+                  </span>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-beige-muted hidden sm:block" />
+              </button>
+
+              {/* User Dropdown */}
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-beige-card border border-beige-border shadow-xl p-2 z-50 text-xs animate-in fade-in duration-100">
+                  <div className="px-3 py-2 border-b border-beige-border mb-1">
+                    <p className="font-bold text-beige-text truncate">{displayName}</p>
+                    <p className="text-[10px] text-beige-muted truncate">{user?.email}</p>
+                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-beige-olive-subtle text-beige-olive mt-1 uppercase">
+                      {role || "Admin"}
+                    </span>
+                  </div>
+                  <Link
+                    href="/settings"
+                    onClick={() => setShowUserMenu(false)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-beige-text hover:bg-beige-sand transition"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-beige-muted" />
+                    <span>System Settings</span>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      handleSignOut();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-beige-terracotta hover:bg-[#FDF2F0] transition font-medium text-left"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>

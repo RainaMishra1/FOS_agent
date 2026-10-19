@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   Compass,
   LayoutDashboard,
@@ -22,6 +23,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
+  LogOut,
+  Loader2,
 } from "lucide-react";
 
 interface AgentLayoutProps {
@@ -30,7 +33,51 @@ interface AgentLayoutProps {
 
 export default function AgentLayout({ children }: AgentLayoutProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { currentAgent, isOnDuty, toggleDuty, stats, notification, clearNotification } = useAgent();
+  const { user, profile, isAuthenticated, isLoading, signOut } = useAuth();
+
+  // Route protection for Field Agent Portal
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      const redirectParam = pathname ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
+      router.push(`/login${redirectParam}`);
+    }
+  }, [isLoading, isAuthenticated, pathname, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
+        <div className="w-12 h-12 rounded-2xl bg-beige-terracotta text-white flex items-center justify-center animate-pulse shadow-md mb-3">
+          <Compass className="w-6 h-6 animate-spin" />
+        </div>
+        <p className="text-xs font-semibold text-beige-text">Verifying Field Agent Session...</p>
+        <span className="text-[10px] text-beige-muted mt-1">Authenticating with Supabase Auth</span>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 text-beige-terracotta animate-spin mb-2" />
+        <p className="text-xs text-beige-muted">Redirecting to login...</p>
+      </div>
+    );
+  }
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+  };
+
+  const agentName = profile?.full_name || currentAgent.name;
+  const agentInitials = agentName
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   const navItems = [
     { name: "My Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
@@ -44,6 +91,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     weekday: "short",
     month: "short",
     day: "numeric",
+    year: "numeric",
   }).format(new Date());
 
   return (
@@ -99,17 +147,19 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               </Link>
             </div>
 
-            {/* Quick Switch back to Admin Console */}
-            <Link
-              href="/"
-              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold bg-beige-card/70 hover:bg-beige-card border border-beige-border text-beige-muted hover:text-beige-text transition shadow-2xs group"
-            >
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-beige-olive" />
-                Admin Console
-              </span>
-              <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-            </Link>
+            {/* Quick Switch back to Admin Console if permitted */}
+            {profile?.role === "admin" && (
+              <Link
+                href="/"
+                className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold bg-beige-card/70 hover:bg-beige-card border border-beige-border text-beige-muted hover:text-beige-text transition shadow-2xs group"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-beige-olive" />
+                  Admin Console
+                </span>
+                <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </Link>
+            )}
           </div>
 
           {/* Agent Duty Profile Card */}
@@ -118,7 +168,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                    {currentAgent.initials}
+                    {agentInitials}
                   </div>
                   <span
                     className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
@@ -126,11 +176,11 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                     }`}
                   />
                 </div>
-                <div>
-                  <span className="font-bold text-xs text-beige-text block leading-tight">
-                    {currentAgent.name}
+                <div className="truncate">
+                  <span className="font-bold text-xs text-beige-text block leading-tight truncate">
+                    {agentName}
                   </span>
-                  <span className="text-[10px] text-beige-muted block">{currentAgent.id}</span>
+                  <span className="text-[10px] text-beige-muted block">{profile?.agent_code || currentAgent.id}</span>
                 </div>
               </div>
             </div>
@@ -186,8 +236,8 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
           </nav>
         </div>
 
-        {/* Desktop Sidebar Footer */}
-        <div className="pt-3 border-t border-beige-border/80 text-[11px] text-beige-muted space-y-1">
+        {/* Desktop Sidebar Footer with Sign Out */}
+        <div className="pt-3 border-t border-beige-border/80 text-[11px] text-beige-muted space-y-2">
           <div className="flex items-center justify-between">
             <span>Battery: {currentAgent.batteryLevel}%</span>
             <Battery className="w-3.5 h-3.5 text-beige-olive" />
@@ -196,6 +246,13 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             <span>Geofence: 100m Active</span>
             <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
           </div>
+          <button
+            onClick={handleSignOut}
+            className="w-full mt-2 flex items-center gap-2 p-2 rounded-xl text-xs text-beige-muted hover:text-beige-terracotta hover:bg-beige-card transition"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </aside>
 
@@ -217,7 +274,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             </Link>
           </div>
 
-          {/* Right Header: On Duty Toggle + Admin link */}
+          {/* Right Header: On Duty Toggle + Sign Out */}
           <div className="flex items-center gap-2">
             {/* Duty Status Pill Toggle */}
             <button
@@ -237,18 +294,18 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               <span>{isOnDuty ? "On Duty" : "Off Duty"}</span>
             </button>
 
-            {/* Quick Admin Switcher Link */}
-            <Link
-              href="/"
-              className="p-1.5 rounded-xl bg-beige-sand/60 hover:bg-beige-sand border border-beige-border text-beige-muted hover:text-beige-text transition"
-              title="Switch to Admin Console"
+            {/* Sign Out Button on Mobile */}
+            <button
+              onClick={handleSignOut}
+              className="p-1.5 rounded-xl bg-beige-sand/60 hover:bg-beige-sand border border-beige-border text-beige-muted hover:text-beige-terracotta transition"
+              title="Sign Out"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </Link>
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
         </header>
 
-        {/* Page Content Body (with bottom padding on mobile for the fixed nav bar) */}
+        {/* Page Content Body */}
         <main className="flex-1 p-4 sm:p-6 max-w-4xl w-full mx-auto pb-24 md:pb-8">
           {children}
         </main>

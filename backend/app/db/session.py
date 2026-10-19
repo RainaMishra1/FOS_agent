@@ -17,6 +17,10 @@ db_url = settings.DATABASE_URL
 if "localhost" not in db_url and "127.0.0.1" not in db_url:
     if "ssl=" not in db_url and "sslmode=" not in db_url:
         ssl_ctx = ssl.create_default_context()
+        # In development/debug, permit TLS encryption without failing on Windows self-signed root certificate chains
+        if settings.ENVIRONMENT.lower() == "development" or settings.DEBUG:
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
         connect_args["ssl"] = ssl_ctx
 
 # Configure SQLAlchemy 2.x Async Engine with appropriate PostgreSQL async driver (asyncpg)

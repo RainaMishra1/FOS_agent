@@ -1,9 +1,18 @@
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Ensure backend root is on sys.path for direct python execution
+backend_dir = Path(__file__).resolve().parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.v1.api import api_router
 from app.db import engine
+
 
 
 @asynccontextmanager
@@ -36,6 +45,9 @@ app.add_middleware(
 
 # Mount API Routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(api_router, prefix="/api")
+from app.api.v1 import health
+app.include_router(health.router)
 
 
 @app.get("/", tags=["Root"])
@@ -43,5 +55,14 @@ async def root():
     return {
         "service": settings.PROJECT_NAME,
         "docs": f"{settings.API_V1_STR}/docs",
-        "health": f"{settings.API_V1_STR}/health",
+        "health": "/health",
+        "database_health": "/health/database",
+        "agents": "/api/agents",
+        "customers": "/api/customers",
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=settings.PORT, reload=settings.DEBUG)
+
