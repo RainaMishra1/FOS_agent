@@ -62,8 +62,9 @@ export default function AssignmentMap({
     rankingResult?.recommendedAgent ||
     null;
 
-  const targetAgentPos = targetAgentResult
-    ? project(targetAgentResult.agent.coordinates.lat, targetAgentResult.agent.coordinates.lng)
+  const targetAgentCoordinates = targetAgentResult?.agent?.coordinates;
+  const targetAgentPos = targetAgentCoordinates
+    ? project(targetAgentCoordinates.lat, targetAgentCoordinates.lng)
     : null;
 
   return (
@@ -210,7 +211,9 @@ export default function AssignmentMap({
 
         {/* Eligible Agents Markers */}
         {rankingResult?.eligibleAgents.map((res) => {
-          const pos = project(res.agent.coordinates.lat, res.agent.coordinates.lng);
+          const coordinates = res.agent?.coordinates;
+          if (!coordinates) return null;
+          const pos = project(coordinates.lat, coordinates.lng);
           const isRecommended = res.rank === 1;
           const isSelected = res.agent.id === selectedAgentId;
 
@@ -271,7 +274,9 @@ export default function AssignmentMap({
 
         {/* Ineligible Agents Markers (Muted) */}
         {rankingResult?.ineligibleAgents.map((res) => {
-          const pos = project(res.agent.coordinates.lat, res.agent.coordinates.lng);
+          const coordinates = res.agent?.coordinates;
+          if (!coordinates) return null;
+          const pos = project(coordinates.lat, coordinates.lng);
 
           return (
             <div
