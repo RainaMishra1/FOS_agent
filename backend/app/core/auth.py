@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError, ExpiredSignatureError
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -138,25 +138,29 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
             logger.debug(f"HS256 verification with SUPABASE_JWT_SECRET failed: {exc}")
 
     # 4. Fallback verification via Supabase Auth API (/auth/v1/user)
+    apikey = (
+        settings.SUPABASE_ANON_KEY
+        if (settings.SUPABASE_ANON_KEY and "placeholder" not in settings.SUPABASE_ANON_KEY)
+        else settings.SUPABASE_SERVICE_ROLE_KEY
+    )
     if (
         settings.SUPABASE_URL
         and "placeholder" not in settings.SUPABASE_URL
-        and settings.SUPABASE_ANON_KEY
-        and "placeholder" not in settings.SUPABASE_ANON_KEY
+        and apikey
     ):
         auth_user_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 resp = await client.get(
                     auth_user_url,
                     headers={
                         "Authorization": f"Bearer {token}",
-                        "apikey": settings.SUPABASE_ANON_KEY,
+                        "apikey": apikey,
                     },
                 )
                 if resp.status_code == 200:
                     user_data = resp.json()
-                    # Standardize claims dictionary
+                    logger.info("Supabase token verified via remote Auth API for user_id=%s", user_data.get("id"))
                     return {
                         "sub": user_data.get("id"),
                         "email": user_data.get("email"),
@@ -164,6 +168,7 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
                         "user_metadata": user_data.get("user_metadata", {}),
                     }
                 elif resp.status_code in (401, 403):
+                    logger.warning("Supabase Auth API rejected access token (status %s)", resp.status_code)
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Invalid or expired Supabase authentication token",
@@ -172,8 +177,9 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error(f"Error validating token against Supabase Auth: {exc}")
+            logger.error("Error communicating with Supabase Auth: %s", exc.__class__.__name__)
 
+    logger.warning("Token verification exhausted all strategies (alg=%s, kid=%s)", alg, kid)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication token signature or configuration",
@@ -215,6 +221,11 @@ async def get_current_profile(
     """
     FastAPI dependency resolving the authenticated database Profile from verified claims.
     Eager-loads linked operational Agent record.
+    Supports:
+      1. Modern lookup: Profile.auth_user_id == user_uuid
+      2. Legacy lookup: Profile.id == user_uuid (pre-migration-0003 aligned profiles)
+      3. Verified email match: lower(Profile.email) == lower(token_email)
+    Automatically self-heals legacy or email-only profiles by setting auth_user_id.
     Rejects users without a provisioned Profile with a 403 Forbidden.
     """
     sub = claims.get("sub") or claims.get("id")
@@ -227,25 +238,97 @@ async def get_current_profile(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    profile = None
+    token_email = (claims.get("email") or "").strip().lower()
+    profile: Optional[Profile] = None
+    lookup_strategy: Optional[str] = None
+
+    # Strategy 1: Modern link by auth_user_id
     try:
-        stmt = select(Profile).options(joinedload(Profile.agent)).where(
-            Profile.auth_user_id == user_uuid
+        stmt = (
+            select(Profile)
+            .options(joinedload(Profile.agent))
+            .where(Profile.auth_user_id == user_uuid)
         )
-        result = await db.execute(stmt)
-        profile = result.unique().scalars().first()
-
+        res = await db.execute(stmt)
+        profile = res.unique().scalars().first()
+        if profile:
+            lookup_strategy = "auth_user_id"
     except Exception as exc:
-        logger.warning(f"Database query error in get_current_profile: {exc}")
-        profile = None
+        logger.warning("Lookup by auth_user_id failed (column may be unmigrated): %s", exc.__class__.__name__)
+        await db.rollback()
 
+    # Strategy 2: Legacy link by Profile.id == user_uuid
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User profile not provisioned in FOS. Please contact an administrator.",
-        )
+        try:
+            stmt = (
+                select(Profile)
+                .options(joinedload(Profile.agent))
+                .where(Profile.id == user_uuid)
+            )
+            res = await db.execute(stmt)
+            profile = res.unique().scalars().first()
+            if profile:
+                lookup_strategy = "legacy_profile_id"
+        except Exception as exc:
+            logger.warning("Lookup by Profile.id failed: %s", exc.__class__.__name__)
+            await db.rollback()
 
-    return profile
+    # Strategy 3: Verified email match from cryptographically verified Supabase claims
+    if not profile and token_email:
+        try:
+            stmt = (
+                select(Profile)
+                .options(joinedload(Profile.agent))
+                .where(func.lower(Profile.email) == token_email)
+            )
+            res = await db.execute(stmt)
+            profile = res.unique().scalars().first()
+            if profile:
+                lookup_strategy = "verified_email"
+        except Exception as exc:
+            logger.warning("Lookup by email failed: %s", exc.__class__.__name__)
+            await db.rollback()
+
+    # Self-healing: If matched via legacy ID or verified email and auth_user_id is unset, link it
+    if profile and getattr(profile, "auth_user_id", None) is None:
+        try:
+            profile.auth_user_id = user_uuid
+            await db.commit()
+            logger.info(
+                "Self-healed profile link: profile_id=%s permanently bound to auth_user_id=%s via strategy=%s",
+                profile.id,
+                user_uuid,
+                lookup_strategy,
+            )
+        except Exception as link_err:
+            await db.rollback()
+            logger.warning(
+                "Could not persist self-healed auth_user_id for profile_id=%s: %s",
+                profile.id,
+                link_err.__class__.__name__,
+            )
+
+    if profile:
+        logger.info(
+            "Profile authenticated: profile_id=%s, role=%s, resolved_via=%s",
+            profile.id,
+            profile.role,
+            lookup_strategy,
+        )
+        return profile
+
+    # Safe diagnostic logging: Report failure without sensitive information
+    email_domain = token_email.split("@")[-1] if "@" in token_email else "unknown"
+    logger.warning(
+        "No FOS application profile found for user_uuid=%s (domain=@%s)",
+        user_uuid,
+        email_domain,
+    )
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="User profile not provisioned in FOS. Please contact an administrator.",
+    )
 
 
 async def require_authenticated(

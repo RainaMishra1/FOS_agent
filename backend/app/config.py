@@ -53,6 +53,20 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = "placeholder_anon_key"
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
 
+    @field_validator("SUPABASE_JWT_SECRET", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", mode="before")
+    @classmethod
+    def clean_secrets(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return v.strip().strip('"').strip("'")
+        return v
+
+    @field_validator("SUPABASE_URL", mode="before")
+    @classmethod
+    def clean_supabase_url(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return v.strip().strip('"').strip("'").rstrip("/")
+        return v
+
     # Registration credentials are server-only. Admin email allowlisting is
     # mandatory in production, in addition to the independent admin key.
     ADMIN_REGISTRATION_KEY: Optional[str] = None

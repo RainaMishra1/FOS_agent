@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { UserProfile, UserRole } from "@/types";
@@ -33,8 +33,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const isConfigured = isSupabaseConfigured();
 
+  const lastProfileErrorRef = useRef<string | null>(null);
+
   // Helper to fetch server-side verified profile from FastAPI
   const fetchProfileFromBackend = useCallback(async (token: string): Promise<UserProfile | null> => {
+    lastProfileErrorRef.current = null;
     try {
       const resp = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: {
@@ -46,10 +49,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (resp.ok) {
         const data: UserProfile = await resp.json();
         return data;
-      } else if (resp.status === 401 || resp.status === 403) {
-        console.warn(`Auth profile fetch failed with status: ${resp.status}`);
       }
-    } catch (err) {
+
+      const errData = await resp.json().catch(() => ({}));
+      const detail = errData?.detail || "";
+
+      if (resp.status === 401) {
+        lastProfileErrorRef.current = detail || "Authentication token could not be verified by the backend (401).";
+        console.warn(`Auth token verification failed (401): ${detail}`);
+      } else if (resp.status === 403) {
+        lastProfileErrorRef.current = detail || "Authenticated with Supabase, but no FOS application profile found for this user. Please contact an administrator to provision your account.";
+        console.warn(`Auth profile not found (403): ${detail}`);
+      } else {
+        lastProfileErrorRef.current = `Backend returned status ${resp.status}: ${detail || "Internal server error"}`;
+        console.warn(`Auth profile fetch failed with status ${resp.status}`);
+      }
+    } catch (err: any) {
+      lastProfileErrorRef.current = `Unable to contact FOS backend at ${API_BASE_URL}. Please verify service health.`;
       console.warn("Unable to contact backend auth/me endpoint directly:", err);
     }
     return null;
@@ -183,9 +199,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
         setSession(null);
         setUser(null);
-        const profileErr = new Error(
-          "Authenticated with Supabase, but no FOS application profile found for this user. Please contact an administrator to provision your account."
-        );
+        const errorMsg =
+          lastProfileErrorRef.current ||
+          "Authenticated with Supabase, but no FOS application profile found for this user. Please contact an administrator to provision your account.";
+        const profileErr = new Error(errorMsg);
         setError(profileErr.message);
         return { error: profileErr, role: null };
       }

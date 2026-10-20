@@ -17,13 +17,6 @@ from app.db import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure primary admin accounts are provisioned in Supabase Auth & PostgreSQL
-    try:
-        from app.core.bootstrap_admin import bootstrap_initial_admins
-        await bootstrap_initial_admins()
-    except Exception as exc:
-        import logging
-        logging.getLogger("fos.bootstrap").error("Bootstrap error on startup: %s", exc)
     yield
     # Shutdown actions
     await engine.dispose()
