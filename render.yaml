@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: fos-agent-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ORIGIN_REGEX
+        value: https:\/\/.*\.vercel\.app
+      # Configure sensitive variables in Render dashboard (sync: false prevents exposing values in code)
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ADMIN_REGISTRATION_KEY
+        sync: false
+      - key: AGENT_REGISTRATION_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

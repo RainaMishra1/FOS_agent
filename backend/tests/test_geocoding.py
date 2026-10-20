@@ -7,10 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.v1 import visits
 from app.models.agent import Agent
 from app.schemas.visit import VisitDispatchRequest
+
+
+def _run(coroutine):
+    return asyncio.run(coroutine)
 
 
 def _result(name="Divine Paradise High School", lat="19.2189", lon="73.1401", place_id=101):
@@ -35,10 +40,19 @@ def test_candidate_parser_validates_and_extracts_address_details():
     assert visits._candidate_from_nominatim({"lat": "1", "lon": "2"}) is None
 
 
+def test_dispatch_payload_rejects_out_of_range_coordinates():
+    with pytest.raises(ValidationError):
+        VisitDispatchRequest(
+            agent_id=uuid.uuid4(), customer_name="Site", address="Street address",
+            city="Kalyan East", latitude=91, longitude=73,
+            scheduled_date=date(2026, 10, 20), scheduled_time="14:30",
+        )
+
+
 def test_geocode_uses_bounded_address_fallback_and_returns_all_candidates(monkeypatch):
     calls = []
 
-    async def search(path, params):
+    async def search(path, params, db):
         calls.append(params["q"])
         if len(calls) < 3:
             return []
@@ -46,7 +60,7 @@ def test_geocode_uses_bounded_address_fallback_and_returns_all_candidates(monkey
 
     monkeypatch.setattr(visits, "_request_nominatim", search)
     unique = f"School landmark {uuid.uuid4()}"
-    result = asyncio.run(visits.geocode_dispatch_address(
+    result = _run(visits.geocode_dispatch_address(
         address=f"{unique} near Church", locality="Kalyan East", state="Maharashtra",
         postal_code="421306", country="India", current_admin=object(),
     ))
@@ -59,7 +73,7 @@ def test_geocode_uses_bounded_address_fallback_and_returns_all_candidates(monkey
 
 def test_geocode_preserves_empty_result_as_no_match(monkeypatch):
     monkeypatch.setattr(visits, "_request_nominatim", AsyncMock(return_value=[]))
-    result = asyncio.run(visits.geocode_dispatch_address(
+    result = _run(visits.geocode_dispatch_address(
         address=f"No listed landmark {uuid.uuid4()}", locality="Kalyan East",
         state="Maharashtra", postal_code="421306", country="India", current_admin=object(),
     ))
@@ -78,14 +92,14 @@ def test_geocode_preserves_empty_result_as_no_match(monkeypatch):
 def test_geocoder_provider_failures_are_not_reported_as_no_match(monkeypatch, response, expected_status):
     monkeypatch.setattr(visits, "_nominatim_get", AsyncMock(return_value=response))
     with pytest.raises(HTTPException) as error:
-        asyncio.run(visits._request_nominatim("search", {"q": "test"}))
+        _run(visits._request_nominatim("search", {"q": "test"}, object()))
     assert error.value.status_code == expected_status
 
 
 def test_geocoder_timeout_has_distinct_status(monkeypatch):
     monkeypatch.setattr(visits, "_nominatim_get", AsyncMock(side_effect=httpx.TimeoutException("timeout")))
     with pytest.raises(HTTPException) as error:
-        asyncio.run(visits._request_nominatim("search", {"q": "test"}))
+        _run(visits._request_nominatim("search", {"q": "test"}, object()))
     assert error.value.status_code == 504
 
 
@@ -115,7 +129,7 @@ def test_dispatch_persists_confirmed_coordinates_without_regeocoding():
         city=persisted_customer.city, latitude=19.2189, longitude=73.1401,
         scheduled_date=date(2026, 10, 20), scheduled_time="14:30",
     )
-    result = asyncio.run(visits.dispatch_visit(payload, current_admin=admin, db=db))
+    result = _run(visits.dispatch_visit(payload, current_admin=admin, db=db))
     saved_customer = db.add.call_args.args[0]
     assert saved_customer.address == persisted_customer.address
     assert saved_customer.latitude == pytest.approx(19.2189)

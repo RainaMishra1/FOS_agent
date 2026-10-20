@@ -47,6 +47,9 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const hasValidCoordinates = Boolean(coordinates && Number.isFinite(coordinates.latitude) &&
+    Number.isFinite(coordinates.longitude) && coordinates.latitude >= -90 &&
+    coordinates.latitude <= 90 && coordinates.longitude >= -180 && coordinates.longitude <= 180);
 
   const loadAgents = useCallback(async () => {
     if (!isOpen) return;
@@ -138,7 +141,7 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
     event.preventDefault();
     setMessage("");
     if (!selectedAgentId) return setMessage("There are no active agents available for dispatch.");
-    if (!coordinates || !locationConfirmed) return setMessage("Select a geocoding result or map point, then confirm it before dispatching.");
+    if (!coordinates || !hasValidCoordinates || !locationConfirmed) return setMessage("Select a valid geocoding result or map point, then confirm it before dispatching.");
     const persistedCity = [locality.trim(), state.trim(), postalCode.trim(), country.trim()].filter(Boolean).join(", ");
     if (persistedCity.length > 100) return setMessage("Shorten the locality, state, postal code, or country text. Their combined address detail must fit the existing 100-character city field.");
     setIsSubmitting(true);
@@ -256,7 +259,7 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
 
             <div className="flex flex-col-reverse gap-2 border-t border-beige-border pt-4 sm:flex-row sm:justify-end">
               <button type="button" onClick={onClose} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-beige-muted hover:bg-beige-sand">Cancel</button>
-              <button type="submit" disabled={isSubmitting || agentsLoading || agents.length === 0 || !coordinates || !locationConfirmed} className="inline-flex items-center justify-center gap-2 rounded-xl bg-beige-terracotta px-5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving dispatch…</> : "Confirm & Dispatch"}</button>
+              <button type="submit" disabled={isSubmitting || agentsLoading || agents.length === 0 || !hasValidCoordinates || !locationConfirmed} className="inline-flex items-center justify-center gap-2 rounded-xl bg-beige-terracotta px-5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving dispatch…</> : "Confirm & Dispatch"}</button>
             </div>
           </form>
         )}

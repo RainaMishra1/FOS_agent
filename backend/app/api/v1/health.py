@@ -70,11 +70,8 @@ async def check_database_connectivity(
     and inspects pg_extension to check if PostGIS is enabled.
     Credentials are never exposed.
     """
-    if settings.ENVIRONMENT.lower() == "production":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Database connectivity check is disabled in production.",
-        )
+    # In production, verify connectivity and PostGIS without exposing full schema tables
+    is_prod = settings.ENVIRONMENT.lower() == "production"
 
     try:
         # 1. Verify PostgreSQL is reachable with a 7-second timeout
@@ -95,7 +92,7 @@ async def check_database_connectivity(
         postgis_version = postgis_ext.version if postgis_ext else None
         postgis_full_version = None
 
-        if postgis_enabled:
+        if postgis_enabled and not is_prod:
             try:
                 gis_ver = await asyncio.wait_for(
                     db.execute(text("SELECT PostGIS_Full_Version()")),
@@ -105,12 +102,14 @@ async def check_database_connectivity(
             except Exception:
                 pass
 
-        # 3. Query existing tables in public schema
-        table_results = await asyncio.wait_for(
-            db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name")),
-            timeout=5.0,
-        )
-        existing_tables = [row[0] for row in table_results.fetchall()]
+        # 3. Query existing tables in public schema (development only)
+        existing_tables: List[str] = []
+        if not is_prod:
+            table_results = await asyncio.wait_for(
+                db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name")),
+                timeout=5.0,
+            )
+            existing_tables = [row[0] for row in table_results.fetchall()]
 
         return DatabaseCheckResponse(
             status="connected" if postgis_enabled else "connected_without_postgis",
@@ -119,7 +118,7 @@ async def check_database_connectivity(
             postgis_enabled=postgis_enabled,
             postgis_version=postgis_version,
             postgis_full_version=postgis_full_version,
-            installed_extensions=extensions,
+            installed_extensions=extensions if not is_prod else [],
             existing_tables=existing_tables,
             error=None,
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -144,7 +143,7 @@ async def check_database_connectivity(
             postgis_enabled=False,
             postgis_version=None,
             installed_extensions=[],
-            error=f"{exc.__class__.__name__}: {safe_error}",
+            error=f"{exc.__class__.__name__}: {safe_error}" if not is_prod else "Database connection failed.",
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -169,7 +168,7 @@ async def trigger_migrations():
     if settings.ENVIRONMENT.lower() == "production":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Migrations cannot be executed via HTTP in production.",
+            detail="Migrations cannot be executed via HTTP in production. Run 'alembic upgrade head' as a build or release step.",
         )
     from app.db.migrate import apply_migrations_async
     try:
@@ -183,14 +182,19 @@ async def trigger_migrations():
 @router.get("/health/seed", tags=["Health"])
 @router.post("/health/seed", tags=["Health"])
 async def trigger_seed():
-    """Seeds real agents, customers, leads, assignments, and visits into PostgreSQL."""
+    """Seeds real agents, customers, leads, assignments, and visits into PostgreSQL (development only)."""
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Database seeding is disabled in production.",
+        )
     try:
         from app.db.seeder import run_seed
         res = await run_seed()
         return res
     except Exception as exc:
-        import traceback
-        return {"status": "exception", "error_type": exc.__class__.__name__, "error": str(exc), "trace": traceback.format_exc()}
+        safe_err = _sanitize_error(str(exc))
+        return {"status": "exception", "error_type": exc.__class__.__name__, "error": safe_err}
 
 
 

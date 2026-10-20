@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { ApiError, GeocodeCandidate, geocodeDispatchAddress } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import {
   MapPin,
   Search,
@@ -27,13 +29,14 @@ export default function LocationPickerMap({
   onChange,
   height = "h-56",
 }: LocationPickerMapProps) {
+  const { session } = useAuth();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const [isLeafletReady, setIsLeafletReady] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<GeocodeCandidate[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   // Dynamic Leaflet CDN Loader (client-only, SSR safe)
@@ -215,36 +218,22 @@ export default function LocationPickerMap({
     setSearchResults([]);
 
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          searchQuery.trim()
-        )}&limit=4`,
-        {
-          headers: {
-            "Accept-Language": "en",
-          },
-        }
-      );
-
-      if (!res.ok) throw new Error("Search service temporarily unavailable.");
-
-      const data = await res.json();
-      if (!data || data.length === 0) {
+      const response = await geocodeDispatchAddress({ address: searchQuery.trim(), country: "India" }, session?.access_token);
+      if (!response.candidates.length) {
         setSearchError("No locations found for this query. Try clicking directly on the map.");
       } else {
-        setSearchResults(data);
+        setSearchResults(response.candidates);
       }
     } catch (err: any) {
-      console.warn("Nominatim geocoding failed:", err);
-      setSearchError("Address lookup unavailable. Click map or enter coordinates manually.");
+      setSearchError(err instanceof ApiError ? err.detail || err.message : "Address lookup unavailable. Click the map or try again.");
     } finally {
       setIsSearching(false);
     }
   };
 
-  const selectSearchResult = (item: any) => {
-    const lat = parseFloat(parseFloat(item.lat).toFixed(6));
-    const lng = parseFloat(parseFloat(item.lon).toFixed(6));
+  const selectSearchResult = (item: GeocodeCandidate) => {
+    const lat = parseFloat(item.latitude.toFixed(6));
+    const lng = parseFloat(item.longitude.toFixed(6));
     panToCoords(lat, lng, 15);
     onChange(lat, lng, item.display_name);
     setSearchResults([]);
@@ -304,7 +293,7 @@ export default function LocationPickerMap({
               className="w-full text-left px-3 py-2 hover:bg-beige-sand/60 transition flex items-start gap-2 text-beige-text"
             >
               <MapPin className="w-3.5 h-3.5 text-beige-terracotta shrink-0 mt-0.5" />
-              <span className="truncate">{item.display_name}</span>
+            <span className="truncate">{item.display_name}</span>
             </button>
           ))}
         </div>

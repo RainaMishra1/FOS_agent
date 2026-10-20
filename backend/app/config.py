@@ -31,6 +31,8 @@ class Settings(BaseSettings):
             return json.loads(v)
         return v
 
+    CORS_ORIGIN_REGEX: Optional[str] = r"https:\/\/.*\.vercel\.app"
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/fos_agent"
     DIRECT_URL: str = "postgresql://postgres:postgres@localhost:5432/fos_agent"

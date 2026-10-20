@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Compass, Eye, EyeOff, Loader2, Lock, Mail, ShieldAlert, User } from "lucide-react";
 import { UserRole } from "@/types";
+import { getApiBaseUrl } from "@/lib/api";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_BASE_URL = getApiBaseUrl();
 
 export default function PortalSignupForm({ portal }: { portal: UserRole }) {
   const isAdmin = portal === "admin";

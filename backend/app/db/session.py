@@ -26,7 +26,7 @@ if "localhost" not in db_url and "127.0.0.1" not in db_url:
 # Configure SQLAlchemy 2.x Async Engine with appropriate PostgreSQL async driver (asyncpg)
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=(settings.DEBUG and settings.ENVIRONMENT.lower() != "production"),
     future=True,
     pool_pre_ping=True,
     connect_args=connect_args,

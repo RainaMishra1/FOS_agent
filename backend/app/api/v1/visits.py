@@ -27,7 +27,7 @@ router = APIRouter(prefix="/visits", tags=["Visits"])
 _geocode_lock = asyncio.Lock()
 _geocode_cache: dict[str, tuple[float, list[dict]]] = {}
 _reverse_geocode_cache: dict[str, tuple[float, dict]] = {}
-_last_geocode_request = 0.0
+_NOMINATIM_ADVISORY_LOCK = 202610201
 
 
 def _clean_address_part(value: Optional[str]) -> str:
@@ -60,27 +60,33 @@ def _candidate_from_nominatim(result: dict) -> Optional[dict]:
     }
 
 
-async def _nominatim_get(path: str, params: dict) -> httpx.Response:
-    """Serialize public Nominatim calls and use identifiable backend headers."""
-    global _last_geocode_request
+async def _nominatim_get(path: str, params: dict, db: AsyncSession) -> httpx.Response:
+    """Serialize calls across backend workers and use an identifiable backend header."""
     async with _geocode_lock:
-        wait_seconds = 1.05 - (time.monotonic() - _last_geocode_request)
-        if wait_seconds > 0:
-            await asyncio.sleep(wait_seconds)
-        _last_geocode_request = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=5.0)) as client:
+        await db.execute(select(func.pg_advisory_lock(_NOMINATIM_ADVISORY_LOCK)))
+        started_at = None
+        try:
             search_url = settings.GEOCODING_SEARCH_URL.rstrip("/")
             endpoint = search_url if path == "search" else f"{search_url.rsplit('/', 1)[0]}/{path}"
-            return await client.get(
-                endpoint,
-                params=params,
-                headers={"User-Agent": settings.GEOCODING_USER_AGENT, "Accept-Language": "en"},
-            )
+            started_at = time.monotonic()
+            async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=5.0)) as client:
+                return await client.get(
+                    endpoint,
+                    params=params,
+                    headers={"User-Agent": settings.GEOCODING_USER_AGENT, "Accept-Language": "en"},
+                )
+        finally:
+            if started_at is not None:
+                wait_seconds = 1.05 - (time.monotonic() - started_at)
+                if wait_seconds > 0:
+                    await asyncio.sleep(wait_seconds)
+            await db.execute(select(func.pg_advisory_unlock(_NOMINATIM_ADVISORY_LOCK)))
+            await db.commit()
 
 
-async def _request_nominatim(path: str, params: dict) -> list:
+async def _request_nominatim(path: str, params: dict, db: AsyncSession) -> list:
     try:
-        response = await _nominatim_get(path, params)
+        response = await _nominatim_get(path, params, db)
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="Address lookup timed out. Please try again.") from exc
     except httpx.HTTPError as exc:
@@ -103,17 +109,18 @@ async def _request_nominatim(path: str, params: dict) -> list:
 @router.get("/geocode")
 async def geocode_dispatch_address(
     address: str = Query(..., min_length=2, max_length=300),
-    locality: str = Query(..., min_length=2, max_length=100),
+    locality: str = Query("", max_length=100),
     state: str = Query("", max_length=100),
     postal_code: str = Query("", max_length=20),
     country: str = Query("India", min_length=2, max_length=80),
     current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """User-triggered address lookup with bounded, deduplicated fallback queries."""
     address, locality = _clean_address_part(address), _clean_address_part(locality)
     state, postal_code, country = map(_clean_address_part, (state, postal_code, country))
-    if not address or not locality:
-        raise HTTPException(status_code=422, detail="Street or landmark and locality are required for address lookup.")
+    if not address:
+        raise HTTPException(status_code=422, detail="Enter a street address or landmark for address lookup.")
     key = "|".join(part.casefold() for part in (address, locality, state, postal_code, country))
     cached = _geocode_cache.get(key)
     if cached and cached[0] > time.monotonic():
@@ -123,8 +130,9 @@ async def geocode_dispatch_address(
     queries = [
         ", ".join(part for part in (address, locality, state, postal_code, country) if part),
         ", ".join(part for part in (normalized_landmark, locality, state, country) if part),
-        ", ".join(part for part in (locality, state, postal_code, country) if part),
     ]
+    if locality:
+        queries.append(", ".join(part for part in (locality, state, postal_code, country) if part))
     unique_queries = list(dict.fromkeys(" ".join(query.split()) for query in queries))[:3]
     attempted_queries: list[str] = []
     candidates: list[dict] = []
@@ -134,7 +142,7 @@ async def geocode_dispatch_address(
         results = await _request_nominatim("search", {
             "q": query, "format": "jsonv2", "addressdetails": 1,
             "limit": 5, "countrycodes": "in",
-        })
+        }, db)
         valid_before = len(candidates)
         for result in results:
             if not isinstance(result, dict):
@@ -159,6 +167,7 @@ async def reverse_geocode_dispatch_location(
     latitude: float = Query(..., ge=-90, le=90),
     longitude: float = Query(..., ge=-180, le=180),
     current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     if not math.isfinite(latitude) or not math.isfinite(longitude):
         raise HTTPException(status_code=422, detail="A valid map location is required.")
@@ -170,7 +179,7 @@ async def reverse_geocode_dispatch_location(
         response = await _nominatim_get("reverse", {
             "lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": 18,
             "addressdetails": 1,
-        })
+        }, db)
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="Address lookup timed out. The selected map point is still available.") from exc
     except httpx.HTTPError as exc:

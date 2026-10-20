@@ -6,6 +6,7 @@ import {
   fetchDatabaseHealth,
   HealthResponse,
   DatabaseHealthResponse,
+  API_BASE_URL,
 } from "@/lib/api";
 import { CheckCircle2, XCircle, RefreshCw, Server, Database, Globe } from "lucide-react";
 
@@ -83,9 +84,9 @@ export default function HealthChecker() {
               <h4 className="text-sm font-medium text-red-800">Connection Failed</h4>
               <p className="text-xs text-red-600 mt-0.5">{error}</p>
               <p className="text-xs text-slate-500 mt-2">
-                Ensure the FastAPI backend is running on{" "}
+                Ensure the FastAPI backend is running and reachable at{" "}
                 <code className="bg-red-100/60 px-1 py-0.5 rounded font-mono text-[11px]">
-                  http://localhost:8000
+                  {API_BASE_URL}
                 </code>
               </p>
             </div>
