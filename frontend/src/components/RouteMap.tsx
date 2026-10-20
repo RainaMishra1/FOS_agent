@@ -257,6 +257,7 @@ export default function RouteMap({
           const isSelected = activeStopId === stop.id;
           const isHovered = hoveredStopId === stop.id;
           const leg = legs[index];
+          const displayName = stop.name?.trim() || "Unnamed stop";
 
           return (
             <div
@@ -285,7 +286,7 @@ export default function RouteMap({
 
                 {/* Name Label */}
                 <div className="mt-1 px-1.5 py-0.5 rounded bg-beige-card/90 backdrop-blur-xs border border-beige-border text-[9px] font-semibold text-beige-text shadow-2xs whitespace-nowrap max-w-[90px] truncate">
-                  {stop.name || stop.customerName}
+                  {displayName}
                 </div>
 
                 {/* Interactive Tooltip Card on Hover */}
@@ -303,7 +304,7 @@ export default function RouteMap({
                       )}
                     </div>
                     <strong className="text-xs font-bold text-beige-text mt-1 block truncate">
-                      {stop.name || stop.customerName}
+                      {displayName}
                     </strong>
                     <span className="text-[10px] text-beige-muted block truncate mt-0.5">
                       {stop.address}
