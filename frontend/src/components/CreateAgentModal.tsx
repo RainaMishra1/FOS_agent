@@ -34,6 +34,7 @@ export default function CreateAgentModal({
   const { session } = useAuth();
 
   const [formData, setFormData] = useState({
+    auth_user_id: "",
     name: "",
     email: "",
     phone: "",
@@ -68,6 +69,10 @@ export default function CreateAgentModal({
 
     if (!formData.agent_code.trim() || formData.agent_code.trim().length < 2) {
       errs.agent_code = "Employee ID must be at least 2 characters (e.g. AGT-105).";
+    }
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(formData.auth_user_id.trim())) {
+      errs.auth_user_id = "Enter the UUID of the Supabase Auth user invited for this email.";
     }
 
     if (formData.phone && formData.phone.trim().length > 0) {
@@ -157,6 +162,7 @@ export default function CreateAgentModal({
 
       const created = await createAgent(
         {
+          auth_user_id: formData.auth_user_id.trim(),
           name: formData.name.trim(),
           email: formData.email.trim().toLowerCase(),
           phone: formData.phone.trim() || null,
@@ -179,6 +185,7 @@ export default function CreateAgentModal({
         onClose();
         // Reset form
         setFormData({
+          auth_user_id: "",
           name: "",
           email: "",
           phone: "",
@@ -333,7 +340,14 @@ export default function CreateAgentModal({
                 </div>
               </div>
 
-              {/* Row 2: Work Email & Phone */}
+          <div>
+            <label className="block text-xs font-semibold text-beige-text mb-1">Invited Supabase Auth user UUID <span className="text-beige-terracotta">*</span></label>
+            <input type="text" name="auth_user_id" required placeholder="UUID from the invited Auth user" value={formData.auth_user_id} onChange={handleChange} disabled={isSubmitting} className={`w-full px-3 py-2 rounded-xl bg-beige-bg text-xs font-mono text-beige-text placeholder-beige-muted border ${errors.auth_user_id ? "border-beige-terracotta" : "border-beige-border"} focus:outline-none focus:border-beige-terracotta transition`} />
+            <p className="text-[10px] text-beige-muted mt-1">Invite the user in Supabase Auth first, then paste that user’s ID. FOS links the Profile and Agent to this ID.</p>
+            {errors.auth_user_id && <p className="text-[11px] text-beige-terracotta mt-1">{errors.auth_user_id}</p>}
+          </div>
+
+          {/* Row 2: Work Email & Phone */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-xs font-semibold text-beige-text mb-1">

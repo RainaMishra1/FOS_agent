@@ -16,6 +16,7 @@ export interface Agent {
   assignedTasks: number;
   completedVisits: number;
   lastLocationUpdate: string;
+  authLinked?: boolean;
   territory: string;
   address?: string;
   locationSource?: LocationSource;

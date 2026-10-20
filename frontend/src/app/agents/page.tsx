@@ -5,7 +5,7 @@ import { Agent } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
-import { fetchAgents, AgentApiItem, ApiError } from "@/lib/api";
+import { fetchAgents, inviteAgentAccount, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   Search,
@@ -29,6 +29,12 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+const hasFreshGps = (agent: Agent) => {
+  if (agent.locationSource !== "gps" || !agent.lastLocationUpdate) return false;
+  const age = Date.now() - new Date(agent.lastLocationUpdate).getTime();
+  return Number.isFinite(age) && age >= 0 && age <= 5 * 60 * 1000;
+};
+
 export default function AgentsPage() {
   const { session, isAuthenticated } = useAuth();
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -49,6 +55,7 @@ export default function AgentsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [assigningAgent, setAssigningAgent] = useState<Agent | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [invitingAgentIds, setInvitingAgentIds] = useState<Set<string>>(new Set());
 
   const mapApiAgentToModel = (item: AgentApiItem): Agent => {
     const name = item.name || item.agent_code || "Unknown Agent";
@@ -59,17 +66,7 @@ export default function AgentsPage() {
       .slice(0, 2)
       .toUpperCase() || "AG";
 
-    let formattedUpdate = "Never";
-    if (item.last_location_update) {
-      try {
-        formattedUpdate = new Date(item.last_location_update).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch {
-        formattedUpdate = item.last_location_update;
-      }
-    }
+    const formattedUpdate = item.last_location_update || "";
 
     const hasCoordinates =
       item.current_latitude !== null &&
@@ -92,13 +89,14 @@ export default function AgentsPage() {
       assignedTasks: item.assigned_tasks,
       completedVisits: item.completed_visits,
       lastLocationUpdate: formattedUpdate,
+      authLinked: Boolean(item.auth_linked),
       coordinates: hasCoordinates
         ? {
             lat: item.current_latitude as number,
             lng: item.current_longitude as number,
           }
         : null,
-      batteryLevel: item.battery_level ?? 85,
+      batteryLevel: item.battery_level ?? undefined,
     };
   };
 
@@ -142,6 +140,24 @@ export default function AgentsPage() {
   const handleOpenAssign = (agent?: Agent | null) => {
     setAssigningAgent(agent || null);
     setIsAssignModalOpen(true);
+  };
+
+  const handleInviteAgent = async (agent: Agent) => {
+    if (!session?.access_token) return;
+    setInvitingAgentIds((previous) => new Set(previous).add(agent.id));
+    try {
+      const result = await inviteAgentAccount(agent.id, session.access_token);
+      setToastMessage(result.detail);
+      await loadAgents();
+    } catch (err) {
+      setError(err instanceof ApiError ? (err.detail || "Unable to invite this agent right now.") : "Unable to invite this agent right now.");
+    } finally {
+      setInvitingAgentIds((previous) => {
+        const next = new Set(previous);
+        next.delete(agent.id);
+        return next;
+      });
+    }
   };
 
   const totalPages = Math.ceil(totalAgents / limit) || 1;
@@ -371,7 +387,7 @@ export default function AgentsPage() {
                             (agent.batteryLevel || 0) < 25 ? "text-beige-terracotta" : "text-beige-olive"
                           }`}
                         />
-                        <span>{agent.batteryLevel}%</span>
+                        <span>{agent.batteryLevel == null ? "—" : `${agent.batteryLevel}%`}</span>
                       </div>
                     </td>
 
@@ -415,11 +431,18 @@ export default function AgentsPage() {
                                   : "bg-beige-sand text-beige-text border border-beige-border"
                               }`}
                             >
-                              {agent.locationSource === "gps" ? "Live GPS" : "Admin Hub"}
+                              {agent.locationSource === "gps"
+                                ? hasFreshGps(agent) ? "Live GPS" : "Last recorded GPS"
+                                : agent.locationSource === "admin_provided"
+                                  ? "Admin-entered"
+                                  : "Source unspecified"}
                             </span>
                           </div>
                           <p className="font-mono text-[10px] text-beige-muted">
                             {agent.coordinates.lat.toFixed(4)}, {agent.coordinates.lng.toFixed(4)}
+                          </p>
+                          <p className="text-[10px] text-beige-muted">
+                            Updated: {agent.lastLocationUpdate ? new Date(agent.lastLocationUpdate).toLocaleString() : "Not recorded"}
                           </p>
                         </div>
                       ) : (
@@ -432,6 +455,15 @@ export default function AgentsPage() {
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right">
                       <div className="inline-flex items-center gap-2">
+                        {!agent.authLinked && (
+                          <button
+                            onClick={() => handleInviteAgent(agent)}
+                            disabled={invitingAgentIds.has(agent.id)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-beige-terracotta border border-beige-terracotta/40 hover:bg-beige-terracotta/10 transition disabled:opacity-50"
+                          >
+                            {invitingAgentIds.has(agent.id) ? "Inviting…" : "Invite / Link"}
+                          </button>
+                        )}
                         <button
                           onClick={() => setSelectedAgent(agent)}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-beige-text bg-beige-sand hover:bg-beige-sidebar border border-beige-border transition"
@@ -526,11 +558,11 @@ export default function AgentsPage() {
                 </div>
                 <div className="flex items-center gap-2 text-beige-text">
                   <Clock className="w-3.5 h-3.5 text-beige-muted" />
-                  <span>Last Seen: {selectedAgent.lastLocationUpdate}</span>
+                  <span>Last update: {selectedAgent.lastLocationUpdate ? new Date(selectedAgent.lastLocationUpdate).toLocaleString() : "Not recorded"}</span>
                 </div>
                 <div className="flex items-center gap-2 text-beige-text">
                   <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Battery: {selectedAgent.batteryLevel}%</span>
+                  <span>Battery: {selectedAgent.batteryLevel == null ? "Unknown" : `${selectedAgent.batteryLevel}%`}</span>
                 </div>
               </div>
 
@@ -551,10 +583,10 @@ export default function AgentsPage() {
                     }`}
                   >
                     {selectedAgent.locationSource === "gps"
-                      ? "Live GPS (Device Verified)"
+                      ? hasFreshGps(selectedAgent) ? "Live GPS" : "Last recorded GPS"
                       : selectedAgent.locationSource === "admin_provided"
-                      ? "Admin-Provided Hub"
-                      : "Unlocated (No GPS)"}
+                      ? "Admin-entered location"
+                      : "Location source unspecified"}
                   </span>
                 </div>
                 {selectedAgent.coordinates ? (

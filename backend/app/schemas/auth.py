@@ -29,6 +29,21 @@ class AdminProvisionRequest(BaseModel):
     bootstrap_secret: Optional[str] = None
 
 
+class AccountRegistrationRequest(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=255)
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    secret_key: str = Field(..., min_length=1, max_length=512)
+    employee_id: Optional[str] = Field(None, min_length=1, max_length=50)
+
+
+class AccountRegistrationResponse(BaseModel):
+    message: str
+    email: str
+    role: Literal["admin", "agent"]
+    email_confirmation_required: bool = True
+
+
 
 class AgentLocationUpdateRequest(BaseModel):
     """Payload for field agent location & telemetry reporting."""

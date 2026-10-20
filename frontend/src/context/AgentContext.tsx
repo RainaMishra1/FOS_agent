@@ -4,8 +4,6 @@ import React, { createContext, useContext, useState, useMemo, useEffect, useCall
 import { AgentProfile, AgentVisit } from "@/types/agent";
 import {
   initialAgentProfile,
-  initialAgentVisits,
-  mockHistoricalVisits,
   availableAgents,
 } from "@/lib/agentMockData";
 import { useAuth } from "@/context/AuthContext";
@@ -201,16 +199,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         );
         setError(errorMsg);
 
-        // In development/evaluation mode without active backend records, fall back gracefully
-        if (!isLiveBackend && visits.length === 0) {
-          setVisits(initialAgentVisits);
-          setHistoryVisits(mockHistoricalVisits);
-        }
+        // Never substitute sample visits when the operational backend is unavailable.
+        setVisits([]);
+        setHistoryVisits([]);
+        setSelectedVisit(null);
       } finally {
         if (showLoader) setIsLoading(false);
       }
     },
-    [session?.access_token, isLiveBackend, visits.length]
+    [session?.access_token]
   );
 
   // Sync data whenever authenticated session is established

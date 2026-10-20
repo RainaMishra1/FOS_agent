@@ -1,20 +1,18 @@
 import time
 import uuid
 import logging
-from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError, ExpiredSignatureError
 import httpx
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.session import get_db
 from app.models.profile import Profile
-from app.models.agent import Agent
 
 logger = logging.getLogger("fos.auth")
 
@@ -75,30 +73,6 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
             detail="Authentication token missing",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    # 1. Development Sandbox token support (for local evaluation when Supabase cloud keys are placeholders)
-    if (settings.DEBUG or settings.ENVIRONMENT == "development") and (
-        token.startswith("dev-") or token == "dev-sandbox-token"
-    ):
-        is_agent = "agent" in token.lower()
-        role = "agent" if is_agent else "admin"
-        user_id = (
-            "00000000-0000-0000-0000-000000000002"
-            if is_agent
-            else "00000000-0000-0000-0000-000000000001"
-        )
-        return {
-            "sub": user_id,
-            "id": user_id,
-            "email": "agent1@fos-system.internal" if is_agent else "admin@fos-system.internal",
-            "role": role,
-            "aud": "authenticated",
-            "app_metadata": {"role": role},
-            "user_metadata": {
-                "full_name": "Field Agent Marcus" if is_agent else "Anil Ops (Admin)",
-                "role": role,
-            },
-        }
 
     # 2. Inspect unverified header for algorithm and kid
     try:
@@ -200,25 +174,6 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
         except Exception as exc:
             logger.error(f"Error validating token against Supabase Auth: {exc}")
 
-    # If test mode or fallback HS256 with default secret
-    if settings.DEBUG or settings.ENVIRONMENT == "development":
-        try:
-            payload = jwt.decode(
-                token,
-                settings.SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                options={"verify_aud": False},
-            )
-            return payload
-        except ExpiredSignatureError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication token has expired",
-                headers={"WWW-Authenticate": 'Bearer error="invalid_token", error_description="Token expired"'},
-            )
-        except Exception:
-            pass
-
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication token signature or configuration",
@@ -274,92 +229,21 @@ async def get_current_profile(
 
     profile = None
     try:
-        stmt = select(Profile).options(joinedload(Profile.agent)).where(Profile.id == user_uuid)
+        stmt = select(Profile).options(joinedload(Profile.agent)).where(
+            Profile.auth_user_id == user_uuid
+        )
         result = await db.execute(stmt)
         profile = result.unique().scalars().first()
 
-        # Fallback for newly invited agents whose profiles were pre-created by an admin before Supabase account activation
-        if not profile and claims.get("email"):
-            email_stmt = (
-                select(Profile)
-                .options(joinedload(Profile.agent))
-                .where(func.lower(Profile.email) == str(claims.get("email")).lower())
-            )
-            email_res = await db.execute(email_stmt)
-            profile = email_res.unique().scalars().first()
     except Exception as exc:
         logger.warning(f"Database query error in get_current_profile: {exc}")
         profile = None
-
-    if not profile and (settings.DEBUG or settings.ENVIRONMENT == "development"):
-        dev_ids = {
-            uuid.UUID("00000000-0000-0000-0000-000000000001"): ("admin", "Anil Ops (Admin)"),
-            uuid.UUID("00000000-0000-0000-0000-000000000002"): ("agent", "Field Agent Marcus"),
-        }
-        if user_uuid in dev_ids:
-            dev_role, dev_name = dev_ids[user_uuid]
-            dev_profile = Profile(
-                id=user_uuid,
-                full_name=dev_name,
-                email=claims.get("email"),
-                role=dev_role,
-            )
-            if dev_role == "agent":
-                dev_agent = Agent(
-                    id=uuid.UUID("00000000-0000-0000-0000-000000000010"),
-                    profile_id=user_uuid,
-                    agent_code="AGT-101",
-                    status="active",
-                    territory="Koramangala Zone",
-                )
-                dev_profile.agent = dev_agent
-
-            try:
-                db.add(dev_profile)
-                if dev_role == "agent":
-                    db.add(dev_agent)
-                await db.commit()
-                await db.refresh(dev_profile)
-            except Exception as db_err:
-                logger.warning(f"Could not persist dev profile to DB: {db_err}")
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
-            profile = dev_profile
 
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User profile not provisioned in FOS. Please contact an administrator.",
         )
-
-    if profile.role == "agent" and not profile.agent and (settings.DEBUG or settings.ENVIRONMENT == "development"):
-        try:
-            agent_stmt = select(Agent).where(Agent.profile_id == profile.id)
-            agent_res = await db.execute(agent_stmt)
-            existing_agent = agent_res.scalars().first()
-            if existing_agent:
-                profile.agent = existing_agent
-            else:
-                dev_agent = Agent(
-                    id=uuid.UUID("00000000-0000-0000-0000-000000000010"),
-                    profile_id=profile.id,
-                    agent_code="AGT-101",
-                    status="active",
-                    territory="Koramangala Zone",
-                    created_at=datetime.now(timezone.utc),
-                )
-                db.add(dev_agent)
-                await db.commit()
-                profile.agent = dev_agent
-        except Exception as ag_err:
-            logger.warning(f"Could not attach dev agent: {ag_err}")
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-
 
     return profile
 
@@ -392,16 +276,16 @@ async def require_agent(
     profile: Profile = Depends(get_current_profile),
 ) -> Profile:
     """
-    Dependency enforcing that the caller is an active field agent ('agent') or admin.
+    Dependency enforcing that the caller is an active field agent ('agent').
     Ensures the linked Agent entity is loaded and present.
     """
-    if profile.role not in ("agent", "admin"):
+    if profile.role != "agent":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Agent privileges required to access this resource.",
         )
 
-    if profile.role == "agent" and not profile.agent:
+    if not profile.agent:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account profile is marked as agent but has no active field agent record.",

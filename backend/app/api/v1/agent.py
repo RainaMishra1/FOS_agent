@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+import httpx
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,8 @@ from app.models.agent import Agent
 from app.models.profile import Profile
 from app.models.visit import Visit
 from app.models.agent_location import AgentLocation
+from app.models.lead import Lead
+from app.config import settings
 from geoalchemy2.elements import WKTElement
 from app.schemas.agent import AgentResponse
 from app.schemas.auth import AgentLocationUpdateRequest
@@ -27,6 +30,158 @@ from app.api.v1.visits import _to_visit_response, VALID_VISIT_STATUSES
 from app.api.v1.agents import _to_agent_response
 
 router = APIRouter(prefix="/agent", tags=["Field Agent Operations"])
+
+
+async def _route_stops(agent: Agent, db: AsyncSession, ref_date: date):
+    """Return today's assigned route stops plus their lead priority."""
+    priority = (
+        select(Lead.priority)
+        .where(Lead.customer_id == Visit.customer_id, Lead.assigned_agent_id == agent.id)
+        .order_by(Lead.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(Visit, priority.label("priority"))
+        .options(joinedload(Visit.customer))
+        .where(Visit.agent_id == agent.id, Visit.scheduled_date == ref_date,
+               Visit.status.in_(["pending", "in_progress", "delayed"]))
+        .order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
+    )
+    rows = result.unique().all()
+    stops = []
+    for visit, visit_priority in rows:
+        item = _to_visit_response(visit).model_dump(mode="json")
+        item["priority"] = visit_priority or "medium"
+        stops.append(item)
+    return stops
+
+
+async def _completed_route_stops(agent: Agent, db: AsyncSession, ref_date: date):
+    result = await db.execute(
+        select(Visit).options(joinedload(Visit.customer)).where(
+            Visit.agent_id == agent.id, Visit.scheduled_date == ref_date, Visit.status == "completed"
+        ).order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
+    )
+    return [_to_visit_response(v).model_dump(mode="json") for v in result.unique().scalars().all()]
+
+
+async def _agent_route_origin(agent: Agent, db: AsyncSession):
+    if agent.location_source != "gps":
+        raise HTTPException(status_code=409, detail="Your route needs your GPS starting location. Allow location access and wait for a location update.")
+    latest = await db.scalar(
+        select(AgentLocation).where(AgentLocation.agent_id == agent.id)
+        .order_by(AgentLocation.recorded_at.desc()).limit(1)
+    )
+    if not latest:
+        raise HTTPException(status_code=409, detail="Your route needs a recorded GPS reading. Allow location access and wait for a location update.")
+    if not (-90 <= latest.latitude <= 90 and -180 <= latest.longitude <= 180):
+        raise HTTPException(status_code=409, detail="Your saved GPS location is invalid. Send a fresh location update.")
+    if latest.gps_accuracy is None or latest.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
+        raise HTTPException(status_code=409, detail="GPS accuracy is not sufficient for route planning. Wait for a more accurate location update.")
+    last_update = latest.recorded_at
+    if last_update:
+        now = datetime.now(timezone.utc)
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=timezone.utc)
+        if (now - last_update).total_seconds() > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+            raise HTTPException(status_code=409, detail="Your GPS location is out of date. Allow location access and wait for a fresh update.")
+    return {"latitude": latest.latitude, "longitude": latest.longitude,
+            "source": "gps", "updated_at": latest.recorded_at,
+            "accuracy_meters": latest.gps_accuracy}
+
+
+@router.get("/routes/today")
+async def get_today_agent_route(
+    as_of_date: Optional[date] = Query(None, description="Local operational date"),
+    current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
+):
+    agent = current_user.agent
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent profile not found.")
+    ref_date = as_of_date or datetime.now(timezone.utc).date()
+    return {"date": ref_date, "origin": await _agent_route_origin(agent, db), "stops": await _route_stops(agent, db, ref_date),
+            "completed": await _completed_route_stops(agent, db, ref_date)}
+
+
+@router.post("/routes/optimize")
+async def optimize_today_agent_route(
+    as_of_date: Optional[date] = Query(None, description="Local operational date"),
+    current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
+):
+    """Preview a route order using OSRM road travel durations; this does not mutate assignments."""
+    agent = current_user.agent
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent profile not found.")
+    origin = await _agent_route_origin(agent, db)
+    ref_date = as_of_date or datetime.now(timezone.utc).date()
+    stops = await _route_stops(agent, db, ref_date)
+    routable = [s for s in stops if s["customer_latitude"] is not None and s["customer_longitude"] is not None]
+    if len(routable) < 2:
+        return {"ordered_visit_ids": [s["id"] for s in stops], "optimized": False,
+                "detail": "At least two assigned stops with mapped addresses are needed to optimize."}
+    coords = [(origin["longitude"], origin["latitude"])] + [(s["customer_longitude"], s["customer_latitude"]) for s in routable]
+    coord_path = ";".join(f"{lon},{lat}" for lon, lat in coords)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(f"{settings.OSRM_BASE_URL.rstrip('/')}/table/v1/driving/{coord_path}", params={"annotations": "duration"})
+            response.raise_for_status()
+            matrix = response.json()
+        durations = matrix.get("durations", [])
+        if matrix.get("code") != "Ok" or len(durations) != len(coords) or any(not isinstance(row, list) or len(row) != len(coords) for row in durations):
+            raise ValueError("Routing matrix unavailable")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail="Road routing is temporarily unavailable. Try again later.") from exc
+    # Existing in-progress stop remains first; reorder only pending/delayed stops using OSRM duration costs.
+    fixed = [s for s in routable if s["status"] == "in_progress"]
+    remaining = [s for s in routable if s["status"] != "in_progress"]
+    ordered = list(fixed)
+    current_index = routable.index(fixed[0]) + 1 if fixed else 0
+    while remaining:
+        best = min(remaining, key=lambda s: (durations[current_index][routable.index(s) + 1]
+                                             if durations[current_index][routable.index(s) + 1] is not None
+                                             else float("inf")))
+        ordered.append(best)
+        remaining.remove(best)
+        current_index = routable.index(best) + 1
+    missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
+    return {"ordered_visit_ids": [s["id"] for s in ordered + missing], "optimized": True,
+            "cost_model": "OSRM road travel duration", "detail": "Preview only; assigned visit records were not changed."}
+
+
+@router.get("/routes/geometry")
+async def get_agent_route_geometry(
+    visit_ids: str = Query(..., description="Comma-separated visit UUIDs in the requested display order"),
+    current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
+):
+    agent = current_user.agent
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent profile not found.")
+    origin = await _agent_route_origin(agent, db)
+    ids = [part.strip() for part in visit_ids.split(",") if part.strip()]
+    if not ids:
+        return {"geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": []}
+    visits = (await db.execute(select(Visit).options(joinedload(Visit.customer)).where(Visit.agent_id == agent.id, Visit.id.in_(ids)))).unique().scalars().all()
+    by_id = {str(v.id): v for v in visits}
+    if len(by_id) != len(set(ids)):
+        raise HTTPException(status_code=403, detail="Route contains a visit that is not assigned to your account.")
+    ordered = [by_id[item] for item in ids]
+    if any(v.customer.latitude is None or v.customer.longitude is None for v in ordered):
+        raise HTTPException(status_code=409, detail="One or more assigned customer addresses do not have mapped coordinates.")
+    coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+    coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord_path}", params={"overview": "full", "geometries": "geojson", "steps": "false"})
+            response.raise_for_status()
+            result = response.json()
+        if result.get("code") != "Ok" or not result.get("routes"):
+            raise ValueError("No road route")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail="Road route is temporarily unavailable.") from exc
+    route = result["routes"][0]
+    return {"geometry": route["geometry"], "distance_meters": route["distance"],
+            "duration_seconds": route["duration"], "legs": route.get("legs", [])}
 
 
 @router.get("/me", response_model=AgentResponse)

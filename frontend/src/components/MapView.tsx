@@ -36,6 +36,21 @@ interface MapViewProps {
   onSelectAgent?: (agent: AgentApiItem) => void;
 }
 
+const GPS_FRESHNESS_MS = 5 * 60 * 1000;
+const isRecentGps = (agent: AgentApiItem) => {
+  if (agent.location_source !== "gps" || !agent.last_location_update) return false;
+  const age = Date.now() - new Date(agent.last_location_update).getTime();
+  return Number.isFinite(age) && age >= 0 && age <= GPS_FRESHNESS_MS;
+};
+const locationLabel = (agent: AgentApiItem) => {
+  if (agent.location_source === "gps") return isRecentGps(agent) ? "Live GPS" : "Last recorded GPS";
+  if (agent.location_source === "admin_provided") return "Admin-entered location";
+  return "Location source unspecified";
+};
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[char] || char));
+
 export default function MapView({
   height = "h-[450px]",
   isFullPage = false,
@@ -197,7 +212,8 @@ export default function MapView({
     if (agent.status === "break") pinColor = "#3B82F6"; // break (blue)
     if (agent.status === "inactive") pinColor = "#6B7280"; // inactive (gray)
 
-    const isGps = agent.location_source === "gps";
+    const isGps = isRecentGps(agent);
+    const isAdminEntered = agent.location_source === "admin_provided";
     const size = isSelected ? 38 : 32;
     const anchor = isSelected ? 19 : 16;
 
@@ -253,10 +269,10 @@ export default function MapView({
             width: 9px;
             height: 9px;
             border-radius: 50%;
-            background: ${isGps ? "#10B981" : "#F59E0B"};
+            background: ${isGps ? "#10B981" : isAdminEntered ? "#F59E0B" : "#6B7280"};
             border: 1.5px solid #FFFFFF;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-          " title="${isGps ? "Live GPS" : "Admin Hub"}"></div>
+          " title="${locationLabel(agent)}"></div>
         </div>
       `,
       iconSize: [size, size],
@@ -290,31 +306,40 @@ export default function MapView({
       });
 
       // Simple popup
-      const isGps = agent.location_source === "gps";
+      const isGps = isRecentGps(agent);
+      const sourceLabel = escapeHtml(locationLabel(agent));
+      const updatedAt = agent.last_location_update
+        ? escapeHtml(new Date(agent.last_location_update).toLocaleString())
+        : "Not recorded";
       const popupHtml = `
         <div style="font-family: inherit; font-size: 12px; padding: 2px;">
-          <strong style="color: #2D2A26; font-size: 13px;">${agent.name}</strong>
-          <span style="font-family: monospace; color: #7D7566; font-size: 10px; display: block;">${agent.agent_code || ""}</span>
+          <strong style="color: #2D2A26; font-size: 13px;">${escapeHtml(agent.name || "Field Agent")}</strong>
+          <span style="font-family: monospace; color: #7D7566; font-size: 10px; display: block;">${escapeHtml(agent.agent_code || "")}</span>
           <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
             <span style="
               font-size: 9px;
               padding: 2px 6px;
               border-radius: 4px;
               background: ${isGps ? "#E8F5E9" : "#FFF3E0"};
-              color: ${isGps ? "#2E7D32" : "#E65100"};
+              color: ${isGps ? "#2E7D32" : "#6B5B45"};
               font-weight: 700;
               text-transform: uppercase;
             ">
-              ${isGps ? "Live GPS" : "Admin Hub"}
+              ${sourceLabel}
             </span>
-            <span style="color: #7D7566; font-size: 10px;">${agent.status}</span>
+            <span style="color: #7D7566; font-size: 10px;">${escapeHtml(agent.status)}</span>
           </div>
+          <span style="color: #7D7566; font-size: 10px; display:block;">${lat.toFixed(6)}, ${lng.toFixed(6)}</span>
+          <span style="color: #7D7566; font-size: 10px; display:block;">Updated: ${updatedAt}</span>
         </div>
       `;
       marker.bindPopup(popupHtml);
 
       markersGroup.addLayer(marker);
     });
+
+    const bounds = markersGroup.getBounds();
+    if (bounds.isValid()) mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
   }, [locatedAgents, isLeafletReady, selectedAgent?.id, createAgentIcon, onSelectAgent]);
 
   // Fit bounds to all located markers
@@ -377,8 +402,8 @@ export default function MapView({
             className="px-2.5 py-1 rounded-lg bg-beige-bg text-xs text-beige-text border border-beige-border focus:outline-none focus:border-beige-terracotta"
           >
             <option value="all">All Locations</option>
-            <option value="gps">Live GPS Only</option>
-            <option value="admin_provided">Admin Hubs Only</option>
+            <option value="gps">GPS source</option>
+            <option value="admin_provided">Admin-entered</option>
             <option value="unlocated">Unlocated Only</option>
           </select>
         </div>
@@ -472,11 +497,11 @@ export default function MapView({
           <div className="pt-1 border-t border-beige-border/60 flex items-center gap-3 text-[10px] text-beige-muted">
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>Live GPS</span>
+              <span>GPS updated within 5 min</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span>Admin Hub</span>
+              <span>Admin-entered</span>
             </div>
           </div>
         </div>
@@ -527,7 +552,7 @@ export default function MapView({
               </span>
               <span
                 className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                  selectedAgent.location_source === "gps"
+                  isRecentGps(selectedAgent)
                     ? "bg-beige-olive-subtle text-beige-olive"
                     : selectedAgent.location_source === "admin_provided"
                     ? "bg-beige-sand text-beige-text border border-beige-border"
@@ -535,14 +560,14 @@ export default function MapView({
                 }`}
               >
                 {selectedAgent.location_source === "gps"
-                  ? "Live Device GPS"
+                  ? locationLabel(selectedAgent)
                   : selectedAgent.location_source === "admin_provided"
-                  ? "Admin-Provided Hub"
-                  : "Unlocated"}
+                  ? "Admin-entered location"
+                  : "Location source unspecified"}
               </span>
             </div>
 
-            {selectedAgent.current_latitude !== null && selectedAgent.current_longitude !== null ? (
+            {selectedAgent.current_latitude != null && selectedAgent.current_longitude != null ? (
               <p className="font-mono text-[11px] text-beige-text">
                 Lat: {selectedAgent.current_latitude.toFixed(6)}, Lng: {selectedAgent.current_longitude.toFixed(6)}
               </p>
@@ -556,6 +581,9 @@ export default function MapView({
                 {selectedAgent.address}
               </p>
             )}
+            <p className="text-[10px] text-beige-muted">
+              Last update: {selectedAgent.last_location_update ? new Date(selectedAgent.last_location_update).toLocaleString() : "Not recorded"}
+            </p>
           </div>
 
           {/* Metadata Grid */}
@@ -564,7 +592,7 @@ export default function MapView({
               <span className="text-[10px] text-beige-muted block">Battery</span>
               <div className="flex items-center gap-1 text-beige-text font-mono font-semibold mt-0.5">
                 <Battery className="w-3 h-3 text-emerald-600" />
-                <span>{selectedAgent.battery_level ?? 85}%</span>
+                <span>{selectedAgent.battery_level == null ? "Unknown" : `${selectedAgent.battery_level}%`}</span>
               </div>
             </div>
 

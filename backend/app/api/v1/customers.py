@@ -7,7 +7,7 @@ from app.db.session import get_db
 from app.models.customer import Customer
 from app.models.profile import Profile
 from app.schemas.customer import CustomerListResponse, CustomerResponse
-from app.core.auth import require_authenticated
+from app.core.auth import require_admin
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -18,7 +18,7 @@ async def list_customers(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of records to return"),
     city: Optional[str] = Query(None, description="Filter by city"),
     search: Optional[str] = Query(None, description="Search by customer name, company, or address"),
-    current_user: Profile = Depends(require_authenticated),
+    current_user: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerListResponse:
     """

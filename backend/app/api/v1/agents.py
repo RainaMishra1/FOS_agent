@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,17 +7,123 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.elements import WKTElement
+import httpx
+from sqlalchemy.exc import IntegrityError
 
 from app.db.session import get_db
 from app.models.agent import Agent
 from app.models.profile import Profile
 from app.models.visit import Visit
 from app.models.agent_location import AgentLocation
-from app.schemas.agent import AgentCreateRequest, AgentListResponse, AgentResponse
+from app.schemas.agent import AgentCreateRequest, AgentInvitationResponse, AgentListResponse, AgentResponse
 from app.schemas.auth import AgentLocationUpdateRequest
-from app.core.auth import require_admin, require_agent, require_authenticated
+from app.core.auth import require_admin, require_agent
+from app.config import settings
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
+logger = logging.getLogger("fos.agents")
+
+
+@router.post("/{agent_id}/invite", response_model=AgentInvitationResponse)
+async def invite_agent_account(
+    agent_id: uuid.UUID,
+    current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AgentInvitationResponse:
+    """Invite/link an Auth account for an existing Agent without changing its identity or location."""
+    result = await db.execute(
+        select(Agent)
+        .options(joinedload(Agent.profile))
+        .where(Agent.id == agent_id)
+    )
+    agent = result.unique().scalars().first()
+    if not agent or not agent.profile:
+        raise HTTPException(status_code=404, detail="Agent record not found.")
+    profile = agent.profile
+    if profile.role != "agent":
+        raise HTTPException(status_code=409, detail="Agent Profile has an invalid role.")
+    if profile.auth_user_id:
+        return AgentInvitationResponse(
+            agent_id=agent.id, linked=True, invitation_sent=False,
+            detail="This Agent already has a linked Supabase Auth account.",
+        )
+    if not profile.email:
+        raise HTTPException(status_code=409, detail="Agent Profile has no invitation email.")
+    service_key = settings.SUPABASE_SERVICE_ROLE_KEY
+    if not service_key or not settings.SUPABASE_URL or "placeholder" in settings.SUPABASE_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="Server-side Supabase invitation is not configured. Contact the system operator.",
+        )
+
+    headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
+    email = profile.email.strip().lower()
+    invited = False
+    auth_user = None
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            # Reuse an existing Supabase account with the exact, admin-managed email.
+            for page in range(1, 21):
+                response = await client.get(
+                    f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users",
+                    params={"page": page, "per_page": 1000},
+                    headers=headers,
+                )
+                if response.status_code != 200:
+                    logger.error("Supabase admin user lookup failed with status %s", response.status_code)
+                    raise HTTPException(status_code=502, detail="Unable to verify Supabase account for invitation.")
+                payload = response.json()
+                users = payload.get("users", []) if isinstance(payload, dict) else []
+                auth_user = next(
+                    (user for user in users if str(user.get("email", "")).strip().lower() == email),
+                    None,
+                )
+                if auth_user or len(users) < 1000:
+                    break
+
+            if not auth_user:
+                response = await client.post(
+                    f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/invite",
+                    headers=headers,
+                    json={"email": email, "data": {"full_name": profile.full_name}},
+                )
+                if response.status_code not in (200, 201):
+                    logger.error("Supabase agent invitation failed with status %s", response.status_code)
+                    raise HTTPException(status_code=502, detail="Supabase could not send the agent invitation.")
+                invite_payload = response.json()
+                auth_user = invite_payload.get("user", invite_payload)
+                invited = True
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.error("Supabase agent invitation request failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Unable to complete the Supabase agent invitation.")
+
+    try:
+        auth_user_id = uuid.UUID(str(auth_user.get("id")))
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="Supabase returned an invalid account identifier.")
+    auth_email = str(auth_user.get("email", "")).strip().lower()
+    if auth_email != email:
+        raise HTTPException(status_code=409, detail="Supabase account email does not match the Agent Profile.")
+
+    other_profile = await db.scalar(
+        select(Profile).where(Profile.auth_user_id == auth_user_id, Profile.id != profile.id)
+    )
+    if other_profile:
+        raise HTTPException(status_code=409, detail="This Supabase account is already linked to another FOS Profile.")
+    profile.auth_user_id = auth_user_id
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Supabase account is already linked to another FOS Profile.")
+    return AgentInvitationResponse(
+        agent_id=agent.id,
+        linked=True,
+        invitation_sent=invited,
+        detail="Invitation sent and account linked." if invited else "Existing Supabase account linked.",
+    )
 
 
 def _to_agent_response(
@@ -26,6 +133,7 @@ def _to_agent_response(
 ) -> AgentResponse:
     return AgentResponse(
         id=agent.id,
+        auth_linked=bool(agent.profile and agent.profile.auth_user_id),
         agent_code=agent.agent_code,
         name=agent.profile.full_name if agent.profile else (agent.agent_code or "Unknown Agent"),
         email=agent.profile.email if agent.profile else None,
@@ -143,7 +251,35 @@ async def create_agent(
     res = await db.execute(profile_stmt)
     existing_profile = res.unique().scalars().first()
 
-    if existing_profile:
+    auth_profile = await db.scalar(
+        select(Profile)
+        .options(joinedload(Profile.agent))
+        .where(or_(Profile.auth_user_id == payload.auth_user_id, Profile.id == payload.auth_user_id))
+    )
+    if existing_profile and auth_profile and existing_profile.id != auth_profile.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The invited Auth account and work email resolve to different FOS profiles.",
+        )
+    if auth_profile and auth_profile.email and auth_profile.email.lower() != clean_email:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The Supabase Auth user ID does not match the invited work email.",
+        )
+
+    if auth_profile:
+        if auth_profile.role != "agent" or auth_profile.agent:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The Supabase Auth user already has a FOS role or agent record.",
+            )
+        profile = auth_profile
+        profile.full_name = payload.name.strip()
+        profile.email = clean_email
+        profile.auth_user_id = payload.auth_user_id
+        if payload.phone:
+            profile.phone = payload.phone.strip()
+    elif existing_profile:
         if existing_profile.agent:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -156,11 +292,13 @@ async def create_agent(
             )
         profile = existing_profile
         profile.full_name = payload.name.strip()
+        profile.auth_user_id = payload.auth_user_id
         if payload.phone:
             profile.phone = payload.phone.strip()
     else:
         profile = Profile(
             id=uuid.uuid4(),
+            auth_user_id=payload.auth_user_id,
             full_name=payload.name.strip(),
             email=clean_email,
             role="agent",
@@ -246,7 +384,7 @@ async def get_current_agent_profile(
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent_by_id(
     agent_id: str,
-    current_user: Profile = Depends(require_authenticated),
+    current_user: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
     """

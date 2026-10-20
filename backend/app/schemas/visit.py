@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from typing import List, Optional, Literal
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VisitResponse(BaseModel):
@@ -28,6 +28,7 @@ class VisitResponse(BaseModel):
     order_index: int
     estimated_duration_minutes: int
     purpose: Optional[str] = None
+    priority: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,6 +43,24 @@ class VisitStatusUpdateRequest(BaseModel):
     status: str
     geofence_verified: Optional[bool] = None
     completion_notes: Optional[str] = None
+
+
+class VisitDispatchRequest(BaseModel):
+    """Admin dispatch with an explicitly entered and geocoded customer location."""
+    agent_id: uuid.UUID
+    customer_name: str = Field(..., min_length=1, max_length=255)
+    company: Optional[str] = Field(None, max_length=255)
+    contact_person: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    email: Optional[str] = Field(None, max_length=255)
+    address: str = Field(..., min_length=5, max_length=500)
+    city: str = Field(..., min_length=1, max_length=100)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    scheduled_date: date
+    scheduled_time: str = Field(..., min_length=1, max_length=50)
+    priority: Literal["high", "medium", "low"] = "medium"
+    notes: Optional[str] = Field(None, max_length=5000)
 
 
 class AgentStats(BaseModel):

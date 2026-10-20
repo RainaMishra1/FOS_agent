@@ -1,6 +1,8 @@
 import time
 import uuid
+import asyncio
 import pytest
+from fastapi import HTTPException
 from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 from jose import jwt
@@ -10,6 +12,8 @@ from app.models.profile import Profile
 from app.models.agent import Agent
 from app.core.auth import verify_supabase_token, get_current_profile, get_db
 from app.main import app
+from app.api.v1.auth import _register_account
+from app.schemas.auth import AccountRegistrationRequest
 
 
 def create_test_token(sub: str, exp_offset: int = 3600, secret: str = None) -> str:
@@ -117,6 +121,29 @@ def test_role_restriction_agent_cannot_access_admin_agents_list(client: TestClie
         app.dependency_overrides.clear()
 
 
+def test_admin_cannot_access_agent_route_endpoints(client: TestClient):
+    """Route data and optimization are restricted to authenticated agent profiles."""
+    admin_user_id = uuid.uuid4()
+    token = create_test_token(str(admin_user_id))
+    admin_profile = Profile(
+        id=admin_user_id,
+        full_name="Admin Tester",
+        email="admin@example.com",
+        role="admin",
+    )
+    app.dependency_overrides[get_current_profile] = lambda: admin_profile
+    try:
+        for method, path in (
+            ("get", "/api/v1/agent/routes/today?as_of_date=2026-10-20"),
+            ("post", "/api/v1/agent/routes/optimize?as_of_date=2026-10-20"),
+        ):
+            response = getattr(client, method)(path, headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == 403
+            assert "agent privileges required" in response.text.lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_role_permission_admin_can_access_agents_list(client: TestClient):
     """
     Administrators ('admin' role) can access agent list operations.
@@ -181,7 +208,7 @@ def test_agent_cannot_access_other_agent_record(client: TestClient):
             headers={"Authorization": f"Bearer {valid_token}"},
         )
         assert response.status_code == 403
-        assert "own operational data" in response.text.lower()
+        assert "administrative privileges required" in response.text.lower()
     finally:
         app.dependency_overrides.clear()
 
@@ -221,16 +248,9 @@ def test_agent_cannot_access_other_agents_visits(client: TestClient):
         app.dependency_overrides.clear()
 
 
-def test_bootstrap_first_admin_success_when_zero_admins(client: TestClient):
-    """When no administrators exist in the database, initial admin bootstrap succeeds."""
+def test_public_first_admin_bootstrap_is_disabled(client: TestClient):
+    """Public callers cannot grant themselves the first admin role."""
     new_admin_id = str(uuid.uuid4())
-    mock_db = AsyncMock()
-    # 0 existing admins
-    mock_db.scalar.side_effect = [0, None]
-    mock_db.commit = AsyncMock()
-    mock_db.refresh = AsyncMock()
-
-    app.dependency_overrides[get_db] = lambda: mock_db
     try:
         response = client.post(
             "/api/v1/auth/bootstrap-first-admin",
@@ -240,10 +260,8 @@ def test_bootstrap_first_admin_success_when_zero_admins(client: TestClient):
                 "email": "firstadmin@fos-system.internal",
             },
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["role"] == "admin"
-        assert data["full_name"] == "First Admin"
+        assert response.status_code == 403
+        assert "public administrator bootstrap is disabled" in response.text.lower()
     finally:
         app.dependency_overrides.clear()
 
@@ -266,7 +284,35 @@ def test_bootstrap_first_admin_rejected_when_admin_already_exists(client: TestCl
             },
         )
         assert response.status_code == 403
-        assert "bootstrap disabled" in response.text.lower()
+        assert "public administrator bootstrap is disabled" in response.text.lower()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_registration_keys_are_independent(monkeypatch):
+    """Admin and Agent registration secrets cannot authorize each other's endpoints."""
+    monkeypatch.setattr(settings, "ADMIN_REGISTRATION_KEY", "admin-test-secret")
+    monkeypatch.setattr(settings, "AGENT_REGISTRATION_KEY", "agent-test-secret")
+    monkeypatch.setattr(settings, "SUPABASE_SERVICE_ROLE_KEY", None)
+    mock_db = AsyncMock()
+    admin_payload = AccountRegistrationRequest(full_name="Test Admin", email="admin-new@example.com", password="password-123", secret_key="agent-test-secret")
+    agent_payload = AccountRegistrationRequest(full_name="Test Agent", email="agent-new@example.com", password="password-123", secret_key="admin-test-secret", employee_id="AGT-999")
+    with pytest.raises(HTTPException) as admin_error:
+        asyncio.run(_register_account(admin_payload, "admin", mock_db))
+    with pytest.raises(HTTPException) as agent_error:
+        asyncio.run(_register_account(agent_payload, "agent", mock_db))
+    assert admin_error.value.status_code == 403
+    assert agent_error.value.status_code == 403
+
+
+def test_valid_registration_key_reaches_server_configuration_check(monkeypatch):
+    """A correct key is accepted by its endpoint, then registration fails closed without Auth provisioning config."""
+    monkeypatch.setattr(settings, "ADMIN_REGISTRATION_KEY", "admin-test-secret")
+    monkeypatch.setattr(settings, "SUPABASE_SERVICE_ROLE_KEY", None)
+    mock_db = AsyncMock()
+    payload = AccountRegistrationRequest(full_name="Test Admin", email="admin-new@example.com", password="password-123", secret_key="admin-test-secret")
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(_register_account(payload, "admin", mock_db))
+    assert error.value.status_code == 503
+    assert "server-side supabase" in error.value.detail.lower()
 

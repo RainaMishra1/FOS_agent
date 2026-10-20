@@ -44,28 +44,25 @@ export default function AppShell({ children }: AppShellProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(3);
 
-  const isLoginPage = pathname === "/login";
+  const isAuthPage = pathname === "/login" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
   const isAgentRoute = Boolean(pathname?.startsWith("/agent"));
 
   // 1. Client-side Route Guard for Admin Portal (called unconditionally for consistent hook execution)
   useEffect(() => {
-    if (isLoginPage || isAgentRoute) {
+    if (isAuthPage || isAgentRoute || pathname === "/") {
       return;
     }
 
     if (!isLoading) {
-      if (!isAuthenticated) {
-        const redirectParam = pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
-        router.push(`/login${redirectParam}`);
-      } else if (role === "agent") {
-        // Field agents must not access the admin control center
-        router.push("/agent/dashboard");
+      if (!isAuthenticated || !profile || role !== "admin") {
+        if (role === "agent") router.push("/agent/dashboard");
+        else router.push(`/admin/login${pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : ""}`);
       }
     }
-  }, [isLoading, isAuthenticated, role, pathname, router, isLoginPage, isAgentRoute]);
+  }, [isLoading, isAuthenticated, profile, role, pathname, router, isAuthPage, isAgentRoute]);
 
   // 2. Bypass layout chrome for login or mobile-first agent portal AFTER all hooks are called
-  if (isLoginPage || isAgentRoute) {
+  if (isAuthPage || isAgentRoute || pathname === "/") {
     return <>{children}</>;
   }
 
@@ -84,7 +81,7 @@ export default function AppShell({ children }: AppShellProps) {
   }
 
   // If not authenticated or non-admin, render brief placeholder while redirect triggers
-  if (!isAuthenticated || role === "agent") {
+  if (!isAuthenticated || !profile || role !== "admin") {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
         <Loader2 className="w-6 h-6 text-beige-terracotta animate-spin mb-2" />
@@ -139,7 +136,7 @@ export default function AppShell({ children }: AppShellProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/login");
+    router.push("/admin/login");
   };
 
   const displayName = profile?.full_name || user?.email?.split("@")[0] || "Operations Admin";

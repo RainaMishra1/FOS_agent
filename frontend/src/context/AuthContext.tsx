@@ -14,7 +14,7 @@ interface AuthContextType {
   error: string | null;
   isAuthenticated: boolean;
   isConfigured: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null; role?: UserRole | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null; role?: UserRole | null; profile?: UserProfile | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<UserProfile | null>;
 }
@@ -74,25 +74,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return backendProfile;
     }
 
-    // 2. Client-side fallback from Supabase user_metadata if backend is offline
-    const metadataRole = (currentSession.user.user_metadata?.role ||
-      currentSession.user.app_metadata?.role ||
-      "agent") as UserRole;
-
-    const fallbackProfile: UserProfile = {
-      id: currentSession.user.id,
-      full_name:
-        currentSession.user.user_metadata?.full_name ||
-        currentSession.user.email?.split("@")[0] ||
-        "Authenticated User",
-      email: currentSession.user.email,
-      role: metadataRole,
-      phone: currentSession.user.phone,
-    };
-
-    setProfile(fallbackProfile);
-    setRole(metadataRole);
-    return fallbackProfile;
+    // Roles and profile links are authoritative only when returned by the API.
+    setProfile(null);
+    setRole(null);
+    return null;
   }, [fetchProfileFromBackend]);
 
   // Initial session recovery
@@ -155,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (
     email: string,
     password: string
-  ): Promise<{ error: Error | null; role?: UserRole | null }> => {
+  ): Promise<{ error: Error | null; role?: UserRole | null; profile?: UserProfile | null }> => {
     setIsLoading(true);
     setError(null);
 
@@ -195,6 +180,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
 
       if (!resolvedProfile) {
+        await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
         const profileErr = new Error(
           "Authenticated with Supabase, but no FOS application profile found for this user. Please contact an administrator to provision your account."
         );
@@ -202,7 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: profileErr, role: null };
       }
 
-      return { error: null, role: resolvedProfile.role };
+      return { error: null, role: resolvedProfile.role, profile: resolvedProfile };
     } catch (err: any) {
       const message = err.message || "Failed to sign in. Please try again.";
       setError(message);
@@ -218,12 +206,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("Error during Supabase signOut:", err);
     } finally {
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.removeItem("fos_dev_auth_role");
-          localStorage.removeItem("fos_dev_auth_email");
-        } catch {}
-      }
       setUser(null);
       setSession(null);
       setProfile(null);

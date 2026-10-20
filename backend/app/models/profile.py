@@ -1,6 +1,6 @@
 import uuid
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import String
+from sqlalchemy import String, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 class Profile(Base, TimestampMixin):
     """
-    User Profile entity linked to Supabase Auth.
-    Matches auth.users primary key ID. Passwords are never stored here.
+    Application Profile linked to Supabase Auth by auth_user_id.
+    Passwords are managed by Supabase and never stored here.
     """
     __tablename__ = "profiles"
 
@@ -22,7 +22,14 @@ class Profile(Base, TimestampMixin):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-        comment="Primary key, aligns directly with Supabase auth.users.id",
+        comment="Stable application profile identifier",
+    )
+    auth_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=True,
+        index=True,
+        comment="Linked Supabase Auth user; null until the account is provisioned",
     )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True)

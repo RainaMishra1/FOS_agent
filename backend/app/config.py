@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 from pathlib import Path
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,12 +49,30 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = "https://placeholder.supabase.co"
     SUPABASE_JWT_SECRET: str = "change_me_in_production"
     SUPABASE_ANON_KEY: str = "placeholder_anon_key"
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+
+    # Registration credentials are server-only. Admin email allowlisting is
+    # mandatory in production, in addition to the independent admin key.
+    ADMIN_REGISTRATION_KEY: Optional[str] = None
+    AGENT_REGISTRATION_KEY: Optional[str] = None
+    ADMIN_REGISTRATION_ALLOWLIST: List[str] = []
+
+    @field_validator("ADMIN_REGISTRATION_ALLOWLIST", mode="before")
+    @classmethod
+    def assemble_admin_registration_allowlist(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str) and v.startswith("["):
+            return [email.strip().lower() for email in json.loads(v)]
+        if isinstance(v, str):
+            return [email.strip().lower() for email in v.split(",") if email.strip()]
+        return [email.strip().lower() for email in v]
 
     # Operational Parameters
     GEOFENCE_RADIUS_METERS: float = 100.0
     MAX_ACCEPTABLE_GPS_ACCURACY_METERS: float = 50.0
     LOCATION_STALE_THRESHOLD_SECONDS: int = 300
     OSRM_BASE_URL: str = "http://router.project-osrm.org"
+    GEOCODING_SEARCH_URL: str = "https://nominatim.openstreetmap.org/search"
+    GEOCODING_USER_AGENT: str = "FOS-Enterprise/1.0 (field operations address lookup)"
 
     model_config = SettingsConfigDict(
         env_file=(str(ENV_FILE), ".env"),

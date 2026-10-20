@@ -35,15 +35,20 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { currentAgent, isOnDuty, toggleDuty, stats, notification, clearNotification } = useAgent();
-  const { user, profile, isAuthenticated, isLoading, signOut } = useAuth();
+  const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
+  const isAgentAuthPage = pathname === "/agent/login" || pathname === "/agent/signup";
 
   // Route protection for Field Agent Portal
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (isAgentAuthPage) return;
+    if (!isLoading && (!isAuthenticated || !profile || role !== "agent" || !profile.agent_id)) {
+      if (role === "admin") { router.replace("/admin/dashboard"); return; }
       const redirectParam = pathname ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
-      router.push(`/login${redirectParam}`);
+      router.replace(`/agent/login${redirectParam}`);
     }
-  }, [isLoading, isAuthenticated, pathname, router]);
+  }, [isLoading, isAuthenticated, isAgentAuthPage, profile, role, pathname, router]);
+
+  if (isAgentAuthPage) return <>{children}</>;
 
   if (isLoading) {
     return (
@@ -57,7 +62,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !profile || role !== "agent" || !profile.agent_id) {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
         <Loader2 className="w-6 h-6 text-beige-terracotta animate-spin mb-2" />
@@ -68,7 +73,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/login");
+    router.push("/agent/login");
   };
 
   const agentName = profile?.full_name || currentAgent.name;

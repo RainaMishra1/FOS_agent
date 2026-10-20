@@ -288,7 +288,14 @@ async def seed_database_if_needed():
     """
     async with AsyncSessionLocal() as session:
         try:
-            # 1. Seed or ensure Admin Profile exists
+            # Never rewrite or augment an operational database that already has
+            # agent records. In particular, preserve saved coordinates and history.
+            existing_agent_count = await session.scalar(select(func.count(Agent.id))) or 0
+            if existing_agent_count > 0:
+                await session.rollback()
+                return {"status": "skipped_existing_agents", "agent_count": existing_agent_count}
+
+            # 1. Seed or ensure Admin Profile exists only for an explicitly seeded empty DB.
             admin_prof = await session.get(Profile, ADMIN_PROFILE_ID)
             if not admin_prof:
                 admin_prof = Profile(
@@ -299,12 +306,6 @@ async def seed_database_if_needed():
                     phone="+91 80 5000 0001",
                 )
                 session.add(admin_prof)
-
-            # 2. Check how many agents currently exist
-            existing_agent_count = await session.scalar(select(func.count(Agent.id))) or 0
-            if existing_agent_count >= len(REAL_AGENTS):
-                await session.commit()
-                return {"status": "already_seeded", "agent_count": existing_agent_count}
 
             # 3. Seed Agents and their Profiles
             agent_map = {}

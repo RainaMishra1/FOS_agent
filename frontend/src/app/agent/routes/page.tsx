@@ -1,405 +1,158 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import Link from "next/link";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAgent } from "@/context/AgentContext";
+import { useAuth } from "@/context/AuthContext";
 import { AgentVisit } from "@/types/agent";
-import AgentMapPreview from "@/components/agent/AgentMapPreview";
+import AgentRoadRouteMap from "@/components/agent/AgentRoadRouteMap";
 import StatusBadge from "@/components/StatusBadge";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
-import {
-  calculateRouteSequenceMetrics,
-  optimizeRouteNearestNeighbour,
-  BaseRouteStop,
-} from "@/lib/routeOptimizer";
-import {
-  Route,
-  Navigation,
-  MapPin,
-  Clock,
-  Compass,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  ShieldCheck,
-  Sparkles,
-  RefreshCw,
-  Phone,
-  ExternalLink,
-  RotateCcw,
-  Info,
-} from "lucide-react";
+import { fetchAgentRouteGeometry, fetchAgentTodayRoute, optimizeAgentTodayRoute, AgentRouteData, RoadRouteData } from "@/lib/api";
+import { AlertTriangle, CheckCircle2, Clock, Compass, MapPin, Navigation, RefreshCw, Route, ShieldCheck, Sparkles } from "lucide-react";
+
+function formatDistance(meters: number) {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+function localDateString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
 
 export default function AgentRoutePage() {
-  const { currentAgent, visits, checkInVisit, isOnDuty } = useAgent();
-  const [selectedVisitForDrawer, setSelectedVisitForDrawer] = useState<AgentVisit | null>(null);
-  const [completeModalVisit, setCompleteModalVisit] = useState<AgentVisit | null>(null);
-  const [isReoptimizing, setIsReoptimizing] = useState(false);
-  const [optimizationNotice, setOptimizationNotice] = useState<string | null>(null);
+  const { session } = useAuth();
+  const { checkInVisit, isOnDuty } = useAgent();
+  const [routeData, setRouteData] = useState<AgentRouteData | null>(null);
+  const [roadRoute, setRoadRoute] = useState<RoadRouteData | null>(null);
+  const [orderedIds, setOrderedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [optimizing, setOptimizing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AgentVisit | null>(null);
+  const [completeVisit, setCompleteVisit] = useState<AgentVisit | null>(null);
 
-  const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
-
-  // Today's stops sorted by orderIndex
-  const todayVisits = useMemo(() => {
-    return visits
-      .filter(
-        (v) =>
-          v.scheduledDate === todayStr ||
-          v.scheduledDate === "2026-10-18" ||
-          v.status === "completed" ||
-          v.status === "in_progress"
-      )
-      .sort((a, b) => a.orderIndex - b.orderIndex);
-  }, [visits, todayStr]);
-
-  // Convert visits to BaseRouteStop format for math optimization
-  const baseStops: BaseRouteStop[] = useMemo(() => {
-    return todayVisits.map((v) => ({
-      id: v.id,
-      name: v.customerName,
-      customerName: v.customerName,
-      address: v.address,
-      coordinates: v.coordinates,
-      scheduledTime: v.scheduledTime,
-      scheduledDate: v.scheduledDate,
-      priority: v.priority,
-      status: v.status,
-      company: v.company,
-      estimatedDuration: v.estimatedDuration,
-    }));
-  }, [todayVisits]);
-
-  // Compute live Haversine metrics based on the current stop sequence
-  const routeMetrics = useMemo(() => {
-    return calculateRouteSequenceMetrics(
-      currentAgent.currentCoordinates,
-      baseStops,
-      baseStops,
-      `${currentAgent.name} Current Location`
-    );
-  }, [currentAgent, baseStops]);
-
-  const completedCount = todayVisits.filter((v) => v.status === "completed").length;
-
-  // Run local nearest-neighbour heuristic on today's uncompleted stops
-  const handleOptimizeRoute = () => {
-    if (todayVisits.length < 2) return;
-
-    setIsReoptimizing(true);
-    setOptimizationNotice(null);
-
-    setTimeout(() => {
-      // Completed visits stay fixed in place; optimize remaining visits
-      const completedStops = todayVisits.filter((v) => v.status === "completed");
-      const remainingStops = todayVisits.filter((v) => v.status !== "completed");
-
-      const startCoord =
-        completedStops.length > 0
-          ? completedStops[completedStops.length - 1].coordinates
-          : currentAgent.currentCoordinates;
-
-      const remainingBase: BaseRouteStop[] = remainingStops.map((v) => ({
-        id: v.id,
-        name: v.customerName,
-        customerName: v.customerName,
-        address: v.address,
-        coordinates: v.coordinates,
-        scheduledTime: v.scheduledTime,
-        priority: v.priority,
-        status: v.status,
-        company: v.company,
-        estimatedDuration: v.estimatedDuration,
-      }));
-
-      const optResult = optimizeRouteNearestNeighbour(
-        startCoord,
-        remainingBase,
-        "Current Position"
-      );
-
-      // Re-map visits with new order indices
-      const reorderedRemaining: AgentVisit[] = optResult.orderedStops.map((st, idx) => {
-        const original = remainingStops.find((v) => v.id === st.id)!;
-        return {
-          ...original,
-          orderIndex: completedStops.length + idx + 1,
-        };
+  const loadRoute = useCallback(async (keepOrder = false) => {
+    setLoading(true); setError(null);
+    try {
+      const result = await fetchAgentTodayRoute(session?.access_token, localDateString());
+      setRouteData(result);
+      const ids = keepOrder && orderedIds.length ? orderedIds : result.stops.map((v) => v.id);
+      setOrderedIds(ids);
+      const geometryIds = ids.filter((id) => {
+        const stop = result.stops.find((v) => v.id === id);
+        return stop?.customer_latitude != null && stop?.customer_longitude != null;
       });
-
-      const updatedAll = [...completedStops, ...reorderedRemaining];
-
-      if (typeof window !== "undefined") {
-        try {
-          const stored = localStorage.getItem("fos_agent_visits");
-          const existingAll: AgentVisit[] = stored ? JSON.parse(stored) : visits;
-          const merged = existingAll.map((v) => {
-            const found = updatedAll.find((u) => u.id === v.id);
-            return found || v;
-          });
-          localStorage.setItem("fos_agent_visits", JSON.stringify(merged));
-          window.dispatchEvent(
-            new CustomEvent("fos_route_updated", {
-              detail: { agentId: currentAgent.id, visits: merged },
-            })
-          );
-        } catch {
-          // fallback
-        }
+      try {
+        setRoadRoute(await fetchAgentRouteGeometry(geometryIds, session?.access_token));
+      } catch (routeErr: any) {
+        setRoadRoute(null);
+        setError(`Your assigned stops loaded, but road routing is unavailable: ${routeErr?.detail || routeErr?.message || "try again later"}`);
       }
+    } catch (err: any) {
+      setError(err?.detail || err?.message || "Could not load your route from the server.");
+      setRouteData(null); setRoadRoute(null);
+    } finally { setLoading(false); }
+  }, [session?.access_token, orderedIds]);
 
-      setIsReoptimizing(false);
-      setOptimizationNotice(
-        `Route sequence optimized via Nearest-Neighbour heuristic! Saved ~${optResult.distanceSavingsKm} km (${optResult.percentageSavings}% straight-line savings).`
-      );
-    }, 600);
+  useEffect(() => { void loadRoute(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token]);
+
+  const orderedStops = useMemo(() => {
+    if (!routeData) return [];
+    const byId = new Map(routeData.stops.map((stop) => [stop.id, stop]));
+    return orderedIds.map((id) => byId.get(id)).filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
+  }, [routeData, orderedIds]);
+
+  const toAgentVisit = (v: AgentRouteData["stops"][number]): AgentVisit => ({
+    id: v.id, assignmentId: v.visit_code || v.id.slice(0, 8), customerId: v.customer_id,
+    customerName: v.customer_name || "Customer Site", company: v.customer_company || undefined,
+    contactPerson: v.customer_contact_person || v.customer_name || "Authorized Representative",
+    phone: v.customer_phone || "", email: v.customer_email || "", address: v.customer_address || "Address unavailable",
+    city: v.customer_city || "", coordinates: { lat: v.customer_latitude ?? 0, lng: v.customer_longitude ?? 0 },
+    hasCoordinates: v.customer_latitude != null && v.customer_longitude != null,
+    scheduledTime: v.scheduled_time, scheduledDate: v.scheduled_date,
+    estimatedDuration: `${v.estimated_duration_minutes || 45} mins`, purpose: v.purpose || "Field visit",
+    priority: (v.priority === "high" || v.priority === "low" ? v.priority : "medium"),
+    status: v.status as AgentVisit["status"], geofenceVerified: v.geofence_verified,
+    accuracyMeters: 0, mockDistanceMeters: 0, checkInTime: v.check_in_time || undefined,
+    completedTime: v.completed_time || undefined, completionNotes: v.completion_notes || undefined,
+    orderIndex: v.order_index, tags: ["Assigned"],
+  });
+
+  const visitsForMap = orderedStops;
+  const completedCount = routeData?.completed.length || 0;
+  const totalStopCount = (routeData?.stops.length || 0) + completedCount;
+  const onSiteMinutes = routeData?.stops.reduce((sum, v) => sum + (v.estimated_duration_minutes || 45), 0) || 0;
+
+  const optimize = async () => {
+    if (!routeData) return;
+    setOptimizing(true); setError(null); setNotice(null);
+    try {
+      const result = await optimizeAgentTodayRoute(session?.access_token, localDateString());
+      const ids = result.ordered_visit_ids;
+      setOrderedIds(ids);
+      setNotice(result.detail);
+      const geometryIds = ids.filter((id) => {
+        const stop = routeData.stops.find((v) => v.id === id);
+        return stop?.customer_latitude != null && stop?.customer_longitude != null;
+      });
+      setRoadRoute(null);
+      setRoadRoute(await fetchAgentRouteGeometry(geometryIds, session?.access_token));
+    } catch (err: any) { setError(err?.detail || err?.message || "Route optimization failed."); }
+    finally { setOptimizing(false); }
   };
 
-  return (
-    <div className="space-y-4 animate-in fade-in duration-200">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg sm:text-xl font-bold text-beige-text">
-              Today&apos;s Field Route
-            </h2>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-beige-sand text-beige-muted border border-beige-border">
-              Demo Estimates
-            </span>
-          </div>
-          <p className="text-xs text-beige-muted">
-            Ordered customer stops for {currentAgent.name} • {currentAgent.territory}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleOptimizeRoute}
-          disabled={isReoptimizing || todayVisits.length < 2}
-          className="self-start sm:self-auto py-1.5 px-3 rounded-xl text-xs font-semibold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
-        >
-          <Sparkles className={`w-3.5 h-3.5 ${isReoptimizing ? "animate-spin" : ""}`} />
-          <span>{isReoptimizing ? "Solving Route..." : "Optimize Sequence"}</span>
-        </button>
+  return <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div className="flex items-center gap-2"><h2 className="text-lg font-bold text-beige-text sm:text-xl">Today&apos;s Field Route</h2><span className="rounded-full border border-beige-border bg-beige-sand px-2 py-0.5 text-[10px] font-bold text-beige-muted">Live assignments</span></div>
+        <p className="text-xs text-beige-muted">Assigned customer stops, your latest location, and road route</p>
       </div>
-
-      {/* Optimization Notice Banner */}
-      {optimizationNotice && (
-        <div className="p-3 rounded-xl bg-beige-olive-subtle border border-beige-olive/30 text-xs text-beige-olive flex items-center justify-between animate-in fade-in">
-          <span className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{optimizationNotice}</span>
-          </span>
-          <button
-            onClick={() => setOptimizationNotice(null)}
-            className="text-[11px] font-bold underline ml-2"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Demo Estimate Disclaimer Card */}
-      <div className="p-3 rounded-xl bg-beige-sand/70 border border-beige-border text-[11px] text-beige-muted flex items-start gap-2">
-        <Navigation className="w-4 h-4 shrink-0 mt-0.5 text-beige-terracotta" />
-        <div>
-          <strong className="block font-semibold text-beige-text">Straight-Line Route Disclaimer:</strong>
-          <span>
-            {routeMetrics.disclaimer}
-          </span>
-        </div>
+      <div className="flex gap-2">
+        <button onClick={() => void loadRoute(true)} disabled={loading} className="flex items-center gap-1.5 rounded-xl border border-beige-border bg-beige-card px-3 py-2 text-xs font-semibold text-beige-text disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+        <button onClick={() => void optimize()} disabled={optimizing || loading || (routeData?.stops.length || 0) < 2} className="flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-50"><Sparkles className={`h-3.5 w-3.5 ${optimizing ? "animate-spin" : ""}`} />{optimizing ? "Optimizing…" : "Optimize Sequence"}</button>
       </div>
-
-      {/* Route Summary Metrics Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <span className="text-[10px] text-beige-muted block">Total Stops</span>
-          <strong className="text-base font-bold text-beige-text">
-            {todayVisits.length} Stops
-          </strong>
-          <span className="text-[10px] text-beige-olive block mt-0.5">
-            {completedCount} completed
-          </span>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <span className="text-[10px] text-beige-muted block">Total Distance</span>
-          <strong className="text-base font-bold text-beige-text font-mono">
-            {routeMetrics.formattedTotalDistance}
-          </strong>
-          <span className="text-[10px] text-beige-muted block mt-0.5">Straight-Line Demo</span>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <span className="text-[10px] text-beige-muted block">Est. Duration</span>
-          <strong className="text-base font-bold text-beige-olive font-mono">
-            {routeMetrics.formattedTotalDuration}
-          </strong>
-          <span className="text-[10px] text-beige-muted block mt-0.5">Transit + on-site</span>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <span className="text-[10px] text-beige-muted block">Policy Radius</span>
-          <strong className="text-base font-bold text-beige-text">100m</strong>
-          <span className="text-[10px] text-beige-olive block mt-0.5">Geofence locked</span>
-        </div>
-      </div>
-
-      {/* Interactive Route Map Preview */}
-      <section className="space-y-1.5">
-        <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
-          <Compass className="w-3.5 h-3.5 text-beige-terracotta" />
-          Interactive Route &amp; Stop Visualizer
-        </h3>
-        <AgentMapPreview
-          height="h-72 sm:h-96"
-          showRouteLine={true}
-          onSelectVisit={(v) => setSelectedVisitForDrawer(v)}
-        />
-      </section>
-
-      {/* Ordered Stops Chronological List */}
-      <section className="space-y-2 pt-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
-            <Route className="w-3.5 h-3.5 text-beige-terracotta" />
-            Ordered Route Sequence ({todayVisits.length} Stops)
-          </h3>
-          <span className="text-[11px] text-beige-muted">Step-by-step dispatch order</span>
-        </div>
-
-        <div className="space-y-3">
-          {todayVisits.map((visit, index) => {
-            const isCompleted = visit.status === "completed";
-            const isInProgress = visit.status === "in_progress";
-            const isWithinGeofence = visit.mockDistanceMeters <= 100;
-            const leg = routeMetrics.legs[index];
-
-            return (
-              <div
-                key={visit.id}
-                onClick={() => setSelectedVisitForDrawer(visit)}
-                className={`p-4 rounded-2xl bg-beige-card border transition-all shadow-2xs hover:shadow-sm cursor-pointer space-y-2.5 ${
-                  isInProgress
-                    ? "border-beige-terracotta/80 ring-1 ring-beige-terracotta/40"
-                    : isCompleted
-                    ? "border-beige-border opacity-90"
-                    : "border-beige-border hover:border-beige-border-dark"
-                }`}
-              >
-                {/* Step Connector Label */}
-                <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs text-white shadow-xs ${
-                        isCompleted
-                          ? "bg-beige-olive"
-                          : isInProgress
-                          ? "bg-beige-terracotta animate-pulse"
-                          : "bg-beige-text"
-                      }`}
-                    >
-                      {isCompleted ? <CheckCircle2 className="w-3.5 h-3.5" /> : visit.orderIndex}
-                    </span>
-                    <span className="font-bold text-beige-text">
-                      Stop #{visit.orderIndex} • {visit.scheduledTime}
-                    </span>
-                  </div>
-
-                  {leg ? (
-                    <span className="text-beige-muted font-mono">
-                      {leg.formattedDistance} (~{leg.formattedTransitTime})
-                    </span>
-                  ) : (
-                    <span className="text-beige-muted font-mono">Next stop</span>
-                  )}
-                </div>
-
-                {/* Customer Details */}
-                <div className="pl-8">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-bold text-beige-text">{visit.customerName}</h4>
-                    <StatusBadge status={visit.status} size="sm" />
-                  </div>
-                  {visit.company && (
-                    <p className="text-[11px] text-beige-muted">{visit.company}</p>
-                  )}
-                  <p className="text-xs text-beige-muted flex items-start gap-1 mt-0.5">
-                    <MapPin className="w-3.5 h-3.5 text-beige-terracotta shrink-0 mt-0.5" />
-                    <span>{visit.address}</span>
-                  </p>
-                </div>
-
-                {/* Geofence Status & Direct Action */}
-                <div className="pl-8 pt-1 flex items-center justify-between text-xs border-t border-beige-border/60">
-                  <span className="text-[11px] text-beige-muted flex items-center gap-1">
-                    {isCompleted ? (
-                      <span className="text-beige-olive font-semibold flex items-center gap-1">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        Completed ({visit.completedTime})
-                      </span>
-                    ) : isWithinGeofence ? (
-                      <span className="text-beige-olive font-semibold flex items-center gap-1">
-                        <Compass className="w-3.5 h-3.5" />
-                        Within Geofence ({visit.mockDistanceMeters}m)
-                      </span>
-                    ) : (
-                      <span>{visit.mockDistanceMeters}m from site</span>
-                    )}
-                  </span>
-
-                  <div className="flex items-center gap-2">
-                    {isInProgress ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCompleteModalVisit(visit);
-                        }}
-                        className="py-1 px-2.5 rounded-lg text-xs font-bold bg-beige-olive text-white shadow-2xs hover:bg-beige-olive-light transition"
-                      >
-                        Complete Visit
-                      </button>
-                    ) : !isCompleted && isWithinGeofence ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isOnDuty) checkInVisit(visit.id);
-                        }}
-                        className="py-1 px-2.5 rounded-lg text-xs font-bold bg-beige-terracotta text-white shadow-2xs hover:bg-beige-terracotta-light transition"
-                      >
-                        Check In ({visit.mockDistanceMeters}m)
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-semibold text-beige-terracotta">
-                        View Stop Details →
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Visit Detail Drawer */}
-      {selectedVisitForDrawer && (
-        <VisitDetailDrawer
-          visit={selectedVisitForDrawer}
-          onClose={() => setSelectedVisitForDrawer(null)}
-        />
-      )}
-
-      {/* Complete Visit Modal */}
-      {completeModalVisit && (
-        <CompleteVisitModal
-          visit={completeModalVisit}
-          onClose={() => setCompleteModalVisit(null)}
-        />
-      )}
     </div>
-  );
+
+    {error && <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+    {notice && <div className="flex items-start gap-2 rounded-xl border border-beige-olive/30 bg-beige-olive-subtle p-3 text-xs text-beige-olive"><CheckCircle2 className="h-4 w-4 shrink-0" />{notice} Route order is a preview and does not change assignments.</div>}
+
+    {loading && <div className="rounded-2xl border border-beige-border bg-beige-card p-8 text-center text-sm text-beige-muted">Loading your assigned route…</div>}
+    {!loading && routeData && <>
+      <div className="flex items-start gap-2 rounded-xl border border-beige-border bg-beige-sand/70 p-3 text-[11px] text-beige-muted"><Navigation className="mt-0.5 h-4 w-4 shrink-0 text-beige-terracotta" /><p><strong className="text-beige-text">Road route from live operational data.</strong> Travel distance and time come from OSRM road-network routing. Estimated visit durations are added separately; traffic conditions are not included.</p></div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Stops Today</span><strong className="text-base text-beige-text">{totalStopCount}</strong><span className="mt-0.5 block text-[10px] text-beige-olive">{completedCount} completed today</span></div>
+        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Road Distance</span><strong className="font-mono text-base text-beige-text">{roadRoute ? formatDistance(roadRoute.distance_meters) : "—"}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">OSRM driving route</span></div>
+        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Est. Duration</span><strong className="font-mono text-base text-beige-olive">{roadRoute ? `${Math.round(roadRoute.duration_seconds / 60 + onSiteMinutes)} min` : "—"}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">Road + scheduled visit time</span></div>
+        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">GPS Starting Point</span><strong className="text-base capitalize text-beige-text">{routeData.origin.accuracy_meters == null ? "GPS" : `±${Math.round(routeData.origin.accuracy_meters)} m`}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">{routeData.origin.updated_at ? `Updated ${new Date(routeData.origin.updated_at).toLocaleTimeString()}` : "Latest saved position"}</span></div>
+      </div>
+
+      <section className="space-y-1.5"><h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text"><Compass className="h-3.5 w-3.5 text-beige-terracotta" />Road Route &amp; Assigned Stops</h3><AgentRoadRouteMap origin={routeData.origin} stops={visitsForMap} geometry={roadRoute?.geometry?.coordinates || []} /></section>
+
+      <section className="space-y-2 pt-2">
+        <div className="flex items-center justify-between"><h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text"><Route className="h-3.5 w-3.5 text-beige-terracotta" />Route Sequence ({orderedStops.length} stops)</h3><span className="text-[11px] text-beige-muted">Server-assigned order or optimization preview</span></div>
+        {!orderedStops.length && <div className="rounded-2xl border border-beige-border bg-beige-card p-5 text-sm text-beige-muted">No active visits are assigned to your account for today.</div>}
+        {orderedStops.map((raw, index) => {
+          const visit = toAgentVisit(raw);
+          const routableIndex = orderedStops
+            .filter((stop) => stop.customer_latitude != null && stop.customer_longitude != null)
+            .findIndex((stop) => stop.id === raw.id);
+          const leg = routableIndex >= 0 ? roadRoute?.legs[routableIndex] : undefined;
+          const isDone = visit.status === "completed";
+          const isInProgress = visit.status === "in_progress";
+          return <div key={visit.id} onClick={() => setSelected(visit)} className={`cursor-pointer space-y-2.5 rounded-2xl border bg-beige-card p-4 shadow-2xs transition hover:shadow-sm ${isInProgress ? "border-beige-terracotta/80 ring-1 ring-beige-terracotta/40" : "border-beige-border"}`}>
+            <div className="flex items-center justify-between text-[11px]"><div className="flex items-center gap-2"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${isDone ? "bg-beige-olive" : isInProgress ? "bg-beige-terracotta" : "bg-beige-text"}`}>{isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}</span><span className="font-bold text-beige-text">Stop #{index + 1} · {visit.scheduledTime}</span></div><span className="font-mono text-beige-muted">{leg ? `${formatDistance(leg.distance)} · ${Math.round(leg.duration / 60)} min` : "Road leg unavailable"}</span></div>
+            <div className="pl-8"><div className="flex items-center justify-between"><h4 className="text-sm font-bold text-beige-text">{visit.customerName}</h4><StatusBadge status={visit.status} size="sm" /></div>{visit.company && <p className="text-[11px] text-beige-muted">{visit.company}</p>}<p className="mt-0.5 flex items-start gap-1 text-xs text-beige-muted"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-beige-terracotta" />{visit.address}</p></div>
+            <div className="flex items-center justify-between border-t border-beige-border/60 pl-8 pt-1 text-xs"><span className="flex items-center gap-1 text-[11px] text-beige-muted">{isDone ? <><ShieldCheck className="h-3.5 w-3.5 text-beige-olive" />Completed {visit.completedTime || ""}</> : <><Clock className="h-3.5 w-3.5" />{visit.priority} priority</>}</span>{isInProgress ? <button onClick={(e) => { e.stopPropagation(); setCompleteVisit(visit); }} className="rounded-lg bg-beige-olive px-2.5 py-1 font-bold text-white">Complete Visit</button> : !isDone ? <button onClick={(e) => { e.stopPropagation(); if (isOnDuty) void checkInVisit(visit.id); }} className="rounded-lg bg-beige-terracotta px-2.5 py-1 font-bold text-white">Check In</button> : null}</div>
+          </div>;
+        })}
+      </section>
+    </>}
+
+    {selected && <VisitDetailDrawer visit={selected} onClose={() => setSelected(null)} />}
+    {completeVisit && <CompleteVisitModal visit={completeVisit} onClose={() => setCompleteVisit(null)} />}
+  </div>;
 }

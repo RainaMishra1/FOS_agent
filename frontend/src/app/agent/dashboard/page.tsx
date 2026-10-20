@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useAgent } from "@/context/AgentContext";
 import { AgentVisit } from "@/types/agent";
 import NextVisitCard from "@/components/agent/NextVisitCard";
-import AgentMapPreview from "@/components/agent/AgentMapPreview";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import AgentLocationSection from "@/components/agent/AgentLocationSection";
 import StatusBadge from "@/components/StatusBadge";
@@ -16,7 +15,6 @@ import {
   Navigation,
   Route,
   ShieldCheck,
-  MapPin,
   Compass,
   ArrowRight,
   Battery,
@@ -246,27 +244,7 @@ export default function AgentDashboardPage() {
         />
       </section>
 
-      {/* 5. Prominent Interactive Map Preview */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
-            <MapPin className="w-3.5 h-3.5 text-beige-terracotta" />
-            Today&apos;s Customer Stops &amp; Route Preview
-          </h3>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border">
-            Demo Map Layer
-          </span>
-        </div>
-
-        <AgentMapPreview
-          height="h-64 sm:h-72"
-          onSelectVisit={handleOpenDetails}
-          showRouteLine={true}
-          highlightVisitId={stats.nextVisit?.id}
-        />
-      </section>
-
-      {/* 6. Quick Actions Row */}
+      {/* 5. Quick Actions Row */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Link
           href="/agent/routes"
@@ -313,7 +291,7 @@ export default function AgentDashboardPage() {
         </Link>
       </section>
 
-      {/* 7. Recent Visit Activity */}
+      {/* 6. Recent Visit Activity */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">

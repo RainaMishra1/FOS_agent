@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class AgentCreateRequest(BaseModel):
+    auth_user_id: uuid.UUID = Field(..., description="UUID of the previously invited Supabase Auth user")
     name: str = Field(..., min_length=2, max_length=255, description="Full name of field representative")
     email: str = Field(..., max_length=255, description="Work email address")
     phone: Optional[str] = Field(None, max_length=50, description="Contact phone number")
@@ -62,6 +63,7 @@ class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    auth_linked: bool = False
     agent_code: Optional[str] = None
     name: str
     email: Optional[str] = None
@@ -84,3 +86,10 @@ class AgentListResponse(BaseModel):
     skip: int
     limit: int
     items: List[AgentResponse]
+
+
+class AgentInvitationResponse(BaseModel):
+    agent_id: uuid.UUID
+    linked: bool
+    invitation_sent: bool
+    detail: str

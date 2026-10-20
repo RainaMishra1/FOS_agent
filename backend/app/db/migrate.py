@@ -44,13 +44,9 @@ async def apply_migrations_async() -> dict:
         )
         created_tables = [row[0] for row in res.fetchall()]
 
-    from app.db.seed import seed_database_if_needed
-    seed_result = await seed_database_if_needed()
-
     return {
         "status": "success",
         "stamped_revision": INITIAL_REVISION,
         "tables": created_tables,
         "table_count": len(created_tables),
-        "seed_result": seed_result,
     }

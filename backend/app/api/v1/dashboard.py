@@ -238,7 +238,10 @@ async def get_dashboard_summary(
             )
 
         # 6. Average Geofence Accuracy
-        avg_accuracy = await db.scalar(select(func.avg(VisitLocationLog.gps_accuracy)))
+        # VisitLocationLog stores the reported GPS accuracy in accuracy_meters.
+        # Referencing a nonexistent gps_accuracy attribute used to raise here;
+        # the broad fallback then replaced every dashboard KPI with zeroes.
+        avg_accuracy = await db.scalar(select(func.avg(VisitLocationLog.accuracy_meters)))
         if avg_accuracy is not None:
             avg_accuracy = round(float(avg_accuracy), 1)
 

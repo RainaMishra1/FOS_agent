@@ -14,6 +14,7 @@ def test_agent_endpoints_require_admin(client: TestClient):
     """POST /api/agents and GET /api/agents require admin credentials."""
     # 1. Unauthenticated request
     res = client.post("/api/agents", json={
+        "auth_user_id": str(uuid.uuid4()),
         "name": "Unauthorized User",
         "email": "unauth@fos.test",
         "agent_code": "AGT-UNAUTH",
@@ -47,6 +48,7 @@ def test_agent_endpoints_require_admin(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Subordinate Agent",
                 "email": "sub@fos.test",
                 "agent_code": "AGT-SUB",
@@ -91,6 +93,7 @@ def test_create_agent_validation_errors(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Jane Agent",
                 "email": "not-an-email",
                 "agent_code": "AGT-999",
@@ -103,6 +106,7 @@ def test_create_agent_validation_errors(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Jane Agent",
                 "email": "valid@email.com",
                 "agent_code": "AGT-999",
@@ -142,6 +146,7 @@ def test_create_agent_duplicate_code(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Duplicate Agent",
                 "email": "dupe@fos.test",
                 "agent_code": "AGT-DUPE",
@@ -191,6 +196,7 @@ def test_create_agent_duplicate_email_with_existing_agent(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "New Name",
                 "email": "existing@fos.test",
                 "agent_code": "AGT-BRANDNEW",
@@ -252,6 +258,7 @@ def test_create_agent_success(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Deepak Chopra",
                 "email": "deepak@fos.test",
                 "phone": "+91 9988776655",
@@ -381,6 +388,7 @@ def test_create_agent_with_coordinates_and_address(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Meera Joshi",
                 "email": "meera@fos.test",
                 "agent_code": "AGT-MEERA",
@@ -412,6 +420,7 @@ def test_coordinate_validation_rules(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Invalid Agent",
                 "email": "invalid1@fos.test",
                 "agent_code": "AGT-INV1",
@@ -426,6 +435,7 @@ def test_coordinate_validation_rules(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Invalid Agent",
                 "email": "invalid2@fos.test",
                 "agent_code": "AGT-INV2",
@@ -440,6 +450,7 @@ def test_coordinate_validation_rules(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Invalid Agent",
                 "email": "invalid3@fos.test",
                 "agent_code": "AGT-INV3",
@@ -454,6 +465,7 @@ def test_coordinate_validation_rules(client: TestClient):
         res = client.post(
             "/api/agents",
             json={
+                "auth_user_id": str(uuid.uuid4()),
                 "name": "Invalid Agent",
                 "email": "invalid4@fos.test",
                 "agent_code": "AGT-INV4",
