@@ -16,6 +16,7 @@ export interface AgentVisit {
     lat: number;
     lng: number;
   };
+  hasCoordinates?: boolean;
   scheduledTime: string;
   scheduledDate: string;
   estimatedDuration: string;
@@ -37,6 +38,7 @@ export interface AgentProfile {
   name: string;
   initials: string;
   role: string;
+  status?: string;
   email: string;
   phone: string;
   territory: string;

@@ -35,9 +35,10 @@ export default function AgentProfilePage() {
     toggleDuty,
     resetDemoData,
     stats,
+    isLiveBackend,
   } = useAgent();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
 
   const [supportRequested, setSupportRequested] = useState(false);
 
@@ -51,15 +52,24 @@ export default function AgentProfilePage() {
     setTimeout(() => setSupportRequested(false), 3000);
   };
 
-
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Header */}
-      <div>
-        <h2 className="text-lg sm:text-xl font-bold text-beige-text">Agent Profile &amp; Settings</h2>
-        <p className="text-xs text-beige-muted">
-          Manage your field presence, operational duty status, and device diagnostics.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-bold text-beige-text">Agent Profile &amp; Settings</h2>
+            {isLiveBackend && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-beige-olive/15 text-beige-olive border border-beige-olive/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-beige-olive animate-pulse" />
+                Live Backend
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-beige-muted">
+            Manage your field presence, operational duty status, and device diagnostics.
+          </p>
+        </div>
       </div>
 
       {/* Main Agent Identity Card */}
@@ -127,24 +137,40 @@ export default function AgentProfilePage() {
           </div>
         </div>
 
-        {/* Agent Switcher Dropdown (Helpful for demo/testing) */}
-        <div className="p-3 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1.5">
-          <label className="text-xs font-bold text-beige-text flex items-center justify-between">
-            <span>Switch Agent Profile (Demo Mode)</span>
-            <span className="text-[10px] text-beige-muted font-normal">Multi-agent testing</span>
-          </label>
-          <select
-            value={currentAgent.id}
-            onChange={(e) => switchAgent(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-xl bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40"
-          >
-            {availableAgents.map((ag) => (
-              <option key={ag.id} value={ag.id}>
-                {ag.name} ({ag.id}) — {ag.territory}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Identity & Session Info */}
+        {isLiveBackend ? (
+          <div className="p-3 rounded-xl bg-beige-olive/10 border border-beige-olive/30 text-xs space-y-1">
+            <div className="flex items-center justify-between text-beige-olive font-bold text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Verified Field Agent Identity (Server Enforced)
+              </span>
+              <span>Role: Agent</span>
+            </div>
+            <p className="text-[11px] text-beige-muted">
+              Authenticated via verified token. All visit schedules, customer records, and GPS logs are strictly scoped to Agent ID <code className="font-mono text-beige-text">{currentAgent.id}</code> on the backend.
+            </p>
+          </div>
+        ) : (
+          /* Agent Switcher Dropdown (Demo Mode Only) */
+          <div className="p-3 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1.5">
+            <label className="text-xs font-bold text-beige-text flex items-center justify-between">
+              <span>Switch Agent Profile (Demo Mode)</span>
+              <span className="text-[10px] text-beige-muted font-normal">Multi-agent testing</span>
+            </label>
+            <select
+              value={currentAgent.id}
+              onChange={(e) => switchAgent(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-xl bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40"
+            >
+              {availableAgents.map((ag) => (
+                <option key={ag.id} value={ag.id}>
+                  {ag.name} ({ag.id}) — {ag.territory}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Field Diagnostics & Device Stats */}

@@ -24,12 +24,23 @@ import {
 } from "lucide-react";
 
 export default function MyVisitsPage() {
-  const { visits, historyVisits, isOnDuty, checkInVisit } = useAgent();
+  const {
+    visits,
+    historyVisits,
+    isOnDuty,
+    checkInVisit,
+    isLoading,
+    error,
+    isLiveBackend,
+    refreshAgentData,
+  } = useAgent();
   const [activeTab, setActiveTab] = useState<"today" | "upcoming" | "completed" | "all">("today");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [selectedVisitForDrawer, setSelectedVisitForDrawer] = useState<AgentVisit | null>(null);
   const [completeModalVisit, setCompleteModalVisit] = useState<AgentVisit | null>(null);
+
+  const todayDateStr = new Date().toISOString().split("T")[0];
 
   // Filter logic
   const filteredVisits = useMemo(() => {
@@ -37,10 +48,10 @@ export default function MyVisitsPage() {
 
     if (activeTab === "today") {
       list = visits.filter(
-        (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
+        (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
       );
     } else if (activeTab === "upcoming") {
-      list = visits.filter((v) => v.scheduledDate !== "2026-10-18" && v.status !== "completed");
+      list = visits.filter((v) => v.scheduledDate !== todayDateStr && v.status !== "completed");
     } else if (activeTab === "completed") {
       list = [
         ...visits.filter((v) => v.status === "completed"),
@@ -69,14 +80,14 @@ export default function MyVisitsPage() {
     }
 
     return list;
-  }, [visits, historyVisits, activeTab, priorityFilter, searchQuery]);
+  }, [visits, historyVisits, activeTab, priorityFilter, searchQuery, todayDateStr]);
 
   // Tab counts
   const todayCount = visits.filter(
-    (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
+    (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
   ).length;
   const upcomingCount = visits.filter(
-    (v) => v.scheduledDate !== "2026-10-18" && v.status !== "completed"
+    (v) => v.scheduledDate !== todayDateStr && v.status !== "completed"
   ).length;
   const completedCount =
     visits.filter((v) => v.status === "completed").length + historyVisits.length;
@@ -93,19 +104,54 @@ export default function MyVisitsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-beige-text">My Visits</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-bold text-beige-text">My Visits</h2>
+            {isLiveBackend && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-beige-olive/15 text-beige-olive border border-beige-olive/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-beige-olive animate-pulse" />
+                Live Backend
+              </span>
+            )}
+          </div>
           <p className="text-xs text-beige-muted">
             Manage your assigned customer appointments, geofenced arrivals, and field completion logs.
           </p>
         </div>
 
-        <Link
-          href="/agent/routes"
-          className="self-start sm:self-auto px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-terracotta-subtle text-beige-terracotta border border-beige-terracotta/30 hover:bg-beige-terracotta hover:text-white transition flex items-center gap-1.5"
-        >
-          <span>View on Map Route →</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          {isLiveBackend && (
+            <button
+              type="button"
+              onClick={() => refreshAgentData(true)}
+              disabled={isLoading}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-border text-beige-text border border-beige-border transition disabled:opacity-50"
+            >
+              {isLoading ? "Refreshing..." : "Refresh"}
+            </button>
+          )}
+
+          <Link
+            href="/agent/routes"
+            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-terracotta-subtle text-beige-terracotta border border-beige-terracotta/30 hover:bg-beige-terracotta hover:text-white transition flex items-center gap-1.5"
+          >
+            <span>View on Map Route →</span>
+          </Link>
+        </div>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => refreshAgentData(true)}
+            className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 font-semibold text-[11px] shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-beige-sand/60 border border-beige-border overflow-x-auto scrollbar-none">
@@ -215,7 +261,23 @@ export default function MyVisitsPage() {
 
       {/* Visits List */}
       <div className="space-y-3">
-        {filteredVisits.length === 0 ? (
+        {isLoading && filteredVisits.length === 0 ? (
+          <div className="space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="p-4 rounded-2xl bg-beige-card border border-beige-border animate-pulse space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="h-4 bg-beige-sand/60 rounded w-1/4" />
+                  <div className="h-5 bg-beige-sand/80 rounded w-16" />
+                </div>
+                <div className="h-5 bg-beige-sand/80 rounded w-1/2" />
+                <div className="h-3 bg-beige-sand/50 rounded w-3/4" />
+              </div>
+            ))}
+          </div>
+        ) : filteredVisits.length === 0 ? (
           <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-2">
             <CalendarCheck className="w-8 h-8 text-beige-muted mx-auto" />
             <p className="text-sm font-bold text-beige-text">No visits found</p>

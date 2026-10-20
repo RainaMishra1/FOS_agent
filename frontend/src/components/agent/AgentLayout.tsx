@@ -116,7 +116,13 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               ) : (
                 <Info className="w-4 h-4 text-beige-muted shrink-0" />
               )}
-              <span className="font-medium text-beige-text">{notification.message}</span>
+              <span className="font-medium text-beige-text">
+                {typeof notification.message === "string"
+                  ? notification.message
+                  : typeof notification.message === "object" && notification.message !== null
+                  ? (notification.message as any).msg || JSON.stringify(notification.message)
+                  : String(notification.message)}
+              </span>
             </div>
             <button
               onClick={clearNotification}

@@ -5,7 +5,14 @@ from app.schemas.auth import (
     AdminProvisionRequest,
     AgentLocationUpdateRequest,
 )
-from app.schemas.visit import VisitResponse, VisitListResponse, VisitStatusUpdateRequest
+from app.schemas.visit import (
+    VisitResponse,
+    VisitListResponse,
+    VisitStatusUpdateRequest,
+    AgentStats,
+    AgentDashboardResponse,
+    AgentDutyUpdateRequest,
+)
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
     KpiSummary,
@@ -26,6 +33,9 @@ __all__ = [
     "VisitResponse",
     "VisitListResponse",
     "VisitStatusUpdateRequest",
+    "AgentStats",
+    "AgentDashboardResponse",
+    "AgentDutyUpdateRequest",
     "DashboardSummaryResponse",
     "KpiSummary",
     "DashboardActiveAgent",

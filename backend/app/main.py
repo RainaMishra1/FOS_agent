@@ -17,7 +17,14 @@ from app.db import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup actions
+    # Startup actions: ensure new columns exist without dropping data
+    try:
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS address VARCHAR(500);"))
+            await conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS location_source VARCHAR(50) DEFAULT 'unknown' NOT NULL;"))
+    except Exception as exc:
+        pass
     yield
     # Shutdown actions
     await engine.dispose()

@@ -15,6 +15,9 @@ from app.core.auth import require_authenticated
 router = APIRouter(prefix="/visits", tags=["Visits"])
 
 
+VALID_VISIT_STATUSES = {"pending", "in_progress", "completed", "delayed"}
+
+
 def _to_visit_response(v: Visit) -> VisitResponse:
     return VisitResponse(
         id=v.id,
@@ -22,7 +25,14 @@ def _to_visit_response(v: Visit) -> VisitResponse:
         customer_id=v.customer_id,
         agent_id=v.agent_id,
         customer_name=v.customer.name if v.customer else None,
+        customer_company=v.customer.company if v.customer else None,
+        customer_contact_person=v.customer.contact_person if v.customer else None,
+        customer_phone=v.customer.phone if v.customer else None,
+        customer_email=v.customer.email if v.customer else None,
         customer_address=v.customer.address if v.customer else None,
+        customer_city=v.customer.city if v.customer else None,
+        customer_latitude=v.customer.latitude if v.customer else None,
+        customer_longitude=v.customer.longitude if v.customer else None,
         scheduled_date=v.scheduled_date,
         scheduled_time=v.scheduled_time,
         status=v.status,
@@ -139,7 +149,14 @@ async def update_visit_status(
     Update visit status, check-in verification, or completion notes.
     - Admins can update any visit.
     - Field agents can ONLY update their own assigned visits.
+    - Validates permitted status transitions.
     """
+    if payload.status not in VALID_VISIT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{payload.status}'. Permitted statuses: {', '.join(sorted(VALID_VISIT_STATUSES))}.",
+        )
+
     query = select(Visit).options(joinedload(Visit.customer)).where(Visit.id == visit_id)
     result = await db.execute(query)
     visit = result.unique().scalars().first()
@@ -156,6 +173,12 @@ async def update_visit_status(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: Cannot modify another agent's assigned visit.",
+            )
+        # Agents cannot reopen an already completed visit
+        if visit.status == "completed" and payload.status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status transition: A completed visit cannot be reopened by an agent.",
             )
 
     visit.status = payload.status

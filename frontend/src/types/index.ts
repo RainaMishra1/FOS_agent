@@ -2,9 +2,12 @@ export type AgentStatus = "active" | "inactive" | "busy" | "break";
 export type PriorityLevel = "high" | "medium" | "low";
 export type TaskStatus = "active" | "inactive" | "assigned" | "pending" | "completed" | "delayed";
 
+export type LocationSource = "admin_provided" | "gps" | "unknown";
+
 export interface Agent {
   id: string;
   name: string;
+  agentCode?: string;
   initials: string;
   email: string;
   phone: string;
@@ -14,10 +17,12 @@ export interface Agent {
   completedVisits: number;
   lastLocationUpdate: string;
   territory: string;
-  coordinates: {
+  address?: string;
+  locationSource?: LocationSource;
+  coordinates?: {
     lat: number;
     lng: number;
-  };
+  } | null;
   batteryLevel?: number;
 }
 

@@ -112,29 +112,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(initialSession);
           if (initialSession) {
             await syncProfile(initialSession);
-          } else if (!isConfigured && typeof window !== "undefined") {
-            const devRole = localStorage.getItem("fos_dev_auth_role") as UserRole | null;
-            const devEmail = localStorage.getItem("fos_dev_auth_email");
-            if (devRole && devEmail) {
-              const devUser: any = {
-                id: devRole === "admin" ? "00000000-0000-0000-0000-000000000001" : "00000000-0000-0000-0000-000000000002",
-                email: devEmail,
-                user_metadata: {
-                  full_name: devRole === "admin" ? "Anil Ops (Admin)" : "Field Agent Marcus",
-                  role: devRole,
-                },
-              };
-              const devSession: any = { access_token: "dev-sandbox-token", user: devUser };
-              setUser(devUser);
-              setSession(devSession);
-              setProfile({
-                id: devUser.id,
-                full_name: devUser.user_metadata.full_name,
-                email: devEmail,
-                role: devRole,
-              });
-              setRole(devRole);
-            }
           }
         }
       } catch (err: any) {
@@ -146,7 +123,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     initializeAuth();
-
 
     // Listen for auth state changes (sign in, sign out, token refresh, etc.)
     const {
@@ -183,79 +159,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setError(null);
 
-    // If Supabase project is configured, authenticate directly via Supabase Auth
-    if (isConfigured) {
-      try {
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+    if (!isConfigured) {
+      const err = new Error(
+        "Supabase is not configured. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment."
+      );
+      setError(err.message);
+      setIsLoading(false);
+      return { error: err, role: null };
+    }
 
-        if (authError) {
-          setError(authError.message);
-          setIsLoading(false);
-          return { error: authError };
-        }
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-        if (data.session) {
-          setSession(data.session);
-          const resolvedProfile = await syncProfile(data.session);
-          setIsLoading(false);
-          return { error: null, role: resolvedProfile?.role || "agent" };
-        }
-
+      if (authError) {
+        setError(authError.message);
         setIsLoading(false);
-        return { error: null };
-      } catch (err: any) {
-        setError(err.message || "Failed to sign in");
-        setIsLoading(false);
-        return { error: err };
+        return { error: authError, role: null };
       }
-    } else {
-      // In development sandbox mode (when .env.local has placeholders):
-      // Enable developer evaluation of role redirection and protected routes
-      await new Promise((r) => setTimeout(r, 600)); // Simulate network check
-      const lowerEmail = email.toLowerCase();
-      const mockRole: UserRole = lowerEmail.includes("admin") ? "admin" : "agent";
 
-      const mockUser: any = {
-        id: mockRole === "admin" ? "00000000-0000-0000-0000-000000000001" : "00000000-0000-0000-0000-000000000002",
-        email,
-        user_metadata: {
-          full_name: mockRole === "admin" ? "Anil Ops (Admin)" : "Field Agent Marcus",
-          role: mockRole,
-        },
-      };
+      if (!data.session) {
+        const noSessionErr = new Error("No active session returned after authentication.");
+        setError(noSessionErr.message);
+        setIsLoading(false);
+        return { error: noSessionErr, role: null };
+      }
 
-      const mockSession: any = {
-        access_token: "dev-sandbox-token",
-        user: mockUser,
-      };
+      setSession(data.session);
+      setUser(data.session.user);
 
-      const devProfile: UserProfile = {
-        id: mockUser.id,
-        full_name: mockUser.user_metadata.full_name,
-        email,
-        role: mockRole,
-        agent_id: mockRole === "agent" ? "agt-001" : undefined,
-        agent_code: mockRole === "agent" ? "AGT-101" : undefined,
-      };
-
-      setUser(mockUser);
-      setSession(mockSession);
-      setProfile(devProfile);
-      setRole(mockRole);
+      // Verify and obtain application profile and role through backend
+      const resolvedProfile = await syncProfile(data.session);
       setIsLoading(false);
 
-      try {
-        localStorage.setItem("fos_dev_auth_role", mockRole);
-        localStorage.setItem("fos_dev_auth_email", email);
-      } catch {}
+      if (!resolvedProfile) {
+        const profileErr = new Error(
+          "Authenticated with Supabase, but no FOS application profile found for this user. Please contact an administrator to provision your account."
+        );
+        setError(profileErr.message);
+        return { error: profileErr, role: null };
+      }
 
-      return { error: null, role: mockRole };
+      return { error: null, role: resolvedProfile.role };
+    } catch (err: any) {
+      const message = err.message || "Failed to sign in. Please try again.";
+      setError(message);
+      setIsLoading(false);
+      return { error: new Error(message), role: null };
     }
   };
-
 
   const signOut = async (): Promise<void> => {
     setIsLoading(true);
@@ -264,10 +218,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("Error during Supabase signOut:", err);
     } finally {
-      try {
-        localStorage.removeItem("fos_dev_auth_role");
-        localStorage.removeItem("fos_dev_auth_email");
-      } catch {}
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem("fos_dev_auth_role");
+          localStorage.removeItem("fos_dev_auth_email");
+        } catch {}
+      }
       setUser(null);
       setSession(null);
       setProfile(null);

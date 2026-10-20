@@ -50,6 +50,14 @@ class Agent(Base, TimestampMixin):
         comment="Operational status: active, inactive, busy, break",
     )
     territory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="Base address or operating hub")
+    location_source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="unknown",
+        server_default="unknown",
+        comment="Location provenance: admin_provided, gps, or unknown",
+    )
     current_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     current_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     current_location = mapped_column(

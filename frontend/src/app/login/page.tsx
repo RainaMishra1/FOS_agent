@@ -110,12 +110,33 @@ export default function LoginPage() {
 
           {/* Error Message Alert */}
           {(errorMessage || authError) && (
-            <div className="p-3.5 rounded-2xl bg-[#FDF2F0] border border-beige-terracotta/30 text-beige-terracotta text-xs flex items-start gap-2.5 animate-in fade-in duration-150">
-              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">
-                <span className="font-semibold block">Authentication Failed</span>
-                <span>{errorMessage || authError}</span>
+            <div className="p-3.5 rounded-2xl bg-[#FDF2F0] border border-beige-terracotta/30 text-beige-terracotta text-xs space-y-2 animate-in fade-in duration-150">
+              <div className="flex items-start gap-2.5">
+                <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-semibold block">Authentication Failed</span>
+                  <span>{errorMessage || authError}</span>
+                </div>
               </div>
+
+              {(errorMessage?.toLowerCase().includes("invalid login credentials") ||
+                errorMessage?.toLowerCase().includes("not provisioned") ||
+                authError?.toLowerCase().includes("invalid login credentials")) && (
+                <div className="mt-1.5 pt-2 border-t border-beige-terracotta/20 text-[11px] text-beige-text bg-white/70 p-2.5 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-beige-terracotta">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Supabase Auth Setup Required</span>
+                  </div>
+                  <p className="text-[11px] text-beige-muted leading-relaxed">
+                    Test accounts must be provisioned in your Supabase Auth project before signing in. FOS uses verified Supabase Auth tokens and does not fabricate mock sessions.
+                  </p>
+                  <div className="text-[10px] text-beige-muted space-y-1 bg-beige-sand/40 p-2 rounded-lg border border-beige-border/60">
+                    <p>1. Open <strong>Supabase Dashboard &gt; Authentication &gt; Users</strong>.</p>
+                    <p>2. Create the user with the work email and password.</p>
+                    <p>3. Field agent operational records are linked server-side by an Administrator in <strong>FOS &gt; Field Agents</strong>.</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

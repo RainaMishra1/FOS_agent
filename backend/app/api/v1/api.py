@@ -5,6 +5,7 @@ from app.api.v1 import agents
 from app.api.v1 import customers
 from app.api.v1 import visits
 from app.api.v1 import dashboard
+from app.api.v1 import agent
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -13,3 +14,5 @@ api_router.include_router(dashboard.router)
 api_router.include_router(agents.router)
 api_router.include_router(customers.router)
 api_router.include_router(visits.router)
+api_router.include_router(agent.router)
+

@@ -7,6 +7,7 @@ import { AgentVisit } from "@/types/agent";
 import NextVisitCard from "@/components/agent/NextVisitCard";
 import AgentMapPreview from "@/components/agent/AgentMapPreview";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
+import AgentLocationSection from "@/components/agent/AgentLocationSection";
 import StatusBadge from "@/components/StatusBadge";
 import {
   CalendarCheck,
@@ -23,6 +24,7 @@ import {
   Sparkles,
   PhoneCall,
   Coffee,
+  RefreshCw,
 } from "lucide-react";
 
 export default function AgentDashboardPage() {
@@ -35,15 +37,26 @@ export default function AgentDashboardPage() {
     stats,
     selectedVisit,
     setSelectedVisit,
+    isLoading,
+    error,
+    isLiveBackend,
+    refreshAgentData,
   } = useAgent();
 
   const [activeDrawerVisit, setActiveDrawerVisit] = useState<AgentVisit | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Today's completed and recent visits
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshAgentData(false);
+    setIsRefreshing(false);
+  };
+
+  const todayDateStr = new Date().toISOString().split("T")[0];
   const todayVisits = visits.filter(
-    (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
+    (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
   );
-  const completedToday = todayVisits.filter((v) => v.status === "completed");
+  const completedToday = visits.filter((v) => v.status === "completed");
 
   const handleOpenDetails = (visit: AgentVisit) => {
     setActiveDrawerVisit(visit);
@@ -51,6 +64,27 @@ export default function AgentDashboardPage() {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
+      {/* Error / Offline Alert Banner with Retry */}
+      {error && (
+        <div className="p-4 rounded-2xl bg-[#FDF2F0] border border-beige-terracotta/30 text-beige-terracotta flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-xs font-bold">Backend Sync Failed</h4>
+              <p className="text-[11px] opacity-90 mt-0.5">{error}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="px-3 py-1.5 rounded-xl bg-beige-terracotta text-white font-semibold text-xs hover:bg-beige-terracotta/90 transition flex items-center gap-1.5 shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      )}
+
       {/* 1. Welcome Header & Agent Profile Card */}
       <div className="rounded-2xl bg-gradient-to-br from-beige-card via-beige-sand/40 to-beige-sand/70 border border-beige-border p-4 sm:p-5 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -70,9 +104,14 @@ export default function AgentDashboardPage() {
                 <h2 className="text-base sm:text-lg font-bold text-beige-text">
                   Welcome back, {currentAgent.name}
                 </h2>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border font-semibold">
                   {currentAgent.id}
                 </span>
+                {isLiveBackend && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-beige-sand text-beige-olive border border-beige-olive/30 font-semibold">
+                    Live Backend
+                  </span>
+                )}
               </div>
               <p className="text-xs text-beige-muted">
                 {currentAgent.role} • {currentAgent.territory}
@@ -80,8 +119,18 @@ export default function AgentDashboardPage() {
             </div>
           </div>
 
-          {/* Quick Duty Control Pill */}
+          {/* Quick Duty Control Pill & Refresh */}
           <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing || isLoading}
+              className="p-2 rounded-xl text-beige-muted hover:text-beige-text bg-beige-sand/60 hover:bg-beige-sand border border-beige-border transition disabled:opacity-50"
+              title="Refresh Agent Visits from Backend"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-beige-terracotta" : ""}`} />
+            </button>
+
             <button
               type="button"
               onClick={toggleDuty}
@@ -96,7 +145,7 @@ export default function AgentDashboardPage() {
                   isOnDuty ? "bg-white animate-pulse" : "bg-beige-muted"
                 }`}
               />
-              <span>{isOnDuty ? "On Duty • GPS Active" : "Off Duty • Paused"}</span>
+              <span>{isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}</span>
             </button>
           </div>
         </div>
@@ -127,7 +176,7 @@ export default function AgentDashboardPage() {
             <CalendarCheck className="w-4 h-4 text-beige-terracotta" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            {stats.todayTotal}
+            {isLoading ? "..." : stats.todayTotal}
           </div>
           <div className="text-[10px] text-beige-muted mt-0.5">Assigned for today</div>
         </div>
@@ -138,10 +187,10 @@ export default function AgentDashboardPage() {
             <CheckCircle2 className="w-4 h-4 text-beige-olive" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-beige-olive">
-            {stats.todayCompleted}
+            {isLoading ? "..." : stats.todayCompleted}
           </div>
           <div className="text-[10px] text-beige-muted mt-0.5">
-            {stats.completionPercentage}% completion rate
+            {isLoading ? "..." : `${stats.completionPercentage}% completion rate`}
           </div>
         </div>
 
@@ -151,7 +200,7 @@ export default function AgentDashboardPage() {
             <Clock className="w-4 h-4 text-beige-amber" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            {stats.todayRemaining}
+            {isLoading ? "..." : stats.todayRemaining}
           </div>
           <div className="text-[10px] text-beige-muted mt-0.5">Pending check-in</div>
         </div>
@@ -165,12 +214,17 @@ export default function AgentDashboardPage() {
             100m
           </div>
           <div className="text-[10px] text-beige-olive font-medium mt-0.5">
-            100% compliance rate
+            100% compliance target
           </div>
         </div>
       </div>
 
-      {/* 3. Next Visit Standout Card */}
+      {/* 3. Real Agent GPS Auto-Detection & Location Section */}
+      <section className="space-y-2">
+        <AgentLocationSection />
+      </section>
+
+      {/* 4. Next Visit Standout Card */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
@@ -181,7 +235,7 @@ export default function AgentDashboardPage() {
             href="/agent/visits"
             className="text-[11px] font-semibold text-beige-terracotta hover:underline flex items-center gap-1"
           >
-            <span>All {stats.todayTotal} Visits</span>
+            <span>All {visits.length} Visits</span>
             <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
@@ -192,20 +246,16 @@ export default function AgentDashboardPage() {
         />
       </section>
 
-      {/* 4. Prominent Interactive Map Preview */}
+      {/* 5. Prominent Interactive Map Preview */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
             <MapPin className="w-3.5 h-3.5 text-beige-terracotta" />
             Today&apos;s Customer Stops &amp; Route Preview
           </h3>
-          <Link
-            href="/agent/routes"
-            className="text-[11px] font-semibold text-beige-terracotta hover:underline flex items-center gap-1"
-          >
-            <span>Open Route View</span>
-            <ArrowRight className="w-3 h-3" />
-          </Link>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border">
+            Demo Map Layer
+          </span>
         </div>
 
         <AgentMapPreview
@@ -216,7 +266,7 @@ export default function AgentDashboardPage() {
         />
       </section>
 
-      {/* 5. Quick Actions Row */}
+      {/* 6. Quick Actions Row */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Link
           href="/agent/routes"
@@ -226,7 +276,7 @@ export default function AgentDashboardPage() {
             <Route className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">View Route</span>
-          <span className="text-[10px] text-beige-muted">5 stops ordered</span>
+          <span className="text-[10px] text-beige-muted">{visits.length} stops ordered</span>
         </Link>
 
         <Link
@@ -248,7 +298,7 @@ export default function AgentDashboardPage() {
             <Clock className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">Visit History</span>
-          <span className="text-[10px] text-beige-muted">Past logs &amp; seals</span>
+          <span className="text-[10px] text-beige-muted">{historyVisits.length} past records</span>
         </Link>
 
         <Link
@@ -263,7 +313,7 @@ export default function AgentDashboardPage() {
         </Link>
       </section>
 
-      {/* 6. Recent Visit Activity */}
+      {/* 7. Recent Visit Activity */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
@@ -280,7 +330,7 @@ export default function AgentDashboardPage() {
 
         <div className="rounded-2xl bg-beige-card border border-beige-border divide-y divide-beige-border/60 overflow-hidden shadow-xs">
           {/* Today's completed visits or first history */}
-          {(completedToday.length > 0 ? completedToday : historyVisits.slice(0, 2)).map((visit) => (
+          {(completedToday.length > 0 ? completedToday : historyVisits.slice(0, 3)).map((visit) => (
             <div
               key={visit.id}
               onClick={() => handleOpenDetails(visit)}
@@ -296,7 +346,7 @@ export default function AgentDashboardPage() {
                       {visit.customerName}
                     </span>
                     <span className="text-[10px] font-mono text-beige-olive bg-beige-olive-subtle px-1.5 py-0.2 rounded border border-beige-olive/30 shrink-0">
-                      Geofence Verified
+                      Completed
                     </span>
                   </div>
                   <p className="text-[11px] text-beige-muted truncate">
@@ -310,6 +360,13 @@ export default function AgentDashboardPage() {
               </span>
             </div>
           ))}
+
+          {completedToday.length === 0 && historyVisits.length === 0 && (
+            <div className="p-6 text-center text-xs text-beige-muted space-y-1">
+              <p className="font-semibold text-beige-text">No completed visits recorded yet</p>
+              <p>Check in and complete assigned appointments to build your activity history.</p>
+            </div>
+          )}
         </div>
       </section>
 

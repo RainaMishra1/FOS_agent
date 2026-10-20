@@ -4,12 +4,14 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Agent } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
+import CreateAgentModal from "@/components/CreateAgentModal";
 import { fetchAgents, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   Search,
   Filter,
   Plus,
+  UserPlus,
   Phone,
   Mail,
   MapPin,
@@ -44,6 +46,7 @@ export default function AgentsPage() {
 
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [assigningAgent, setAssigningAgent] = useState<Agent | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -68,22 +71,33 @@ export default function AgentsPage() {
       }
     }
 
+    const hasCoordinates =
+      item.current_latitude !== null &&
+      item.current_latitude !== undefined &&
+      item.current_longitude !== null &&
+      item.current_longitude !== undefined;
+
     return {
       id: item.id,
       name,
+      agentCode: item.agent_code || undefined,
       initials,
       email: item.email || "No email",
       phone: item.phone || "No phone",
       status: (item.status || "active") as any,
       territory: item.territory || "Unassigned",
+      address: item.address || undefined,
+      locationSource: (item.location_source as any) || "unknown",
       currentTask: item.assigned_tasks > 0 ? `${item.assigned_tasks} active task(s)` : "Available for dispatch",
       assignedTasks: item.assigned_tasks,
       completedVisits: item.completed_visits,
       lastLocationUpdate: formattedUpdate,
-      coordinates: {
-        lat: item.current_latitude || 12.9716,
-        lng: item.current_longitude || 77.5946,
-      },
+      coordinates: hasCoordinates
+        ? {
+            lat: item.current_latitude as number,
+            lng: item.current_longitude as number,
+          }
+        : null,
       batteryLevel: item.battery_level ?? 85,
     };
   };
@@ -163,10 +177,18 @@ export default function AgentsPage() {
 
           <button
             onClick={() => handleOpenAssign(agents[0] || null)}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-sand/80 text-beige-text border border-beige-border flex items-center gap-1.5 transition self-start sm:self-auto"
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Assign Work</span>
+          </button>
+
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-beige-terracotta hover:bg-beige-terracotta/90 text-white shadow-sm flex items-center gap-1.5 transition self-start sm:self-auto"
           >
-            <Plus className="w-4 h-4" />
-            <span>Assign Work</span>
+            <UserPlus className="w-4 h-4" />
+            <span>Add Field Agent</span>
           </button>
         </div>
       </div>
@@ -278,7 +300,7 @@ export default function AgentsPage() {
                 <th className="py-3 px-4">Territory</th>
                 <th className="py-3 px-4">Battery</th>
                 <th className="py-3 px-4">Visits Progress</th>
-                <th className="py-3 px-4">Last GPS Update</th>
+                <th className="py-3 px-4">Location &amp; Coordinates</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -298,8 +320,17 @@ export default function AgentsPage() {
                     <span className="text-xs text-beige-muted mt-1 block">
                       {search || statusFilter !== "all"
                         ? "Try clearing your search filters to view all agents."
-                        : "No agents currently exist in the database."}
+                        : "No field agents currently exist in the database."}
                     </span>
+                    {!search && statusFilter === "all" && (
+                      <button
+                        onClick={() => setIsCreateModalOpen(true)}
+                        className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-beige-terracotta text-white hover:bg-beige-terracotta/90 transition shadow-sm"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        <span>Register First Agent</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -372,9 +403,30 @@ export default function AgentsPage() {
                       </div>
                     </td>
 
-                    {/* Last Update */}
-                    <td className="py-3.5 px-4 font-mono text-[11px] text-beige-muted">
-                      {agent.lastLocationUpdate}
+                    {/* Location & Coordinates */}
+                    <td className="py-3.5 px-4">
+                      {agent.coordinates ? (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                agent.locationSource === "gps"
+                                  ? "bg-beige-olive-subtle text-beige-olive border border-beige-olive/30"
+                                  : "bg-beige-sand text-beige-text border border-beige-border"
+                              }`}
+                            >
+                              {agent.locationSource === "gps" ? "Live GPS" : "Admin Hub"}
+                            </span>
+                          </div>
+                          <p className="font-mono text-[10px] text-beige-muted">
+                            {agent.coordinates.lat.toFixed(4)}, {agent.coordinates.lng.toFixed(4)}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-beige-muted italic">
+                          No coordinates
+                        </span>
+                      )}
                     </td>
 
                     {/* Actions */}
@@ -482,6 +534,46 @@ export default function AgentsPage() {
                 </div>
               </div>
 
+              {/* Geographic Provenance & Coordinates */}
+              <div className="p-3 rounded-xl bg-beige-card border border-beige-border space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-beige-text flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-beige-terracotta" />
+                    <span>Location Provenance</span>
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      selectedAgent.locationSource === "gps"
+                        ? "bg-beige-olive-subtle text-beige-olive"
+                        : selectedAgent.locationSource === "admin_provided"
+                        ? "bg-beige-sand text-beige-text border border-beige-border"
+                        : "bg-beige-sand/50 text-beige-muted"
+                    }`}
+                  >
+                    {selectedAgent.locationSource === "gps"
+                      ? "Live GPS (Device Verified)"
+                      : selectedAgent.locationSource === "admin_provided"
+                      ? "Admin-Provided Hub"
+                      : "Unlocated (No GPS)"}
+                  </span>
+                </div>
+                {selectedAgent.coordinates ? (
+                  <p className="font-mono text-[11px] text-beige-text">
+                    Latitude: {selectedAgent.coordinates.lat.toFixed(6)}, Longitude: {selectedAgent.coordinates.lng.toFixed(6)}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-beige-muted italic">
+                    Coordinates not yet assigned or shared.
+                  </p>
+                )}
+                {selectedAgent.address && (
+                  <p className="text-[11px] text-beige-muted pt-1 border-t border-beige-border/60">
+                    <span className="font-semibold text-beige-text">Address: </span>
+                    {selectedAgent.address}
+                  </p>
+                )}
+              </div>
+
               {/* Current Active Task */}
               <div className="p-3.5 rounded-xl bg-beige-olive-subtle/80 border border-beige-olive/30">
                 <span className="font-bold text-beige-olive uppercase text-[10px] tracking-wider block mb-1">
@@ -541,6 +633,18 @@ export default function AgentsPage() {
         preselectedAgent={assigningAgent}
         onSuccess={(msg) => {
           setToastMessage(msg);
+          loadAgents();
+        }}
+      />
+
+      {/* Create Field Agent Modal */}
+      <CreateAgentModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={(created) => {
+          setToastMessage(
+            `Agent ${created.name} (${created.agent_code || "Active"}) registered successfully in database.`
+          );
           loadAgents();
         }}
       />

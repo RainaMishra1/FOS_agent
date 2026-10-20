@@ -38,16 +38,17 @@ export default function GeofenceSimulator({
     updateMockDistance(visit.id, newDist);
   };
 
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
     if (!isWithinGeofence || isAlreadyCheckedIn) return;
     setIsCheckingIn(true);
-    setTimeout(() => {
-      const res = checkInVisit(visit.id);
-      setIsCheckingIn(false);
+    try {
+      const res = await checkInVisit(visit.id);
       if (res.success && onCheckInSuccess) {
         onCheckInSuccess();
       }
-    }, 600);
+    } finally {
+      setIsCheckingIn(false);
+    }
   };
 
   return (

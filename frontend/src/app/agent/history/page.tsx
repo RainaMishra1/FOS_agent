@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 export default function VisitHistoryPage() {
-  const { visits, historyVisits } = useAgent();
+  const { visits, historyVisits, isLoading, error, isLiveBackend, refreshAgentData } = useAgent();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedVisitForDrawer, setSelectedVisitForDrawer] = useState<AgentVisit | null>(null);
 
@@ -40,12 +40,47 @@ export default function VisitHistoryPage() {
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Header */}
-      <div>
-        <h2 className="text-lg sm:text-xl font-bold text-beige-text">Visit History</h2>
-        <p className="text-xs text-beige-muted">
-          Review completed field appointments, geofenced verification records, and customer sign-offs.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-bold text-beige-text">Visit History</h2>
+            {isLiveBackend && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-beige-olive/15 text-beige-olive border border-beige-olive/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-beige-olive animate-pulse" />
+                Live Database
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-beige-muted">
+            Review completed field appointments, geofenced verification records, and customer sign-offs.
+          </p>
+        </div>
+
+        {isLiveBackend && (
+          <button
+            type="button"
+            onClick={() => refreshAgentData(true)}
+            disabled={isLoading}
+            className="self-start sm:self-auto px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-border text-beige-text border border-beige-border transition disabled:opacity-50"
+          >
+            {isLoading ? "Refreshing..." : "Refresh Records"}
+          </button>
+        )}
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => refreshAgentData(true)}
+            className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 font-semibold text-[11px] shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Summary Banner */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
@@ -56,8 +91,10 @@ export default function VisitHistoryPage() {
           </strong>
         </div>
         <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <span className="text-[10px] text-beige-muted block">Geofence Compliance</span>
-          <strong className="text-lg sm:text-xl font-bold text-beige-text">100% Verified</strong>
+          <span className="text-[10px] text-beige-muted block">Status</span>
+          <strong className="text-lg sm:text-xl font-bold text-beige-text">
+            {isLiveBackend ? "Synchronized" : "Demo Mode"}
+          </strong>
         </div>
         <div className="col-span-2 sm:col-span-1 p-3 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
           <span className="text-[10px] text-beige-muted block">Avg GPS Accuracy</span>
@@ -79,7 +116,20 @@ export default function VisitHistoryPage() {
 
       {/* History Items */}
       <div className="space-y-3">
-        {filteredHistory.length === 0 ? (
+        {isLoading && allCompleted.length === 0 ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="p-4 rounded-2xl bg-beige-card border border-beige-border animate-pulse space-y-3"
+              >
+                <div className="h-4 bg-beige-sand/60 rounded w-1/3" />
+                <div className="h-5 bg-beige-sand/80 rounded w-2/3" />
+                <div className="h-3 bg-beige-sand/50 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : filteredHistory.length === 0 ? (
           <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-2">
             <History className="w-8 h-8 text-beige-muted mx-auto" />
             <p className="text-sm font-bold text-beige-text">No past records found</p>

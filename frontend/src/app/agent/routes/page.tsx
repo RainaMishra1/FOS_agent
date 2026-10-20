@@ -38,17 +38,20 @@ export default function AgentRoutePage() {
   const [isReoptimizing, setIsReoptimizing] = useState(false);
   const [optimizationNotice, setOptimizationNotice] = useState<string | null>(null);
 
+  const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+
   // Today's stops sorted by orderIndex
   const todayVisits = useMemo(() => {
     return visits
       .filter(
         (v) =>
+          v.scheduledDate === todayStr ||
           v.scheduledDate === "2026-10-18" ||
           v.status === "completed" ||
           v.status === "in_progress"
       )
       .sort((a, b) => a.orderIndex - b.orderIndex);
-  }, [visits]);
+  }, [visits, todayStr]);
 
   // Convert visits to BaseRouteStop format for math optimization
   const baseStops: BaseRouteStop[] = useMemo(() => {

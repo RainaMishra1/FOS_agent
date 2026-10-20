@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, or_
@@ -11,7 +12,7 @@ from app.models.agent import Agent
 from app.models.profile import Profile
 from app.models.visit import Visit
 from app.models.agent_location import AgentLocation
-from app.schemas.agent import AgentListResponse, AgentResponse
+from app.schemas.agent import AgentCreateRequest, AgentListResponse, AgentResponse
 from app.schemas.auth import AgentLocationUpdateRequest
 from app.core.auth import require_admin, require_agent, require_authenticated
 
@@ -31,13 +32,15 @@ def _to_agent_response(
         phone=agent.profile.phone if agent.profile else None,
         status=agent.status,
         territory=agent.territory,
+        address=agent.address,
+        location_source=getattr(agent, "location_source", "unknown") or "unknown",
         current_latitude=agent.current_latitude,
         current_longitude=agent.current_longitude,
         battery_level=agent.battery_level,
         last_location_update=agent.last_location_update,
         assigned_tasks=assigned_tasks,
         completed_visits=completed_visits,
-        created_at=agent.created_at,
+        created_at=agent.created_at or datetime.now(timezone.utc),
     )
 
 
@@ -107,6 +110,111 @@ async def list_agents(
     )
 
 
+@router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
+async def create_agent(
+    payload: AgentCreateRequest,
+    current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AgentResponse:
+    """
+    Create and provision a new field representative in the operational database.
+    Restricted to authorized Administrators only.
+    Validates required fields, enforces uniqueness on employee ID (agent_code) and email,
+    and cleanly connects Profile and Agent entities in a single atomic transaction.
+    """
+    # 1. Enforce unique employee ID (agent_code)
+    clean_code = payload.agent_code.strip().upper()
+    existing_agent_code = await db.scalar(
+        select(Agent).where(func.upper(Agent.agent_code) == clean_code)
+    )
+    if existing_agent_code:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An agent with employee ID '{payload.agent_code}' already exists.",
+        )
+
+    # 2. Enforce email uniqueness and account association
+    clean_email = payload.email.strip().lower()
+    profile_stmt = (
+        select(Profile)
+        .options(joinedload(Profile.agent))
+        .where(func.lower(Profile.email) == clean_email)
+    )
+    res = await db.execute(profile_stmt)
+    existing_profile = res.unique().scalars().first()
+
+    if existing_profile:
+        if existing_profile.agent:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"An agent account with email '{payload.email}' already exists.",
+            )
+        if existing_profile.role != "agent":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A user profile with email '{payload.email}' already exists with role '{existing_profile.role}'.",
+            )
+        profile = existing_profile
+        profile.full_name = payload.name.strip()
+        if payload.phone:
+            profile.phone = payload.phone.strip()
+    else:
+        profile = Profile(
+            id=uuid.uuid4(),
+            full_name=payload.name.strip(),
+            email=clean_email,
+            role="agent",
+            phone=payload.phone.strip() if payload.phone else None,
+        )
+        db.add(profile)
+        await db.flush()
+
+    # 3. Create Agent record
+    has_coords = payload.latitude is not None and payload.longitude is not None
+    location_source = "admin_provided" if has_coords else "unknown"
+    point_geom = (
+        WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326)
+        if has_coords
+        else None
+    )
+
+    new_agent = Agent(
+        id=uuid.uuid4(),
+        profile_id=profile.id,
+        agent_code=clean_code,
+        status=payload.status.strip().lower(),
+        territory=payload.territory.strip() if payload.territory else None,
+        address=payload.address.strip() if payload.address else None,
+        current_latitude=payload.latitude if has_coords else None,
+        current_longitude=payload.longitude if has_coords else None,
+        current_location=point_geom,
+        location_source=location_source,
+        battery_level=100,
+        last_location_update=datetime.now(timezone.utc) if has_coords else None,
+    )
+    db.add(new_agent)
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to persist agent record to database: {str(exc)}",
+        )
+
+    # 4. Fetch complete agent with profile eager-loaded
+    fetch_stmt = (
+        select(Agent)
+        .options(joinedload(Agent.profile))
+        .where(Agent.id == new_agent.id)
+    )
+    fetch_res = await db.execute(fetch_stmt)
+    persisted_agent = fetch_res.unique().scalars().first()
+
+    return _to_agent_response(persisted_agent, assigned_tasks=0, completed_visits=0)
+
+
 @router.get("/me", response_model=AgentResponse)
 async def get_current_agent_profile(
     current_user: Profile = Depends(require_agent),
@@ -137,32 +245,41 @@ async def get_current_agent_profile(
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent_by_id(
-    agent_id: uuid.UUID,
+    agent_id: str,
     current_user: Profile = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
     """
-    Retrieve a single agent's profile by ID.
+    Retrieve a single agent's profile by UUID or employee code.
     - Admins can view any agent.
     - Field agents can ONLY view their own agent record.
     """
-    # Role-based restriction: Agents cannot spy on other agents
-    if current_user.role == "agent":
-        if not current_user.agent or current_user.agent.id != agent_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Field agents may only view their own operational data.",
-            )
+    try:
+        parsed_uuid = uuid.UUID(agent_id)
+        filter_expr = or_(Agent.id == parsed_uuid, func.upper(Agent.agent_code) == agent_id.upper())
+    except (ValueError, AttributeError):
+        filter_expr = func.upper(Agent.agent_code) == agent_id.upper()
 
-    query = select(Agent).options(joinedload(Agent.profile)).where(Agent.id == agent_id)
+    query = select(Agent).options(joinedload(Agent.profile)).where(filter_expr)
     result = await db.execute(query)
     agent = result.unique().scalars().first()
 
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent with ID '{agent_id}' not found.",
+            detail=f"Agent with identifier '{agent_id}' not found.",
         )
+
+    # Role-based restriction: Agents cannot spy on other agents
+    if current_user.role == "agent":
+        if not current_user.agent or (
+            str(current_user.agent.id) != str(agent.id)
+            and (current_user.agent.agent_code or "").upper() != (agent.agent_code or "").upper()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Field agents may only view their own operational data.",
+            )
 
     assigned_tasks = (
         await db.scalar(select(func.count(Visit.id)).where(Visit.agent_id == agent.id)) or 0
@@ -186,8 +303,9 @@ async def update_my_location(
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
     """
-    Update live coordinates and battery status for the authenticated field agent.
-    Logs telemetry breadcrumbs to agent_locations table.
+    Update coordinates and battery status for the authenticated field agent.
+    Differentiates verified 'gps' vs 'manual' entry.
+    Ensures manual entries never masquerade as GPS readings by enforcing gps_accuracy=None.
     """
     agent = current_user.agent
     if not agent:
@@ -196,9 +314,14 @@ async def update_my_location(
             detail="No field agent record found for this user.",
         )
 
+    # Determine location source and verified accuracy
+    loc_source = payload.location_source if payload.location_source in ("gps", "manual") else "gps"
+    verified_accuracy = payload.gps_accuracy if loc_source == "gps" else None
+
     # Update agent telemetry
     agent.current_latitude = payload.latitude
     agent.current_longitude = payload.longitude
+    agent.location_source = loc_source
     if payload.battery_level is not None:
         agent.battery_level = payload.battery_level
     agent.last_location_update = func.now()
@@ -210,7 +333,7 @@ async def update_my_location(
         latitude=payload.latitude,
         longitude=payload.longitude,
         location=WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326),
-        gps_accuracy=payload.gps_accuracy,
+        gps_accuracy=verified_accuracy,
         battery_level=payload.battery_level,
     )
     db.add(loc_log)

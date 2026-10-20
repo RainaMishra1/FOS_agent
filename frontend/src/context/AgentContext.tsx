@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useMemo } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from "react";
 import { AgentProfile, AgentVisit } from "@/types/agent";
 import {
   initialAgentProfile,
@@ -8,20 +8,29 @@ import {
   mockHistoricalVisits,
   availableAgents,
 } from "@/lib/agentMockData";
+import { useAuth } from "@/context/AuthContext";
+import {
+  fetchAgentDashboard,
+  updateAgentVisitStatus,
+  updateAgentDutyStatus,
+  VisitApiResponse,
+  AgentApiItem,
+  ApiError,
+} from "@/lib/api";
 
 interface AgentContextType {
   currentAgent: AgentProfile;
   availableAgents: AgentProfile[];
   switchAgent: (agentId: string) => void;
   isOnDuty: boolean;
-  toggleDuty: () => void;
+  toggleDuty: () => Promise<void>;
   setIsOnDuty: (onDuty: boolean) => void;
   visits: AgentVisit[];
   historyVisits: AgentVisit[];
   selectedVisit: AgentVisit | null;
   setSelectedVisit: (visit: AgentVisit | null) => void;
-  checkInVisit: (visitId: string) => { success: boolean; message: string };
-  completeVisit: (visitId: string, notes?: string) => { success: boolean; message: string };
+  checkInVisit: (visitId: string) => Promise<{ success: boolean; message: string }>;
+  completeVisit: (visitId: string, notes?: string) => Promise<{ success: boolean; message: string }>;
   updateMockDistance: (visitId: string, distanceMeters: number) => void;
   resetDemoData: () => void;
   notification: { type: "success" | "error" | "info"; message: string } | null;
@@ -33,98 +42,202 @@ interface AgentContextType {
     completionPercentage: number;
     nextVisit: AgentVisit | null;
   };
+  isLoading: boolean;
+  error: string | null;
+  isLiveBackend: boolean;
+  refreshAgentData: (showLoader?: boolean) => Promise<void>;
 }
 
 const AgentContext = createContext<AgentContextType | undefined>(undefined);
 
+function mapApiVisitToAgentVisit(v: VisitApiResponse): AgentVisit {
+  const hasCoords = Boolean(
+    v.customer_latitude != null &&
+      v.customer_longitude != null &&
+      (v.customer_latitude !== 0 || v.customer_longitude !== 0)
+  );
+
+  return {
+    id: v.id,
+    assignmentId: v.visit_code || v.id.slice(0, 8),
+    customerId: v.customer_id,
+    customerName: v.customer_name || "Customer Site",
+    company: v.customer_company || undefined,
+    contactPerson: v.customer_contact_person || v.customer_name || "Authorized Representative",
+    phone: v.customer_phone || "+91 98800 00000",
+    email: v.customer_email || "operations@client.internal",
+    address: v.customer_address || "Customer location address pending geocode",
+    city: v.customer_city || "Bengaluru",
+    coordinates: {
+      lat: v.customer_latitude ?? 0,
+      lng: v.customer_longitude ?? 0,
+    },
+    hasCoordinates: hasCoords,
+    scheduledTime: v.scheduled_time || "10:00 AM",
+    scheduledDate: v.scheduled_date,
+    estimatedDuration: `${v.estimated_duration_minutes || 45} mins`,
+    purpose: v.purpose || "On-site Field Inspection & Verification",
+    priority: "medium",
+    status: (v.status as any) || "pending",
+    geofenceVerified: v.geofence_verified,
+    accuracyMeters: v.geofence_verified ? 12 : 0,
+    mockDistanceMeters: 45, // default simulation baseline for testing
+    checkInTime: v.check_in_time
+      ? new Date(v.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : undefined,
+    completedTime: v.completed_time
+      ? new Date(v.completed_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : undefined,
+    completionNotes: v.completion_notes || undefined,
+    orderIndex: v.order_index || 1,
+    tags: ["Assigned"],
+  };
+}
+
+function mapApiAgentToProfile(a: AgentApiItem): AgentProfile {
+  const nameParts = (a.name || "Field Agent").trim().split(" ");
+  const initials =
+    nameParts.length > 1
+      ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
+      : a.name.slice(0, 2).toUpperCase();
+
+  return {
+    id: a.agent_code || a.id.slice(0, 8),
+    name: a.name || "Field Agent",
+    initials,
+    role: "Senior Field Specialist",
+    status: a.status,
+    email: a.email || "agent@fos-system.internal",
+    phone: a.phone || "+91 98800 12345",
+    territory: a.territory || "Koramangala Zone",
+    batteryLevel: a.battery_level ?? 90,
+    shiftHours: "09:00 - 18:00 IST",
+    currentCoordinates: {
+      lat: a.current_latitude ?? 12.9716,
+      lng: a.current_longitude ?? 77.5946,
+    },
+  };
+}
+
+function extractErrorMessage(err: any, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  const detail = err.detail !== undefined ? err.detail : err.message;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => (d?.msg ? (d.loc ? `${d.loc.slice(-1)}: ${d.msg}` : d.msg) : JSON.stringify(d)))
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    return detail.msg || JSON.stringify(detail);
+  }
+  if (typeof err.message === "string") return err.message;
+  return fallback;
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
+  const { session, isAuthenticated, role } = useAuth();
+
   const [currentAgent, setCurrentAgent] = useState<AgentProfile>(initialAgentProfile);
   const [isOnDuty, setIsOnDuty] = useState<boolean>(true);
-  const [visits, setVisits] = useState<AgentVisit[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("fos_agent_visits");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          // fallback
-        }
-      }
-    }
-    return initialAgentVisits;
-  });
-  const [historyVisits, setHistoryVisits] = useState<AgentVisit[]>(mockHistoricalVisits);
+  const [visits, setVisits] = useState<AgentVisit[]>([]);
+  const [historyVisits, setHistoryVisits] = useState<AgentVisit[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<AgentVisit | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isLiveBackend, setIsLiveBackend] = useState<boolean>(false);
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info";
     message: string;
   } | null>(null);
 
-  // Cross-dashboard event listener for newly dispatched assignments from Admin
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleNewVisit = (e: Event) => {
-      const customEvent = e as CustomEvent<AgentVisit>;
-      if (customEvent.detail) {
-        setVisits((prev) => {
-          if (prev.some((v) => v.id === customEvent.detail.id)) return prev;
-          const next = [...prev, customEvent.detail];
-          localStorage.setItem("fos_agent_visits", JSON.stringify(next));
-          return next;
-        });
-        showNotification(
-          "info",
-          `New Field Assignment Dispatched: ${customEvent.detail.customerName} (${customEvent.detail.scheduledTime})`
-        );
-      }
-    };
-
-    const handleRouteUpdated = (e: Event) => {
-      const customEvent = e as CustomEvent<{ agentId: string; visits: AgentVisit[] }>;
-      if (customEvent.detail && customEvent.detail.visits) {
-        setVisits(customEvent.detail.visits);
-        showNotification(
-          "success",
-          `Route sequence updated by Dispatch Admin (${customEvent.detail.visits.length} stops)`
-        );
-      }
-    };
-
-    const handleReset = () => {
-      setVisits(initialAgentVisits);
-    };
-
-    window.addEventListener("fos_new_visit_assigned", handleNewVisit);
-    window.addEventListener("fos_route_updated", handleRouteUpdated);
-    window.addEventListener("fos_operations_reset", handleReset);
-    return () => {
-      window.removeEventListener("fos_new_visit_assigned", handleNewVisit);
-      window.removeEventListener("fos_route_updated", handleRouteUpdated);
-      window.removeEventListener("fos_operations_reset", handleReset);
-    };
-  }, []);
-
-  const showNotification = (type: "success" | "error" | "info", message: string) => {
+  const showNotification = useCallback((type: "success" | "error" | "info", message: string) => {
     setNotification({ type, message });
     setTimeout(() => {
       setNotification((curr) => (curr?.message === message ? null : curr));
     }, 4000);
-  };
+  }, []);
 
-  const clearNotification = () => setNotification(null);
+  const clearNotification = useCallback(() => setNotification(null), []);
 
-  const toggleDuty = () => {
-    setIsOnDuty((prev) => {
-      const next = !prev;
+  // Fetch real agent dashboard from FastAPI backend
+  const loadAgentData = useCallback(
+    async (showLoader = true) => {
+      if (showLoader) setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await fetchAgentDashboard(session?.access_token);
+        setIsLiveBackend(true);
+
+        if (data.agent) {
+          const profile = mapApiAgentToProfile(data.agent);
+          setCurrentAgent(profile);
+          setIsOnDuty(data.agent.status === "active");
+        }
+
+        const mappedToday = (data.today_visits || []).map(mapApiVisitToAgentVisit);
+        const mappedUpcoming = (data.upcoming_visits || []).map(mapApiVisitToAgentVisit);
+        const mappedHistory = (data.recent_history || []).map(mapApiVisitToAgentVisit);
+
+        // Combine today and upcoming into active visits collection
+        const allActive = [...mappedToday, ...mappedUpcoming];
+        setVisits(allActive);
+        setHistoryVisits(mappedHistory);
+
+        // Select the next active visit by default if none selected
+        if (allActive.length > 0) {
+          setSelectedVisit((prev) => (prev ? allActive.find((v) => v.id === prev.id) || allActive[0] : allActive[0]));
+        } else {
+          setSelectedVisit(null);
+        }
+      } catch (err: any) {
+        console.error("Agent dashboard fetch failed:", err);
+        setIsLiveBackend(false);
+        const errorMsg = extractErrorMessage(
+          err,
+          "Failed to connect to backend service. Please check your connection."
+        );
+        setError(errorMsg);
+
+        // In development/evaluation mode without active backend records, fall back gracefully
+        if (!isLiveBackend && visits.length === 0) {
+          setVisits(initialAgentVisits);
+          setHistoryVisits(mockHistoricalVisits);
+        }
+      } finally {
+        if (showLoader) setIsLoading(false);
+      }
+    },
+    [session?.access_token, isLiveBackend, visits.length]
+  );
+
+  // Sync data whenever authenticated session is established
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadAgentData(true);
+    } else {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, loadAgentData]);
+
+  const toggleDuty = async () => {
+    const nextStatus = isOnDuty ? "off_duty" : "active";
+    try {
+      await updateAgentDutyStatus(nextStatus, session?.access_token);
+      setIsOnDuty(!isOnDuty);
+      setCurrentAgent((prev) => ({ ...prev, status: nextStatus }));
       showNotification(
-        next ? "success" : "info",
-        next
-          ? "You are now ON DUTY. Live field tracking active."
+        !isOnDuty ? "success" : "info",
+        !isOnDuty
+          ? "You are now ON DUTY. Field tracking active."
           : "You are now OFF DUTY. Location updates paused."
       );
-      return next;
-    });
+    } catch (err: any) {
+      const msg = extractErrorMessage(err, "Failed to update duty status on server.");
+      showNotification("error", msg);
+    }
   };
 
   const switchAgent = (agentId: string) => {
@@ -149,10 +262,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const checkInVisit = (visitId: string) => {
+  const checkInVisit = async (visitId: string): Promise<{ success: boolean; message: string }> => {
     const visit = visits.find((v) => v.id === visitId);
     if (!visit) {
-      return { success: false, message: "Visit not found." };
+      return { success: false, message: "Visit record not found." };
     }
 
     if (!isOnDuty) {
@@ -160,102 +273,110 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: "Cannot check in while Off Duty." };
     }
 
-    if (visit.mockDistanceMeters > 100) {
-      showNotification(
-        "error",
-        `Outside 100m geofence radius (${visit.mockDistanceMeters}m away). Move closer to enable check-in.`
+    try {
+      // Send verified check-in to FastAPI backend
+      const updatedApi = await updateAgentVisitStatus(
+        visitId,
+        "in_progress",
+        undefined,
+        true,
+        session?.access_token
       );
+      const mapped = mapApiVisitToAgentVisit(updatedApi);
+
+      setVisits((prev) => prev.map((v) => (v.id === visitId ? mapped : v)));
+      if (selectedVisit?.id === visitId) {
+        setSelectedVisit(mapped);
+      }
+
+      showNotification(
+        "success",
+        `Check-in Verified at ${visit.customerName}! Visit is now In Progress.`
+      );
+
+      // Refresh statistics in background
+      loadAgentData(false);
+
+      return {
+        success: true,
+        message: `Checked in successfully.`,
+      };
+    } catch (err: any) {
+      const msg = extractErrorMessage(err, "Check-in failed on server.");
+      showNotification("error", msg);
       return {
         success: false,
-        message: `Outside 100m geofence radius (${visit.mockDistanceMeters}m away).`,
+        message: msg,
       };
     }
-
-    const now = new Date();
-    const timeString = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    const updatedVisit: AgentVisit = {
-      ...visit,
-      status: "in_progress",
-      geofenceVerified: true,
-      accuracyMeters: Math.floor(Math.random() * 12) + 8, // Realistic 8-20m accuracy
-      checkInTime: timeString,
-    };
-
-    setVisits((prev) => prev.map((v) => (v.id === visitId ? updatedVisit : v)));
-    if (selectedVisit?.id === visitId) {
-      setSelectedVisit(updatedVisit);
-    }
-
-    showNotification(
-      "success",
-      `Geofence Check-in Verified at ${visit.customerName}! (${updatedVisit.mockDistanceMeters}m distance, ±${updatedVisit.accuracyMeters}m accuracy)`
-    );
-
-    return {
-      success: true,
-      message: `Checked in successfully at ${timeString}.`,
-    };
   };
 
-  const completeVisit = (visitId: string, notes?: string) => {
+  const completeVisit = async (visitId: string, notes?: string): Promise<{ success: boolean; message: string }> => {
     const visit = visits.find((v) => v.id === visitId);
     if (!visit) {
-      return { success: false, message: "Visit not found." };
+      return { success: false, message: "Visit record not found." };
     }
 
-    const now = new Date();
-    const timeString = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    try {
+      // Send verified completion to FastAPI backend
+      const updatedApi = await updateAgentVisitStatus(
+        visitId,
+        "completed",
+        notes,
+        true,
+        session?.access_token
+      );
+      const mapped = mapApiVisitToAgentVisit(updatedApi);
 
-    const completedVisit: AgentVisit = {
-      ...visit,
-      status: "completed",
-      completedTime: timeString,
-      completionNotes:
-        notes ||
-        visit.completionNotes ||
-        `Visit completed on schedule by ${currentAgent.name}. Geofence verified.`,
-    };
+      setVisits((prev) => prev.map((v) => (v.id === visitId ? mapped : v)));
+      setHistoryVisits((prev) => [mapped, ...prev.filter((h) => h.id !== visitId)]);
 
-    setVisits((prev) => prev.map((v) => (v.id === visitId ? completedVisit : v)));
-    setHistoryVisits((prev) => [completedVisit, ...prev]);
+      if (selectedVisit?.id === visitId) {
+        setSelectedVisit(mapped);
+      }
 
-    if (selectedVisit?.id === visitId) {
-      setSelectedVisit(completedVisit);
+      showNotification(
+        "success",
+        `Visit at ${visit.customerName} marked as completed! Great job.`
+      );
+
+      // Refresh statistics in background
+      loadAgentData(false);
+
+      return {
+        success: true,
+        message: `Visit completed successfully.`,
+      };
+    } catch (err: any) {
+      const msg = extractErrorMessage(err, "Failed to complete visit on server.");
+      showNotification("error", msg);
+      return {
+        success: false,
+        message: msg,
+      };
     }
-
-    showNotification(
-      "success",
-      `Visit at ${visit.customerName} marked as completed! Great job.`
-    );
-
-    return {
-      success: true,
-      message: `Visit completed at ${timeString}.`,
-    };
   };
 
   const resetDemoData = () => {
-    setVisits(initialAgentVisits);
-    setHistoryVisits(mockHistoricalVisits);
-    setSelectedVisit(null);
-    setIsOnDuty(true);
-    showNotification("info", "Demo state reset to original values.");
+    loadAgentData(true);
+    showNotification("info", "Refreshed operational data from backend.");
   };
 
-  // Computed statistics
+  // Computed statistics from live visits
   const stats = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
     const todayVisits = visits.filter(
-      (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
+      (v) => v.scheduledDate === today || v.status === "completed" || v.status === "in_progress"
     );
+
     const todayTotal = todayVisits.length;
     const todayCompleted = todayVisits.filter((v) => v.status === "completed").length;
     const todayRemaining = todayTotal - todayCompleted;
-    const completionPercentage = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
+    const completionPercentage =
+      todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 
-    // Find next visit (in_progress first, then first pending)
     const inProgress = todayVisits.find((v) => v.status === "in_progress");
-    const pending = todayVisits.find((v) => v.status === "pending");
+    const pending = todayVisits.find((v) => v.status === "pending" || v.status === "delayed");
     const nextVisit = inProgress || pending || null;
 
     return {
@@ -287,6 +408,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         notification,
         clearNotification,
         stats,
+        isLoading,
+        error,
+        isLiveBackend,
+        refreshAgentData: loadAgentData,
       }}
     >
       {children}

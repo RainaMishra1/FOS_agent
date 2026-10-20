@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { mockAgents, mockCustomers, mockTerritories } from "@/lib/mockData";
-import { Agent, Customer } from "@/types";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { fetchAgents, AgentApiItem, ApiError } from "@/lib/api";
 import StatusBadge from "./StatusBadge";
 import {
   Compass,
@@ -15,77 +15,329 @@ import {
   Users,
   Shield,
   Search,
-  ExternalLink,
   X,
   Phone,
   Mail,
   Clock,
   Battery,
+  RefreshCw,
+  AlertTriangle,
+  Radio,
+  CheckCircle2,
+  ChevronRight,
+  Filter,
+  Maximize2,
+  Loader2,
 } from "lucide-react";
 
 interface MapViewProps {
   height?: string;
   isFullPage?: boolean;
-  onSelectAgent?: (agent: Agent) => void;
-  onSelectCustomer?: (customer: Customer) => void;
+  onSelectAgent?: (agent: AgentApiItem) => void;
 }
 
 export default function MapView({
   height = "h-[450px]",
   isFullPage = false,
   onSelectAgent,
-  onSelectCustomer,
 }: MapViewProps) {
-  const [zoom, setZoom] = useState(1);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(mockAgents[0]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "agents" | "customers">("all");
+  const { session, isAuthenticated } = useAuth();
+
+  const [agents, setAgents] = useState<AgentApiItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [selectedAgent, setSelectedAgent] = useState<AgentApiItem | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showTerritories, setShowTerritories] = useState(true);
+  const [showUnlocatedList, setShowUnlocatedList] = useState(false);
+  const [isLeafletReady, setIsLeafletReady] = useState(false);
 
-  // Normalize coordinates for SVG canvas display (Bangalore central coordinates: ~12.97, ~77.60)
-  const mapCenter = { lat: 12.9716, lng: 77.5946 };
-  const latSpan = 0.22;
-  const lngSpan = 0.22;
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersLayerRef = useRef<any>(null);
 
-  const projectToCanvas = (lat: number, lng: number) => {
-    // Map to 0-100% canvas coordinates
-    const x = ((lng - (mapCenter.lng - lngSpan / 2)) / lngSpan) * 100;
-    const y = (((mapCenter.lat + latSpan / 2) - lat) / latSpan) * 100;
-    return {
-      x: Math.max(5, Math.min(95, x)),
-      y: Math.max(5, Math.min(95, y)),
+  // Dynamic Leaflet Loader (client-only, SSR safe)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if ((window as any).L) {
+      setIsLeafletReady(true);
+      return;
+    }
+
+    const existingLink = document.getElementById("leaflet-cdn-css");
+    if (!existingLink) {
+      const link = document.createElement("link");
+      link.id = "leaflet-cdn-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      link.crossOrigin = "";
+      document.head.appendChild(link);
+    }
+
+    const existingScript = document.getElementById("leaflet-cdn-js");
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.id = "leaflet-cdn-js";
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.crossOrigin = "";
+      script.onload = () => setIsLeafletReady(true);
+      document.body.appendChild(script);
+    } else {
+      existingScript.addEventListener("load", () => setIsLeafletReady(true));
+    }
+  }, []);
+
+  // Fetch real agents from database
+  const loadAgentsData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetchAgents(session?.access_token, { limit: 100 });
+      setAgents(res.items);
+      if (res.items.length > 0 && !selectedAgent) {
+        // Select first located agent if available
+        const firstLocated = res.items.find(
+          (a) => a.current_latitude !== null && a.current_longitude !== null
+        );
+        if (firstLocated) {
+          setSelectedAgent(firstLocated);
+          if (onSelectAgent) onSelectAgent(firstLocated);
+        }
+      }
+    } catch (err: any) {
+      console.error("Failed to load map agents:", err);
+      setError(err?.message || "Failed to load field agent positions from PostgreSQL database.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [session?.access_token, onSelectAgent, selectedAgent]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadAgentsData();
+    }
+  }, [isAuthenticated, loadAgentsData]);
+
+  // Filter agents
+  const filteredAgents = agents.filter((agent) => {
+    // Status filter
+    if (statusFilter !== "all" && agent.status !== statusFilter) return false;
+
+    // Location source filter
+    if (sourceFilter !== "all") {
+      const src = agent.location_source || "unknown";
+      if (sourceFilter === "gps" && src !== "gps") return false;
+      if (sourceFilter === "admin_provided" && src !== "admin_provided") return false;
+      if (sourceFilter === "unlocated" && (agent.current_latitude !== null && agent.current_longitude !== null)) return false;
+    }
+
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchName = (agent.name || "").toLowerCase().includes(q);
+      const matchCode = (agent.agent_code || "").toLowerCase().includes(q);
+      const matchTerritory = (agent.territory || "").toLowerCase().includes(q);
+      const matchAddress = (agent.address || "").toLowerCase().includes(q);
+      if (!matchName && !matchCode && !matchTerritory && !matchAddress) return false;
+    }
+
+    return true;
+  });
+
+  const locatedAgents = filteredAgents.filter(
+    (a) => a.current_latitude !== null && a.current_longitude !== null
+  );
+  const unlocatedAgents = agents.filter(
+    (a) => a.current_latitude === null || a.current_longitude === null
+  );
+
+  // Initialize Map
+  useEffect(() => {
+    if (!isLeafletReady || !mapContainerRef.current) return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    if (!mapInstanceRef.current) {
+      const defaultCenter = [12.9716, 77.5946];
+      const map = L.map(mapContainerRef.current, {
+        center: defaultCenter,
+        zoom: 12,
+        zoomControl: false,
+        attributionControl: false,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      const markersGroup = L.featureGroup().addTo(map);
+      markersLayerRef.current = markersGroup;
+      mapInstanceRef.current = map;
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markersLayerRef.current = null;
+      }
     };
+  }, [isLeafletReady]);
+
+  // Helper to build distinct markers based on status & source
+  const createAgentIcon = useCallback((L: any, agent: AgentApiItem, isSelected: boolean) => {
+    let pinColor = "#4A7C59"; // active (green)
+    if (agent.status === "busy") pinColor = "#C86D51"; // busy (terracotta)
+    if (agent.status === "break") pinColor = "#3B82F6"; // break (blue)
+    if (agent.status === "inactive") pinColor = "#6B7280"; // inactive (gray)
+
+    const isGps = agent.location_source === "gps";
+    const size = isSelected ? 38 : 32;
+    const anchor = isSelected ? 19 : 16;
+
+    return L.divIcon({
+      className: "agent-map-marker",
+      html: `
+        <div style="
+          position: relative;
+          width: ${size}px;
+          height: ${size}px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: transform 0.2s ease;
+        ">
+          ${isSelected ? `
+            <div style="
+              position: absolute;
+              inset: -6px;
+              border-radius: 50%;
+              background: ${pinColor}33;
+              animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+            "></div>
+          ` : ""}
+          <div style="
+            width: ${size - 4}px;
+            height: ${size - 4}px;
+            background: ${pinColor};
+            border: ${isSelected ? "3px" : "2px"} solid #FFFFFF;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          ">
+            <span style="
+              transform: rotate(45deg);
+              font-size: ${isSelected ? "11px" : "9px"};
+              font-weight: 800;
+              color: #FFFFFF;
+              font-family: monospace;
+            ">
+              ${(agent.name || "A").slice(0, 1).toUpperCase()}
+            </span>
+          </div>
+          <!-- Provenance Indicator Dot -->
+          <div style="
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: ${isGps ? "#10B981" : "#F59E0B"};
+            border: 1.5px solid #FFFFFF;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          " title="${isGps ? "Live GPS" : "Admin Hub"}"></div>
+        </div>
+      `,
+      iconSize: [size, size],
+      iconAnchor: [anchor, size],
+      popupAnchor: [0, -size],
+    });
+  }, []);
+
+  // Update Markers on Map
+  useEffect(() => {
+    if (!isLeafletReady || !mapInstanceRef.current || !markersLayerRef.current) return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    const markersGroup = markersLayerRef.current;
+    markersGroup.clearLayers();
+
+    if (locatedAgents.length === 0) return;
+
+    locatedAgents.forEach((agent) => {
+      const lat = agent.current_latitude!;
+      const lng = agent.current_longitude!;
+      const isSelected = selectedAgent?.id === agent.id;
+
+      const icon = createAgentIcon(L, agent, isSelected);
+      const marker = L.marker([lat, lng], { icon });
+
+      marker.on("click", () => {
+        setSelectedAgent(agent);
+        if (onSelectAgent) onSelectAgent(agent);
+      });
+
+      // Simple popup
+      const isGps = agent.location_source === "gps";
+      const popupHtml = `
+        <div style="font-family: inherit; font-size: 12px; padding: 2px;">
+          <strong style="color: #2D2A26; font-size: 13px;">${agent.name}</strong>
+          <span style="font-family: monospace; color: #7D7566; font-size: 10px; display: block;">${agent.agent_code || ""}</span>
+          <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
+            <span style="
+              font-size: 9px;
+              padding: 2px 6px;
+              border-radius: 4px;
+              background: ${isGps ? "#E8F5E9" : "#FFF3E0"};
+              color: ${isGps ? "#2E7D32" : "#E65100"};
+              font-weight: 700;
+              text-transform: uppercase;
+            ">
+              ${isGps ? "Live GPS" : "Admin Hub"}
+            </span>
+            <span style="color: #7D7566; font-size: 10px;">${agent.status}</span>
+          </div>
+        </div>
+      `;
+      marker.bindPopup(popupHtml);
+
+      markersGroup.addLayer(marker);
+    });
+  }, [locatedAgents, isLeafletReady, selectedAgent?.id, createAgentIcon, onSelectAgent]);
+
+  // Fit bounds to all located markers
+  const fitToMarkers = () => {
+    if (!mapInstanceRef.current || !markersLayerRef.current) return;
+    if (locatedAgents.length === 0) return;
+    const bounds = markersLayerRef.current.getBounds();
+    if (bounds.isValid()) {
+      mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
   };
 
-  const filteredAgents = mockAgents.filter((a) => {
-    if (filterType === "customers") return false;
-    if (!searchQuery) return true;
-    return (
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.territory.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  const filteredCustomers = mockCustomers.filter((c) => {
-    if (filterType === "agents") return false;
-    if (!searchQuery) return true;
-    return (
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.address.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  const handleAgentClick = (agent: Agent) => {
+  const handleAgentCardClick = (agent: AgentApiItem) => {
     setSelectedAgent(agent);
-    setSelectedCustomer(null);
     if (onSelectAgent) onSelectAgent(agent);
-  };
 
-  const handleCustomerClick = (cust: Customer) => {
-    setSelectedCustomer(cust);
-    setSelectedAgent(null);
-    if (onSelectCustomer) onSelectCustomer(cust);
+    if (agent.current_latitude !== null && agent.current_longitude !== null) {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([agent.current_latitude, agent.current_longitude], 15, {
+          animate: true,
+        });
+      }
+    }
   };
 
   return (
@@ -93,366 +345,299 @@ export default function MapView({
       className={`relative w-full ${height} rounded-2xl bg-[#EBE4D5] border border-beige-border overflow-hidden flex flex-col select-none`}
     >
       {/* Top Map Control Bar */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+      <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
         {/* Search & Filter Group */}
-        <div className="flex items-center gap-2 pointer-events-auto bg-beige-card/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-beige-border shadow-sm">
-          <Search className="w-4 h-4 text-beige-muted" />
-          <input
-            type="text"
-            placeholder="Search agents or customer stops..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-transparent text-xs text-beige-text placeholder-beige-muted focus:outline-none w-44 sm:w-56"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="text-beige-muted hover:text-beige-text">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+        <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-1.5 rounded-xl border border-beige-border shadow-sm">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-beige-muted absolute left-2.5 top-2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Filter agents by name, ID, territory..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-3 py-1 rounded-lg bg-beige-bg text-xs text-beige-text placeholder-beige-muted border border-beige-border focus:outline-none focus:border-beige-terracotta w-44 sm:w-60"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-2.5 py-1 rounded-lg bg-beige-bg text-xs text-beige-text border border-beige-border focus:outline-none focus:border-beige-terracotta"
+          >
+            <option value="all">All Statuses</option>
+            <option value="active">Active (On Duty)</option>
+            <option value="busy">Busy</option>
+            <option value="break">On Break</option>
+            <option value="inactive">Inactive</option>
+          </select>
+
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="px-2.5 py-1 rounded-lg bg-beige-bg text-xs text-beige-text border border-beige-border focus:outline-none focus:border-beige-terracotta"
+          >
+            <option value="all">All Locations</option>
+            <option value="gps">Live GPS Only</option>
+            <option value="admin_provided">Admin Hubs Only</option>
+            <option value="unlocated">Unlocated Only</option>
+          </select>
         </div>
 
-        {/* Demo Status & Controls */}
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-beige-card/95 backdrop-blur-md border border-beige-border text-xs text-beige-muted shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-beige-olive animate-pulse" />
-            <span className="font-semibold text-beige-text">Demo Data</span>
-            <span className="text-[11px] text-beige-muted hidden md:inline">• 100m Geofence Active</span>
-          </div>
-
-          {/* Filter Pill */}
-          <div className="flex rounded-xl bg-beige-card/95 backdrop-blur-md border border-beige-border p-0.5 text-xs shadow-sm">
-            <button
-              onClick={() => setFilterType("all")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                filterType === "all" ? "bg-beige-sidebar text-beige-text" : "text-beige-muted hover:text-beige-text"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilterType("agents")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                filterType === "agents" ? "bg-beige-sidebar text-beige-text" : "text-beige-muted hover:text-beige-text"
-              }`}
-            >
-              Agents ({filteredAgents.length})
-            </button>
-            <button
-              onClick={() => setFilterType("customers")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                filterType === "customers" ? "bg-beige-sidebar text-beige-text" : "text-beige-muted hover:text-beige-text"
-              }`}
-            >
-              Stops ({filteredCustomers.length})
-            </button>
-          </div>
-
-          {/* Territory Toggle */}
+        {/* Action Controls */}
+        <div className="flex items-center gap-1.5 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-1.5 rounded-xl border border-beige-border shadow-sm">
           <button
-            onClick={() => setShowTerritories(!showTerritories)}
-            className={`p-2 rounded-xl bg-beige-card/95 backdrop-blur-md border border-beige-border shadow-sm text-xs font-medium flex items-center gap-1.5 transition ${
-              showTerritories ? "text-beige-terracotta border-beige-terracotta/40" : "text-beige-muted"
-            }`}
-            title="Toggle Territory Boundaries"
+            onClick={() => loadAgentsData()}
+            disabled={isLoading}
+            className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition disabled:opacity-50"
+            title="Refresh database records"
           >
-            <Layers className="w-4 h-4" />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-beige-terracotta" : ""}`} />
+          </button>
+
+          {locatedAgents.length > 0 && (
+            <button
+              onClick={fitToMarkers}
+              className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition"
+              title="Fit map to all markers"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowUnlocatedList(!showUnlocatedList)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+              showUnlocatedList
+                ? "bg-beige-terracotta text-white"
+                : "bg-beige-sand text-beige-text hover:bg-beige-border"
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Unlocated ({unlocatedAgents.length})</span>
           </button>
         </div>
       </div>
 
-      {/* Map Interactive Canvas */}
-      <div className="relative w-full h-full overflow-hidden bg-[#F2EDE1]">
-        {/* Subtle Map Grid & Vector Road Network Background */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          xmlns="http://www.w3.org/2000/svg"
-          style={{ transform: `scale(${zoom})`, transformOrigin: "center center", transition: "transform 0.3s ease" }}
-        >
-          <defs>
-            <pattern id="mapGrid" width="60" height="60" patternUnits="userSpaceOnUse">
-              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#E3DAC9" strokeWidth="0.8" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#mapGrid)" />
+      {/* Main Map Canvas */}
+      <div className="relative w-full h-full flex-1">
+        {/* Leaflet Loading Overlay */}
+        {!isLeafletReady && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-beige-card/90 text-beige-muted text-xs gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-beige-terracotta" />
+            <span>Loading OpenStreetMap engine...</span>
+          </div>
+        )}
 
-          {/* Road Network Lines (Metro Roads) */}
-          <g stroke="#D8CEBE" strokeWidth="2.5" fill="none" opacity="0.85">
-            <path d="M -50,150 Q 200,120 450,220 T 950,280 T 1400,240" />
-            <path d="M 120,-50 Q 220,250 320,500 T 500,900" />
-            <path d="M 650,-50 Q 580,300 620,600 T 750,900" />
-            <path d="M -50,420 Q 300,380 600,410 T 1200,460" stroke="#CFC3AF" strokeWidth="3.5" />
-            <path d="M 350,50 Q 520,380 850,550" strokeDasharray="6,4" stroke="#C0B29D" strokeWidth="1.8" />
-          </g>
+        {/* Database Error Alert */}
+        {error && (
+          <div className="absolute top-16 left-4 right-4 z-30 p-3 rounded-xl bg-[#FDF2F0] border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={() => loadAgentsData()}
+              className="px-2.5 py-1 rounded-lg bg-beige-terracotta text-white font-semibold text-[11px]"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
-          {/* Territory Boundaries (Illustrative Zones) */}
-          {showTerritories &&
-            mockTerritories.map((t, idx) => {
-              const center = projectToCanvas(t.center.lat, t.center.lng);
-              const r = 18;
-              return (
-                <g key={t.id} opacity="0.6">
-                  <circle
-                    cx={`${center.x}%`}
-                    cy={`${center.y}%`}
-                    r={`${r}%`}
-                    fill={t.color}
-                    fillOpacity="0.12"
-                    stroke={t.color}
-                    strokeWidth="1.5"
-                    strokeDasharray="5,3"
-                  />
-                  <text
-                    x={`${center.x}%`}
-                    y={`${center.y - r + 3}%`}
-                    textAnchor="middle"
-                    fill={t.color}
-                    fontSize="11"
-                    fontWeight="600"
-                    opacity="0.9"
-                  >
-                    {t.name.split(" ")[0]} Zone
-                  </text>
-                </g>
-              );
-            })}
+        <div ref={mapContainerRef} className="w-full h-full" />
 
-          {/* Active Route Simulation Path */}
-          {selectedAgent && (
-            <g stroke="#B76E52" strokeWidth="2.5" strokeDasharray="6,4" fill="none">
-              <path
-                d={`M ${projectToCanvas(selectedAgent.coordinates.lat, selectedAgent.coordinates.lng).x}% ${
-                  projectToCanvas(selectedAgent.coordinates.lat, selectedAgent.coordinates.lng).y
-                }% Q ${
-                  projectToCanvas(selectedAgent.coordinates.lat, selectedAgent.coordinates.lng).x + 10
-                }% ${
-                  projectToCanvas(selectedAgent.coordinates.lat, selectedAgent.coordinates.lng).y - 12
-                }% 54% 48%`}
-              />
-            </g>
-          )}
-        </svg>
-
-        {/* Dynamic Markers Overlay (Agents & Customers) */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ transform: `scale(${zoom})`, transformOrigin: "center center", transition: "transform 0.3s ease" }}
-        >
-          {/* Customer / Visit Markers */}
-          {filteredCustomers.map((c) => {
-            const pos = projectToCanvas(c.coordinates.lat, c.coordinates.lng);
-            const isSelected = selectedCustomer?.id === c.id;
-            return (
-              <div
-                key={c.id}
-                onClick={() => handleCustomerClick(c)}
-                style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer group z-10"
-              >
-                <div
-                  className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-transform duration-200 shadow-md ${
-                    isSelected
-                      ? "bg-beige-terracotta text-white scale-125 ring-4 ring-beige-terracotta/20"
-                      : "bg-beige-card text-beige-terracotta hover:scale-115 border border-beige-border"
-                  }`}
-                >
-                  <MapPin className="w-4 h-4" />
-                  {c.priority === "high" && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
-                  )}
-                </div>
-
-                {/* Tooltip on hover */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block bg-beige-card text-beige-text text-[11px] font-medium py-1 px-2.5 rounded-lg border border-beige-border shadow-lg whitespace-nowrap z-30">
-                  <span className="font-bold text-beige-terracotta">{c.name}</span>
-                  <div className="text-[10px] text-beige-muted">{c.address.split(",")[0]}</div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Field Agent Markers */}
-          {filteredAgents.map((a) => {
-            const pos = projectToCanvas(a.coordinates.lat, a.coordinates.lng);
-            const isSelected = selectedAgent?.id === a.id;
-            const isActive = a.status === "active";
-
-            return (
-              <div
-                key={a.id}
-                onClick={() => handleAgentClick(a)}
-                style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer group z-20"
-              >
-                {/* Active Pulse Ring */}
-                {isActive && (
-                  <span className="absolute -inset-2 rounded-full bg-beige-olive/25 animate-ping opacity-75" />
-                )}
-
-                <div
-                  className={`relative flex items-center justify-center w-9 h-9 rounded-full font-bold text-xs shadow-lg transition-all duration-200 ${
-                    isSelected
-                      ? "bg-beige-olive text-white scale-125 ring-4 ring-beige-olive/30 shadow-beige-olive/40"
-                      : "bg-beige-card text-beige-text border-2 border-beige-olive hover:scale-110"
-                  }`}
-                >
-                  {a.initials}
-                  <span
-                    className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                      a.status === "active"
-                        ? "bg-emerald-500"
-                        : a.status === "busy"
-                        ? "bg-amber-500"
-                        : "bg-slate-400"
-                    }`}
-                  />
-                </div>
-
-                {/* Tooltip on hover */}
-                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block bg-beige-card text-beige-text text-[11px] font-medium py-1.5 px-3 rounded-lg border border-beige-border shadow-lg whitespace-nowrap z-30">
-                  <div className="font-semibold text-beige-olive flex items-center gap-1.5">
-                    <span>{a.name}</span>
-                    <span className="text-[10px] font-normal text-beige-muted">({a.id})</span>
-                  </div>
-                  <div className="text-[10px] text-beige-muted mt-0.5">{a.currentTask}</div>
-                </div>
-              </div>
-            );
-          })}
+        {/* Map Legend */}
+        <div className="absolute bottom-3 left-3 z-20 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-2.5 rounded-xl border border-beige-border shadow-sm text-[11px] space-y-1.5 max-w-xs">
+          <span className="font-bold text-[10px] uppercase tracking-wider text-beige-muted block">
+            Map Legend &amp; Provenance
+          </span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-beige-text">
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#4A7C59]"></span>
+              <span>Active</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#C86D51]"></span>
+              <span>Busy</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]"></span>
+              <span>Break</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#6B7280]"></span>
+              <span>Inactive</span>
+            </div>
+          </div>
+          <div className="pt-1 border-t border-beige-border/60 flex items-center gap-3 text-[10px] text-beige-muted">
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Live GPS</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span>Admin Hub</span>
+            </div>
+          </div>
         </div>
+
+        {/* Zero Located Agents Notice */}
+        {locatedAgents.length === 0 && !isLoading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none p-4">
+            <div className="pointer-events-auto bg-beige-card/95 backdrop-blur-md p-5 rounded-2xl border border-beige-border shadow-xl text-center max-w-sm space-y-2">
+              <Compass className="w-8 h-8 text-beige-terracotta mx-auto" />
+              <h4 className="font-bold text-sm text-beige-text">No Coordinates Placed</h4>
+              <p className="text-xs text-beige-muted leading-relaxed">
+                {agents.length === 0
+                  ? "No agents exist in the database yet. Create your first field agent to place pins."
+                  : `All ${agents.length} agent(s) currently lack saved coordinates. Add coordinates during agent creation or await device GPS check-in.`}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Floating Bottom Zoom & Map Tools */}
-      <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-1.5 bg-beige-card/95 backdrop-blur-md rounded-xl border border-beige-border p-1 shadow-md">
-        <button
-          onClick={() => setZoom((z) => Math.min(2.0, z + 0.2))}
-          className="p-2 rounded-lg hover:bg-beige-sidebar text-beige-text transition"
-          title="Zoom In"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setZoom((z) => Math.max(0.7, z - 0.2))}
-          className="p-2 rounded-lg hover:bg-beige-sidebar text-beige-text transition"
-          title="Zoom Out"
-        >
-          <Minus className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setZoom(1.0)}
-          className="p-2 rounded-lg hover:bg-beige-sidebar text-beige-text transition"
-          title="Reset View"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Selected Item Drawer / Detail Overlay */}
-      {(selectedAgent || selectedCustomer) && (
-        <div className="absolute bottom-4 left-4 z-20 max-w-sm w-full bg-beige-card/95 backdrop-blur-md rounded-2xl border border-beige-border shadow-lg p-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          {selectedAgent && (
+      {/* Selected Agent Details Side Panel */}
+      {selectedAgent && (
+        <div className="absolute top-16 right-3 z-30 w-80 max-w-[calc(100%-24px)] rounded-2xl bg-beige-card/98 backdrop-blur-md border border-beige-border shadow-2xl p-4 animate-in slide-in-from-right duration-200 space-y-3">
+          <div className="flex items-start justify-between pb-2.5 border-b border-beige-border">
             <div>
-              <div className="flex items-start justify-between pb-3 border-b border-beige-border/60">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                    {selectedAgent.initials}
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-beige-text">{selectedAgent.name}</h4>
-                    <p className="text-xs text-beige-muted">{selectedAgent.id} • {selectedAgent.territory}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <StatusBadge status={selectedAgent.status} size="sm" />
-                  <button
-                    onClick={() => setSelectedAgent(null)}
-                    className="p-1 text-beige-muted hover:text-beige-text rounded-md"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div className="flex items-center gap-1.5">
+                <h4 className="font-bold text-sm text-beige-text">{selectedAgent.name}</h4>
+                <StatusBadge status={selectedAgent.status as any} size="sm" />
               </div>
+              <p className="text-[11px] font-mono text-beige-muted mt-0.5">
+                {selectedAgent.agent_code || "AGT-UNASSIGNED"} • {selectedAgent.territory || "Unassigned"}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedAgent(null)}
+              className="p-1 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-              <div className="py-2.5 space-y-1.5 text-xs text-beige-text">
-                <div className="text-[11px] font-medium text-beige-olive bg-beige-olive-subtle/80 px-2 py-1 rounded-md">
-                  Task: {selectedAgent.currentTask}
-                </div>
-                <div className="flex items-center justify-between text-beige-muted pt-1">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> Updated: {selectedAgent.lastLocationUpdate}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Battery className="w-3.5 h-3.5 text-emerald-600" /> {selectedAgent.batteryLevel}%
-                  </span>
-                </div>
-              </div>
+          {/* Location Provenance Banner */}
+          <div className="p-2.5 rounded-xl bg-beige-sand/50 border border-beige-border space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-beige-text flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-beige-terracotta" />
+                <span>Location Source</span>
+              </span>
+              <span
+                className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                  selectedAgent.location_source === "gps"
+                    ? "bg-beige-olive-subtle text-beige-olive"
+                    : selectedAgent.location_source === "admin_provided"
+                    ? "bg-beige-sand text-beige-text border border-beige-border"
+                    : "bg-beige-sand/40 text-beige-muted"
+                }`}
+              >
+                {selectedAgent.location_source === "gps"
+                  ? "Live Device GPS"
+                  : selectedAgent.location_source === "admin_provided"
+                  ? "Admin-Provided Hub"
+                  : "Unlocated"}
+              </span>
+            </div>
 
-              <div className="pt-2 border-t border-beige-border/60 flex items-center justify-between text-xs">
-                <span className="text-beige-muted">
-                  Visits: <strong className="text-beige-text">{selectedAgent.completedVisits} / {selectedAgent.assignedTasks}</strong>
-                </span>
-                <span className="text-beige-terracotta font-semibold text-[11px]">
-                  Geofence: 14m (Verified)
-                </span>
+            {selectedAgent.current_latitude !== null && selectedAgent.current_longitude !== null ? (
+              <p className="font-mono text-[11px] text-beige-text">
+                Lat: {selectedAgent.current_latitude.toFixed(6)}, Lng: {selectedAgent.current_longitude.toFixed(6)}
+              </p>
+            ) : (
+              <p className="text-[11px] text-beige-muted italic">No geographic coordinates recorded.</p>
+            )}
+
+            {selectedAgent.address && (
+              <p className="text-[11px] text-beige-muted pt-1 border-t border-beige-border/40">
+                <span className="font-semibold text-beige-text">Address: </span>
+                {selectedAgent.address}
+              </p>
+            )}
+          </div>
+
+          {/* Metadata Grid */}
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="p-2 rounded-xl bg-beige-bg border border-beige-border/60">
+              <span className="text-[10px] text-beige-muted block">Battery</span>
+              <div className="flex items-center gap-1 text-beige-text font-mono font-semibold mt-0.5">
+                <Battery className="w-3 h-3 text-emerald-600" />
+                <span>{selectedAgent.battery_level ?? 85}%</span>
               </div>
             </div>
-          )}
 
-          {selectedCustomer && (
+            <div className="p-2 rounded-xl bg-beige-bg border border-beige-border/60">
+              <span className="text-[10px] text-beige-muted block">Tasks / Visits</span>
+              <span className="text-beige-text font-mono font-semibold mt-0.5 block">
+                {selectedAgent.completed_visits} / {selectedAgent.assigned_tasks}
+              </span>
+            </div>
+          </div>
+
+          {/* Contact Details */}
+          <div className="space-y-1 text-xs text-beige-text">
+            {selectedAgent.phone && (
+              <div className="flex items-center gap-1.5 text-beige-muted">
+                <Phone className="w-3 h-3" />
+                <span className="text-beige-text">{selectedAgent.phone}</span>
+              </div>
+            )}
+            {selectedAgent.email && (
+              <div className="flex items-center gap-1.5 text-beige-muted truncate">
+                <Mail className="w-3 h-3 shrink-0" />
+                <span className="text-beige-text truncate">{selectedAgent.email}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Unlocated Agents Side Drawer */}
+      {showUnlocatedList && (
+        <div className="absolute top-16 left-3 z-30 w-80 max-w-[calc(100%-24px)] rounded-2xl bg-beige-card/98 backdrop-blur-md border border-beige-border shadow-2xl p-4 animate-in slide-in-from-left duration-200 space-y-3 max-h-[calc(100%-80px)] overflow-y-auto">
+          <div className="flex items-center justify-between pb-2 border-b border-beige-border">
             <div>
-              <div className="flex items-start justify-between pb-3 border-b border-beige-border/60">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-beige-terracotta text-white flex items-center justify-center shadow-sm">
-                    <MapPin className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-beige-text truncate max-w-[180px]">{selectedCustomer.name}</h4>
-                    <p className="text-xs text-beige-muted">{selectedCustomer.leadId}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <StatusBadge status={selectedCustomer.assignmentStatus} size="sm" />
-                  <button
-                    onClick={() => setSelectedCustomer(null)}
-                    className="p-1 text-beige-muted hover:text-beige-text rounded-md"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+              <h4 className="font-bold text-sm text-beige-text">Unlocated Agents</h4>
+              <p className="text-[10px] text-beige-muted">
+                {unlocatedAgents.length} agent(s) without saved coordinates
+              </p>
+            </div>
+            <button
+              onClick={() => setShowUnlocatedList(false)}
+              className="p-1 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-              <div className="py-2.5 space-y-1 text-xs text-beige-muted">
-                <p className="text-beige-text font-medium">{selectedCustomer.address}</p>
-                <p>Assigned Agent: <strong className="text-beige-text">{selectedCustomer.assignedAgentName || "Unassigned"}</strong></p>
-                <div className="flex items-center gap-3 pt-1">
-                  <span className="flex items-center gap-1">
-                    Priority: <StatusBadge status={selectedCustomer.priority} size="sm" />
-                  </span>
+          {unlocatedAgents.length === 0 ? (
+            <div className="py-6 text-center text-xs text-beige-muted">
+              <CheckCircle2 className="w-6 h-6 text-beige-olive mx-auto mb-1.5" />
+              <span>All registered agents have saved coordinates!</span>
+            </div>
+          ) : (
+            <div className="divide-y divide-beige-border/60 text-xs">
+              {unlocatedAgents.map((agent) => (
+                <div
+                  key={agent.id}
+                  onClick={() => handleAgentCardClick(agent)}
+                  className="py-2.5 px-2 hover:bg-beige-sand/60 rounded-xl transition cursor-pointer flex items-center justify-between gap-2"
+                >
+                  <div className="truncate">
+                    <span className="font-semibold text-beige-text block truncate">{agent.name}</span>
+                    <span className="text-[10px] font-mono text-beige-muted">
+                      {agent.agent_code || "No ID"} • {agent.territory || "No territory"}
+                    </span>
+                  </div>
+                  <StatusBadge status={agent.status as any} size="sm" />
                 </div>
-              </div>
+              ))}
             </div>
           )}
         </div>
       )}
-
-      {/* Map Legend */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 hidden md:flex items-center gap-4 px-4 py-2 rounded-xl bg-beige-card/90 backdrop-blur-md border border-beige-border text-xs text-beige-muted shadow-sm">
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-beige-olive border border-white" />
-          <span>Active Agent</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-md bg-beige-terracotta border border-white" />
-          <span>Customer Stop</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-4 h-0.5 border-t-2 border-dashed border-beige-terracotta" />
-          <span>Scheduled Route</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full border border-dashed border-[#B76E52] bg-[#B76E52]/20" />
-          <span>Territory Boundary</span>
-        </div>
-      </div>
     </div>
   );
 }

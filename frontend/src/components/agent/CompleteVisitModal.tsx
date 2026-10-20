@@ -31,16 +31,19 @@ export default function CompleteVisitModal({
   const [hasSignature, setHasSignature] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      completeVisit(visit.id, notes);
+    try {
+      const res = await completeVisit(visit.id, notes);
+      if (res.success) {
+        if (onSuccess) onSuccess();
+        onClose();
+      }
+    } finally {
       setIsSubmitting(false);
-      if (onSuccess) onSuccess();
-      onClose();
-    }, 500);
+    }
   };
 
   return (

@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
+import { useAuth } from "@/context/AuthContext";
+import { fetchAgentVisitById, ApiError } from "@/lib/api";
+import { AgentVisit } from "@/types/agent";
 import StatusBadge from "@/components/StatusBadge";
 import GeofenceSimulator from "@/components/agent/GeofenceSimulator";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
@@ -20,24 +23,169 @@ import {
   Building2,
   Navigation,
   ShieldCheck,
-  Share2,
+  AlertTriangle,
+  Loader2,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function VisitDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const { session } = useAuth();
   const { visits, historyVisits, isOnDuty } = useAgent();
+
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [phoneDialed, setPhoneDialed] = useState(false);
 
   const visitId = params?.id as string;
   const allVisits = [...visits, ...historyVisits];
-  const visit = allVisits.find((v) => v.id === visitId) || visits[0];
+  const contextVisit = allVisits.find((v) => v.id === visitId);
+
+  const [fetchedVisit, setFetchedVisit] = useState<AgentVisit | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(!contextVisit);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // If visit is not in local context, fetch directly from FastAPI endpoint
+  useEffect(() => {
+    if (contextVisit) {
+      setFetchedVisit(contextVisit);
+      setIsLoading(false);
+      return;
+    }
+
+    if (!visitId) return;
+
+    let mounted = true;
+    async function loadDirectVisit() {
+      setIsLoading(true);
+      setErrorStatus(null);
+      setErrorMessage(null);
+
+      try {
+        const data: any = await fetchAgentVisitById(visitId, session?.access_token);
+        if (mounted) {
+          const hasCoords = Boolean(
+            data.customer_latitude != null &&
+              data.customer_longitude != null &&
+              (data.customer_latitude !== 0 || data.customer_longitude !== 0)
+          );
+          setFetchedVisit({
+            id: data.id,
+            assignmentId: data.visit_code || data.id.slice(0, 8),
+            customerId: data.customer_id,
+            customerName: data.customer_name || "Customer Site",
+            company: data.customer_company || undefined,
+            contactPerson: data.customer_contact_person || data.customer_name || "Authorized Representative",
+            phone: data.customer_phone || "+91 98800 00000",
+            email: data.customer_email || "contact@client.com",
+            address: data.customer_address || "Address pending geocoding",
+            city: data.customer_city || "Bengaluru",
+            coordinates: {
+              lat: data.customer_latitude ?? 0,
+              lng: data.customer_longitude ?? 0,
+            },
+            hasCoordinates: hasCoords,
+            scheduledTime: data.scheduled_time || "10:00 AM",
+            scheduledDate: data.scheduled_date,
+            estimatedDuration: `${data.estimated_duration_minutes || 45} mins`,
+            purpose: data.purpose || "On-site Field Inspection & Verification",
+            priority: "medium",
+            status: (data.status as any) || "pending",
+            geofenceVerified: data.geofence_verified,
+            accuracyMeters: data.geofence_verified ? 12 : 0,
+            mockDistanceMeters: 45,
+            checkInTime: data.check_in_time
+              ? new Date(data.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : undefined,
+            completedTime: data.completed_time
+              ? new Date(data.completed_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : undefined,
+            completionNotes: data.completion_notes || undefined,
+            orderIndex: data.order_index || 1,
+            tags: ["Assigned"],
+          });
+        }
+      } catch (err: any) {
+        if (mounted) {
+          const status = err instanceof ApiError ? err.status : 500;
+          const detailMsg =
+            typeof err.detail === "string"
+              ? err.detail
+              : typeof err.message === "string"
+              ? err.message
+              : "Failed to load visit details.";
+          setErrorMessage(detailMsg);
+        }
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    }
+
+    loadDirectVisit();
+
+    return () => {
+      mounted = false;
+    };
+  }, [visitId, contextVisit, session?.access_token]);
+
+  const visit = contextVisit || fetchedVisit;
 
   const handleCall = () => {
     setPhoneDialed(true);
     setTimeout(() => setPhoneDialed(false), 3000);
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-12 text-center space-y-3">
+        <Loader2 className="w-6 h-6 animate-spin text-beige-terracotta mx-auto" />
+        <p className="text-xs text-beige-muted">Loading appointment record from backend...</p>
+      </div>
+    );
+  }
+
+  if (errorStatus === 403) {
+    return (
+      <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-3 max-w-lg mx-auto">
+        <div className="w-12 h-12 rounded-2xl bg-[#FDF2F0] text-beige-terracotta mx-auto flex items-center justify-center">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h2 className="text-base font-bold text-beige-text">Access Forbidden</h2>
+        <p className="text-xs text-beige-muted">
+          You are not authorized to view this visit. Field agents are restricted to their own assigned appointments.
+        </p>
+        <Link
+          href="/agent/visits"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-beige-sand hover:bg-beige-sand/80 text-xs font-bold text-beige-text border border-beige-border transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Return to My Visits</span>
+        </Link>
+      </div>
+    );
+  }
+
+  if (errorStatus === 404 || !visit) {
+    return (
+      <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-3 max-w-lg mx-auto">
+        <div className="w-12 h-12 rounded-2xl bg-beige-sand text-beige-muted mx-auto flex items-center justify-center">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <h2 className="text-base font-bold text-beige-text">Visit Record Not Found</h2>
+        <p className="text-xs text-beige-muted">
+          The requested visit identifier &quot;{visitId}&quot; does not exist in the database.
+        </p>
+        <Link
+          href="/agent/visits"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-beige-sand hover:bg-beige-sand/80 text-xs font-bold text-beige-text border border-beige-border transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Return to My Visits</span>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
@@ -62,7 +210,7 @@ export default function VisitDetailsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border font-semibold">
                 Stop #{visit.orderIndex} • {visit.id}
               </span>
               <span className="text-xs text-beige-muted">{visit.scheduledDate}</span>
@@ -109,9 +257,16 @@ export default function VisitDetailsPage() {
               <MapPin className="w-3.5 h-3.5 text-beige-terracotta shrink-0 mt-0.5" />
               <span>{visit.address}</span>
             </p>
-            <p className="text-[11px] text-beige-muted pl-4">
-              Mock GPS: {visit.coordinates.lat.toFixed(4)}° N, {visit.coordinates.lng.toFixed(4)}° E
-            </p>
+            {visit.hasCoordinates && visit.coordinates.lat !== 0 && visit.coordinates.lng !== 0 ? (
+              <p className="text-[11px] text-beige-olive pl-4 flex items-center gap-1 font-mono">
+                <Compass className="w-3 h-3" />
+                <span>Verified GPS: {visit.coordinates.lat.toFixed(4)}° N, {visit.coordinates.lng.toFixed(4)}° E</span>
+              </p>
+            ) : (
+              <p className="text-[11px] text-beige-muted pl-4 italic">
+                Site GPS coordinates not yet geocoded for this customer.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -180,25 +335,18 @@ export default function VisitDetailsPage() {
           </span>
         </div>
 
-        {visit.status === "in_progress" || visit.geofenceVerified ? (
+        {visit.status !== "completed" && (
           <button
             type="button"
             onClick={() => setShowCompleteModal(true)}
-            className="py-2.5 px-4 rounded-xl text-xs font-bold bg-beige-olive hover:bg-beige-olive-light text-white shadow-xs transition flex items-center gap-1.5"
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-beige-olive text-white hover:bg-beige-olive-light transition shadow-xs shrink-0"
           >
-            <CheckCircle2 className="w-4 h-4" />
             Complete Visit
           </button>
-        ) : visit.status === "completed" ? (
-          <span className="text-xs font-bold text-beige-olive px-3 py-1.5 rounded-xl bg-beige-olive-subtle border border-beige-olive/30">
-            ✓ Completed
-          </span>
-        ) : (
-          <span className="text-xs text-beige-muted">Check in first</span>
         )}
       </div>
 
-      {/* Modal */}
+      {/* Complete Visit Modal */}
       {showCompleteModal && (
         <CompleteVisitModal
           visit={visit}

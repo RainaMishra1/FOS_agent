@@ -1,6 +1,6 @@
 import uuid
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, Literal
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserProfileResponse(BaseModel):
@@ -29,9 +29,11 @@ class AdminProvisionRequest(BaseModel):
     bootstrap_secret: Optional[str] = None
 
 
+
 class AgentLocationUpdateRequest(BaseModel):
     """Payload for field agent location & telemetry reporting."""
-    latitude: float
-    longitude: float
-    gps_accuracy: Optional[float] = None
-    battery_level: Optional[int] = None
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="Latitude between -90 and 90")
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="Longitude between -180 and 180")
+    gps_accuracy: Optional[float] = Field(None, ge=0.0, description="GPS accuracy in meters")
+    battery_level: Optional[int] = Field(None, ge=0, le=100, description="Battery percentage (0-100)")
+    location_source: Literal["gps", "manual"] = Field("gps", description="Provenance of coordinates: 'gps' or 'manual'")
