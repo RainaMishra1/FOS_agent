@@ -11,6 +11,7 @@ import {
   fetchAgentDashboard,
   updateAgentVisitStatus,
   updateAgentDutyStatus,
+  updateAgentLocation,
   VisitApiResponse,
   AgentApiItem,
   ApiError,
@@ -78,8 +79,8 @@ function mapApiVisitToAgentVisit(v: VisitApiResponse): AgentVisit {
     priority: "medium",
     status: (v.status as any) || "pending",
     geofenceVerified: v.geofence_verified,
-    accuracyMeters: v.geofence_verified ? 12 : 0,
-    mockDistanceMeters: 45, // default simulation baseline for testing
+    accuracyMeters: 0,
+    mockDistanceMeters: 0,
     checkInTime: v.check_in_time
       ? new Date(v.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : undefined,
@@ -132,6 +133,35 @@ function extractErrorMessage(err: any, fallback: string): string {
   }
   if (typeof err.message === "string") return err.message;
   return fallback;
+}
+
+async function syncFreshGpsLocation(token: string): Promise<void> {
+  if (!navigator.geolocation) {
+    throw new Error("This browser cannot provide GPS location, so the 100m geofence cannot be verified.");
+  }
+
+  const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      resolve,
+      (geoError) => {
+        if (geoError.code === geoError.PERMISSION_DENIED) {
+          reject(new Error("Location access is required to verify the 100m geofence."));
+        } else if (geoError.code === geoError.TIMEOUT) {
+          reject(new Error("GPS lookup timed out. Try again when your location is available."));
+        } else {
+          reject(new Error("Your current GPS location is unavailable. Move to an open area and try again."));
+        }
+      },
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
+    );
+  });
+
+  await updateAgentLocation({
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    gps_accuracy: position.coords.accuracy,
+    location_source: "gps",
+  }, token);
 }
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
@@ -271,13 +301,18 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      if (!session?.access_token) {
+        throw new Error("Your secure session is unavailable. Sign in again to check in.");
+      }
+      await syncFreshGpsLocation(session.access_token);
+
       // Send verified check-in to FastAPI backend
       const updatedApi = await updateAgentVisitStatus(
         visitId,
         "in_progress",
         undefined,
         true,
-        session?.access_token
+        session.access_token
       );
       const mapped = mapApiVisitToAgentVisit(updatedApi);
 
@@ -315,13 +350,20 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      if (!session?.access_token) {
+        throw new Error("Your secure session is unavailable. Sign in again to complete this visit.");
+      }
+      // Capture fresh GPS for completion; the backend independently checks
+      // accuracy, age, and distance from this visit's saved customer location.
+      await syncFreshGpsLocation(session.access_token);
+
       // Send verified completion to FastAPI backend
       const updatedApi = await updateAgentVisitStatus(
         visitId,
         "completed",
         notes,
         true,
-        session?.access_token
+        session.access_token
       );
       const mapped = mapApiVisitToAgentVisit(updatedApi);
 

@@ -187,7 +187,7 @@ export default function VisitDetailDrawer({
                     Visit Completed at {visit.completedTime || "Recorded"}
                   </span>
                   <span className="text-[10px] font-mono text-beige-olive">
-                    ±{visit.accuracyMeters || 12}m Accuracy
+                    GPS geofence verified
                   </span>
                 </div>
                 <p className="text-xs text-beige-text">{visit.completionNotes}</p>
@@ -204,7 +204,7 @@ export default function VisitDetailDrawer({
               Close
             </button>
 
-            {visit.status === "in_progress" || visit.geofenceVerified ? (
+            {visit.status === "in_progress" ? (
               <button
                 onClick={() => setShowCompleteModal(true)}
                 className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-md transition flex items-center justify-center gap-1.5"

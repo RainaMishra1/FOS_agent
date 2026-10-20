@@ -157,7 +157,7 @@ export default function VisitHistoryPage() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold text-beige-olive bg-beige-olive-subtle px-2 py-0.5 rounded-full border border-beige-olive/30 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3" />
-                    Geofence Verified (±{visit.accuracyMeters || 12}m)
+                    GPS geofence verified
                   </span>
                 </div>
               </div>

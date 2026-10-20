@@ -14,7 +14,6 @@ import {
   Navigation,
   Phone,
   ShieldCheck,
-  AlertTriangle,
   ArrowRight,
   ExternalLink,
 } from "lucide-react";
@@ -46,16 +45,16 @@ export default function NextVisitCard({
     );
   }
 
-  const isCheckedIn = visit.geofenceVerified || visit.status === "in_progress";
-  const isWithinGeofence = visit.mockDistanceMeters <= 100;
+  const isCheckedIn = visit.status === "in_progress";
 
-  const handleQuickCheckIn = () => {
-    if (!isWithinGeofence || isCheckedIn || !isOnDuty) return;
+  const handleQuickCheckIn = async () => {
+    if (isCheckedIn || !isOnDuty || isCheckingIn) return;
     setIsCheckingIn(true);
-    setTimeout(() => {
-      checkInVisit(visit.id);
+    try {
+      await checkInVisit(visit.id);
+    } finally {
       setIsCheckingIn(false);
-    }, 600);
+    }
   };
 
   return (
@@ -91,29 +90,17 @@ export default function NextVisitCard({
         </div>
 
         {/* Geofence Status Pill */}
-        <div
-          className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
-            isCheckedIn
-              ? "bg-beige-olive-subtle border-beige-olive/30 text-beige-olive"
-              : isWithinGeofence
-              ? "bg-beige-olive-subtle/80 border-beige-olive/30 text-beige-olive"
-              : "bg-[#FDF2F0] border-beige-terracotta/30 text-beige-terracotta"
-          }`}
-        >
+        <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${isCheckedIn ? "bg-beige-olive-subtle border-beige-olive/30 text-beige-olive" : "bg-beige-sand border-beige-border text-beige-muted"}`}>
           <div className="flex items-center gap-2">
             {isCheckedIn ? (
               <ShieldCheck className="w-4 h-4 shrink-0" />
-            ) : isWithinGeofence ? (
-              <Compass className="w-4 h-4 shrink-0 animate-spin text-beige-olive" style={{ animationDuration: "6s" }} />
             ) : (
-              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <Compass className="w-4 h-4 shrink-0" />
             )}
             <span className="font-semibold text-[11px] sm:text-xs">
               {isCheckedIn
-                ? `Checked in at ${visit.checkInTime || "on-site"} (±${visit.accuracyMeters || 12}m accuracy)`
-                : isWithinGeofence
-                ? `Within 100m Geofence (${visit.mockDistanceMeters}m away)`
-                : `Outside Geofence (${visit.mockDistanceMeters}m away • Need <100m)`}
+                ? `GPS geofence verified at ${visit.checkInTime || "check-in"}; it will be checked again at completion.`
+                : "Fresh GPS must be within 100m of the site to check in."}
             </span>
           </div>
 
@@ -122,7 +109,7 @@ export default function NextVisitCard({
             onClick={() => onOpenDetails(visit)}
             className="text-[11px] font-semibold underline underline-offset-2 ml-2 hover:opacity-80 shrink-0"
           >
-            Simulate
+            Details
           </button>
         </div>
 
@@ -142,12 +129,8 @@ export default function NextVisitCard({
             <button
               type="button"
               onClick={handleQuickCheckIn}
-              disabled={!isWithinGeofence || isCheckingIn || !isOnDuty}
-              className={`col-span-2 sm:col-span-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-[0.98] ${
-                isWithinGeofence && isOnDuty
-                  ? "bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-xs cursor-pointer"
-                  : "bg-beige-sand text-beige-muted border border-beige-border cursor-not-allowed"
-              }`}
+              disabled={isCheckingIn || !isOnDuty}
+              className="col-span-2 sm:col-span-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-[0.98] bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-xs cursor-pointer disabled:opacity-50"
             >
               {isCheckingIn ? (
                 <>
@@ -157,7 +140,7 @@ export default function NextVisitCard({
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  {isWithinGeofence ? `Check In (${visit.mockDistanceMeters}m)` : "Check In (Locked)"}
+                  Verify GPS & Check In
                 </>
               )}
             </button>

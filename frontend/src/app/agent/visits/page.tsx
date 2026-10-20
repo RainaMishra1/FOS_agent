@@ -13,10 +13,8 @@ import {
   Filter,
   MapPin,
   Clock,
-  Compass,
   CheckCircle2,
   ShieldCheck,
-  AlertTriangle,
   ArrowUpDown,
   Building2,
   ChevronRight,
@@ -289,7 +287,6 @@ export default function MyVisitsPage() {
           filteredVisits.map((visit) => {
             const isCompleted = visit.status === "completed";
             const isInProgress = visit.status === "in_progress";
-            const isWithinGeofence = visit.mockDistanceMeters <= 100;
 
             return (
               <div
@@ -342,20 +339,15 @@ export default function MyVisitsPage() {
                 <div className="flex items-center justify-between pt-1 border-t border-beige-border/60 text-xs">
                   {/* Geofence status tag */}
                   <div className="flex items-center gap-1.5">
-                    {isCompleted || visit.geofenceVerified ? (
+                    {visit.geofenceVerified ? (
                       <span className="flex items-center gap-1 text-[11px] font-bold text-beige-olive bg-beige-olive-subtle px-2 py-0.5 rounded-full border border-beige-olive/30">
                         <ShieldCheck className="w-3 h-3" />
-                        Geofence Verified (±{visit.accuracyMeters || 12}m)
-                      </span>
-                    ) : isWithinGeofence ? (
-                      <span className="flex items-center gap-1 text-[11px] font-bold text-beige-olive bg-beige-olive-subtle px-2 py-0.5 rounded-full border border-beige-olive/30">
-                        <Compass className="w-3 h-3" />
-                        Within Geofence ({visit.mockDistanceMeters}m)
+                        GPS geofence verified
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 text-[11px] text-beige-muted bg-beige-sand px-2 py-0.5 rounded-full border border-beige-border">
                         <MapPin className="w-3 h-3" />
-                        {visit.mockDistanceMeters}m away (Need &lt;100m)
+                        Fresh GPS check required within 100m
                       </span>
                     )}
                   </div>
@@ -373,14 +365,14 @@ export default function MyVisitsPage() {
                       >
                         Complete Visit
                       </button>
-                    ) : !isCompleted && isWithinGeofence ? (
+                    ) : !isCompleted ? (
                       <button
                         type="button"
                         onClick={(e) => handleQuickCheckIn(e, visit)}
                         disabled={!isOnDuty}
                         className="px-3 py-1 rounded-lg text-xs font-bold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition shadow-2xs disabled:opacity-50"
                       >
-                        Check In ({visit.mockDistanceMeters}m)
+                        Verify GPS & Check In
                       </button>
                     ) : (
                       <span className="text-[11px] font-semibold text-beige-muted group-hover:text-beige-text flex items-center gap-0.5">

@@ -94,7 +94,7 @@ export default function VisitDetailsPage() {
             status: (data.status as any) || "pending",
             geofenceVerified: data.geofence_verified,
             accuracyMeters: data.geofence_verified ? 12 : 0,
-            mockDistanceMeters: 45,
+            mockDistanceMeters: 0,
             checkInTime: data.check_in_time
               ? new Date(data.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
               : undefined,

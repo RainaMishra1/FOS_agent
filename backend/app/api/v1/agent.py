@@ -1,4 +1,5 @@
 import uuid
+import math
 from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,6 +13,7 @@ from app.models.agent import Agent
 from app.models.profile import Profile
 from app.models.visit import Visit
 from app.models.agent_location import AgentLocation
+from app.models.visit_location_log import VisitLocationLog
 from app.models.lead import Lead
 from app.config import settings
 from geoalchemy2.elements import WKTElement
@@ -30,6 +32,20 @@ from app.api.v1.visits import _to_visit_response, VALID_VISIT_STATUSES
 from app.api.v1.agents import _to_agent_response
 
 router = APIRouter(prefix="/agent", tags=["Field Agent Operations"])
+
+
+def _distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance between two WGS84 points in meters."""
+    earth_radius_meters = 6_371_000
+    lat1_rad, lat2_rad = math.radians(lat1), math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+    haversine = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+    )
+    haversine = min(1.0, max(0.0, haversine))
+    return earth_radius_meters * 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
 
 
 async def _route_stops(agent: Agent, db: AsyncSession, ref_date: date):
@@ -517,13 +533,73 @@ async def update_agent_visit_status(
             detail="Invalid status transition: A completed visit cannot be reopened.",
         )
 
+    verified_location = None
+    if payload.status in {"in_progress", "completed"}:
+        if not visit.customer or not (
+            -90 <= visit.customer.latitude <= 90
+            and -180 <= visit.customer.longitude <= 180
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This visit has no valid saved customer location, so its geofence cannot be verified.",
+            )
+        if agent.location_source != "gps":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Allow GPS location sharing before completing this visit.",
+            )
+
+        latest_location = await db.scalar(
+            select(AgentLocation)
+            .where(AgentLocation.agent_id == agent.id)
+            .order_by(AgentLocation.recorded_at.desc())
+            .limit(1)
+        )
+        if not latest_location:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No GPS reading is available. Allow location and try completing the visit again.",
+            )
+
+        recorded_at = latest_location.recorded_at
+        if recorded_at.tzinfo is None:
+            recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
+        if age_seconds < 0 or age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Your GPS reading is out of date. Refresh your location and try again.",
+            )
+        if (
+            latest_location.gps_accuracy is None
+            or latest_location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "GPS accuracy is not sufficient to verify the 100m geofence. "
+                    "Wait for a more accurate location and try again."
+                ),
+            )
+
+        distance_meters = _distance_meters(
+            latest_location.latitude,
+            latest_location.longitude,
+            visit.customer.latitude,
+            visit.customer.longitude,
+        )
+        if distance_meters > settings.GEOFENCE_RADIUS_METERS:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"You are outside this visit's {settings.GEOFENCE_RADIUS_METERS:.0f}m geofence "
+                    f"({distance_meters:.0f}m away). Move within range and try again."
+                ),
+            )
+        verified_location = (latest_location, distance_meters)
+
     visit.status = payload.status
-    if payload.geofence_verified is not None:
-        # Only allow geofence verification if agent has verified GPS coordinates (never manual)
-        if payload.geofence_verified:
-            visit.geofence_verified = bool(agent.location_source == "gps")
-        else:
-            visit.geofence_verified = False
+    visit.geofence_verified = verified_location is not None
     if payload.completion_notes is not None:
         visit.completion_notes = payload.completion_notes
 
@@ -531,6 +607,22 @@ async def update_agent_visit_status(
         visit.check_in_time = func.now()
     elif payload.status == "completed" and not visit.completed_time:
         visit.completed_time = func.now()
+
+    if verified_location is not None:
+        location, distance_meters = verified_location
+        db.add(
+            VisitLocationLog(
+                visit_id=visit.id,
+                event_type="check_in" if payload.status == "in_progress" else "completion",
+                latitude=location.latitude,
+                longitude=location.longitude,
+                location=WKTElement(
+                    f"POINT({location.longitude} {location.latitude})", srid=4326
+                ),
+                accuracy_meters=location.gps_accuracy,
+                distance_to_customer_meters=distance_meters,
+            )
+        )
 
     await db.commit()
     await db.refresh(visit)
