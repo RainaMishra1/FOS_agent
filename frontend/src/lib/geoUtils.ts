@@ -81,9 +81,21 @@ export function rankAgentsForLead(
   const ineligible: AgentEligibilityResult[] = [];
 
   for (const agent of agents) {
+    const coordinates = agent.coordinates;
+    if (!coordinates) {
+      ineligible.push({
+        agent,
+        distanceKm: Number.POSITIVE_INFINITY,
+        formattedDistance: "Location unavailable",
+        isEligible: false,
+        ineligibilityReason: "Agent location is unavailable",
+      });
+      continue;
+    }
+
     const distanceKm = calculateHaversineDistanceKm(
-      agent.coordinates.lat,
-      agent.coordinates.lng,
+      coordinates.lat,
+      coordinates.lng,
       customer.coordinates.lat,
       customer.coordinates.lng
     );
