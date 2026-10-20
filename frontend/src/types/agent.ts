@@ -24,8 +24,6 @@ export interface AgentVisit {
   priority: VisitPriority;
   status: VisitStatus;
   geofenceVerified: boolean;
-  accuracyMeters: number;
-  mockDistanceMeters: number;
   checkInTime?: string;
   completedTime?: string;
   completionNotes?: string;

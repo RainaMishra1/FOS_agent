@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
 import StatusBadge from "@/components/StatusBadge";
-import GeofenceSimulator from "./GeofenceSimulator";
+import VisitGeofenceCheckIn from "./VisitGeofenceCheckIn";
 import CompleteVisitModal from "./CompleteVisitModal";
 import {
   X,
@@ -175,7 +175,7 @@ export default function VisitDetailDrawer({
 
             {/* Geofencing Verification Box */}
             <div>
-              <GeofenceSimulator visit={visit} onCheckInSuccess={() => {}} />
+              <VisitGeofenceCheckIn visit={visit} />
             </div>
 
             {/* Completion Notes / History if completed */}

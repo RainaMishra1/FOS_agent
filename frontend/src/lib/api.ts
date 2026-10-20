@@ -572,7 +572,6 @@ export async function updateAgentVisitStatus(
   visitId: string,
   status: string,
   notes?: string,
-  geofenceVerified?: boolean,
   token?: string | null
 ): Promise<VisitApiResponse> {
   return await apiFetch<VisitApiResponse>(
@@ -582,7 +581,6 @@ export async function updateAgentVisitStatus(
       body: JSON.stringify({
         status,
         completion_notes: notes,
-        geofence_verified: geofenceVerified,
       }),
     },
     token

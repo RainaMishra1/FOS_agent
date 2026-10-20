@@ -5,17 +5,11 @@ import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
 import { CheckCircle2, Loader2, MapPin, ShieldCheck } from "lucide-react";
 
-interface GeofenceSimulatorProps {
+interface VisitGeofenceCheckInProps {
   visit: AgentVisit;
-  onCheckInSuccess?: () => void;
-  compact?: boolean;
 }
 
-export default function GeofenceSimulator({
-  visit,
-  onCheckInSuccess,
-  compact = false,
-}: GeofenceSimulatorProps) {
+export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProps) {
   const { checkInVisit, isOnDuty } = useAgent();
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCompleted = visit.status === "completed";
@@ -25,15 +19,14 @@ export default function GeofenceSimulator({
     if (isCheckingIn || !isOnDuty) return;
     setIsCheckingIn(true);
     try {
-      const result = await checkInVisit(visit.id);
-      if (result.success) onCheckInSuccess?.();
+      await checkInVisit(visit.id);
     } finally {
       setIsCheckingIn(false);
     }
   };
 
   return (
-    <section className={`rounded-2xl border border-beige-border bg-beige-card shadow-xs ${compact ? "p-3 space-y-2" : "p-4 sm:p-5 space-y-4"}`}>
+    <section className="space-y-4 rounded-2xl border border-beige-border bg-beige-card p-4 shadow-xs sm:p-5">
       <div className="flex items-start gap-3">
         <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${visit.geofenceVerified ? "bg-beige-olive-subtle text-beige-olive" : "bg-beige-terracotta-subtle text-beige-terracotta"}`}>
           {visit.geofenceVerified ? <ShieldCheck className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}

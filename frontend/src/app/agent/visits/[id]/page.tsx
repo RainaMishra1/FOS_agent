@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { fetchAgentVisitById, ApiError } from "@/lib/api";
 import { AgentVisit } from "@/types/agent";
 import StatusBadge from "@/components/StatusBadge";
-import GeofenceSimulator from "@/components/agent/GeofenceSimulator";
+import VisitGeofenceCheckIn from "@/components/agent/VisitGeofenceCheckIn";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
 import AgentMapPreview from "@/components/agent/AgentMapPreview";
 import {
@@ -93,8 +93,6 @@ export default function VisitDetailsPage() {
             priority: "medium",
             status: (data.status as any) || "pending",
             geofenceVerified: data.geofence_verified,
-            accuracyMeters: data.geofence_verified ? 12 : 0,
-            mockDistanceMeters: 0,
             checkInTime: data.check_in_time
               ? new Date(data.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
               : undefined,
@@ -321,7 +319,7 @@ export default function VisitDetailsPage() {
         <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider">
           Geofencing &amp; Check-In Verification
         </h3>
-        <GeofenceSimulator visit={visit} />
+        <VisitGeofenceCheckIn visit={visit} />
       </section>
 
       {/* Complete Visit Button / Status Card */}

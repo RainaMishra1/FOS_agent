@@ -251,8 +251,6 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
         priority: customer.priority,
         status: "pending",
         geofenceVerified: false,
-        accuracyMeters: 0,
-        mockDistanceMeters: 250, // Simulated distance
         orderIndex: 6,
         tags: ["Nearest-Agent Dispatched", customer.priority.toUpperCase()],
       };

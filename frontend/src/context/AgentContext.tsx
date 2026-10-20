@@ -30,7 +30,6 @@ interface AgentContextType {
   setSelectedVisit: (visit: AgentVisit | null) => void;
   checkInVisit: (visitId: string) => Promise<{ success: boolean; message: string }>;
   completeVisit: (visitId: string, notes?: string) => Promise<{ success: boolean; message: string }>;
-  updateMockDistance: (visitId: string, distanceMeters: number) => void;
   resetDemoData: () => void;
   notification: { type: "success" | "error" | "info"; message: string } | null;
   clearNotification: () => void;
@@ -79,8 +78,6 @@ function mapApiVisitToAgentVisit(v: VisitApiResponse): AgentVisit {
     priority: "medium",
     status: (v.status as any) || "pending",
     geofenceVerified: v.geofence_verified,
-    accuracyMeters: 0,
-    mockDistanceMeters: 0,
     checkInTime: v.check_in_time
       ? new Date(v.check_in_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : undefined,
@@ -275,20 +272,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateMockDistance = (visitId: string, distanceMeters: number) => {
-    setVisits((prev) =>
-      prev.map((v) => {
-        if (v.id === visitId) {
-          return { ...v, mockDistanceMeters: distanceMeters };
-        }
-        return v;
-      })
-    );
-    if (selectedVisit?.id === visitId) {
-      setSelectedVisit((prev) => (prev ? { ...prev, mockDistanceMeters: distanceMeters } : null));
-    }
-  };
-
   const checkInVisit = async (visitId: string): Promise<{ success: boolean; message: string }> => {
     const visit = visits.find((v) => v.id === visitId);
     if (!visit) {
@@ -311,7 +294,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         visitId,
         "in_progress",
         undefined,
-        true,
         session.access_token
       );
       const mapped = mapApiVisitToAgentVisit(updatedApi);
@@ -362,7 +344,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         visitId,
         "completed",
         notes,
-        true,
         session.access_token
       );
       const mapped = mapApiVisitToAgentVisit(updatedApi);
@@ -442,7 +423,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         setSelectedVisit,
         checkInVisit,
         completeVisit,
-        updateMockDistance,
         resetDemoData,
         notification,
         clearNotification,

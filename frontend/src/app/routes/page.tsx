@@ -374,8 +374,6 @@ export default function AdminRoutePlanningPage() {
             priority: stop.priority || "medium",
             status: (match?.status as any) || "pending",
             geofenceVerified: match?.geofenceVerified || false,
-            accuracyMeters: match?.accuracyMeters || 0,
-            mockDistanceMeters: match?.mockDistanceMeters || 150 + idx * 40,
             orderIndex: idx + 1,
             tags: match?.tags || ["Dispatched Route", stop.priority?.toUpperCase() || "NORMAL"],
           };

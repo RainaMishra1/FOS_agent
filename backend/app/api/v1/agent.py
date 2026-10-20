@@ -48,6 +48,42 @@ def _distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     return earth_radius_meters * 2 * math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine))
 
 
+async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
+    customer = visit.customer
+    if not customer or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180):
+        raise HTTPException(status_code=409, detail="This visit has no valid saved customer location.")
+    if agent.location_source != "gps":
+        raise HTTPException(status_code=409, detail="Allow GPS location sharing to verify the geofence.")
+
+    location = await db.scalar(
+        select(AgentLocation)
+        .where(AgentLocation.agent_id == agent.id)
+        .order_by(AgentLocation.recorded_at.desc())
+        .limit(1)
+    )
+    if not location:
+        raise HTTPException(status_code=409, detail="No GPS reading is available. Allow location and try again.")
+
+    recorded_at = location.recorded_at
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
+    if age_seconds < 0 or age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+        raise HTTPException(status_code=409, detail="Your GPS reading is out of date. Try again with fresh location.")
+    if location.gps_accuracy is None or location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
+        raise HTTPException(status_code=409, detail="GPS accuracy is too low to verify the geofence. Try again outdoors.")
+
+    distance = _distance_meters(
+        location.latitude, location.longitude, customer.latitude, customer.longitude
+    )
+    if distance > settings.GEOFENCE_RADIUS_METERS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"You are {distance:.0f}m away. Move within {settings.GEOFENCE_RADIUS_METERS:.0f}m to continue.",
+        )
+    return location, distance
+
+
 async def _route_stops(agent: Agent, db: AsyncSession, ref_date: date):
     """Return today's assigned route stops plus their lead priority."""
     priority = (
@@ -535,68 +571,7 @@ async def update_agent_visit_status(
 
     verified_location = None
     if payload.status in {"in_progress", "completed"}:
-        if not visit.customer or not (
-            -90 <= visit.customer.latitude <= 90
-            and -180 <= visit.customer.longitude <= 180
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This visit has no valid saved customer location, so its geofence cannot be verified.",
-            )
-        if agent.location_source != "gps":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Allow GPS location sharing before completing this visit.",
-            )
-
-        latest_location = await db.scalar(
-            select(AgentLocation)
-            .where(AgentLocation.agent_id == agent.id)
-            .order_by(AgentLocation.recorded_at.desc())
-            .limit(1)
-        )
-        if not latest_location:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="No GPS reading is available. Allow location and try completing the visit again.",
-            )
-
-        recorded_at = latest_location.recorded_at
-        if recorded_at.tzinfo is None:
-            recorded_at = recorded_at.replace(tzinfo=timezone.utc)
-        age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
-        if age_seconds < 0 or age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Your GPS reading is out of date. Refresh your location and try again.",
-            )
-        if (
-            latest_location.gps_accuracy is None
-            or latest_location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "GPS accuracy is not sufficient to verify the 100m geofence. "
-                    "Wait for a more accurate location and try again."
-                ),
-            )
-
-        distance_meters = _distance_meters(
-            latest_location.latitude,
-            latest_location.longitude,
-            visit.customer.latitude,
-            visit.customer.longitude,
-        )
-        if distance_meters > settings.GEOFENCE_RADIUS_METERS:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"You are outside this visit's {settings.GEOFENCE_RADIUS_METERS:.0f}m geofence "
-                    f"({distance_meters:.0f}m away). Move within range and try again."
-                ),
-            )
-        verified_location = (latest_location, distance_meters)
+        verified_location = await _verify_visit_geofence(agent, visit, db)
 
     visit.status = payload.status
     visit.geofence_verified = verified_location is not None

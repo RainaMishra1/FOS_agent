@@ -76,7 +76,7 @@ export default function AgentRoutePage() {
     estimatedDuration: `${v.estimated_duration_minutes || 45} mins`, purpose: v.purpose || "Field visit",
     priority: (v.priority === "high" || v.priority === "low" ? v.priority : "medium"),
     status: v.status as AgentVisit["status"], geofenceVerified: v.geofence_verified,
-    accuracyMeters: 0, mockDistanceMeters: 0, checkInTime: v.check_in_time || undefined,
+    checkInTime: v.check_in_time || undefined,
     completedTime: v.completed_time || undefined, completionNotes: v.completion_notes || undefined,
     orderIndex: v.order_index, tags: ["Assigned"],
   });
