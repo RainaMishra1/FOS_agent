@@ -545,7 +545,9 @@ export default function AdminRoutePlanningPage() {
             {selectedAgent.territory.split("(")[0].trim()}
           </span>
           <span className="text-[10px] text-beige-olive font-mono">
-            {selectedAgent.coordinates.lat.toFixed(3)}, {selectedAgent.coordinates.lng.toFixed(3)}
+            {selectedAgent.coordinates?.lat != null && selectedAgent.coordinates?.lng != null
+              ? `${selectedAgent.coordinates.lat.toFixed(3)}, ${selectedAgent.coordinates.lng.toFixed(3)}`
+              : "Coordinates unavailable"}
           </span>
         </div>
       </div>
