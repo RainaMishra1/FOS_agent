@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS address VARCHAR(500);"))
             await conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS location_source VARCHAR(50) DEFAULT 'unknown' NOT NULL;"))
+        from app.db.seed import seed_database_if_needed
+        await seed_database_if_needed()
     except Exception as exc:
         pass
     yield
@@ -69,7 +71,9 @@ async def root():
     }
 
 
+# Force uvicorn reload on seed update
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=settings.PORT, reload=settings.DEBUG)
+
 

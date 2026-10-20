@@ -180,5 +180,23 @@ async def trigger_migrations():
         return {"status": "error", "error_type": exc.__class__.__name__, "message": safe_err}
 
 
+@router.get("/health/seed", tags=["Health"])
+@router.post("/health/seed", tags=["Health"])
+async def trigger_seed():
+    """Seeds real agents, customers, leads, assignments, and visits into PostgreSQL."""
+    try:
+        from app.db.seeder import run_seed
+        res = await run_seed()
+        return res
+    except Exception as exc:
+        import traceback
+        return {"status": "exception", "error_type": exc.__class__.__name__, "error": str(exc), "trace": traceback.format_exc()}
+
+
+
+
+
+
+
 
 
