@@ -196,7 +196,7 @@ def run_full_diagnosis() -> Dict[str, Any]:
                 try:
                     async with local_eng.begin() as conn:
                     # 1. Profiles
-                    await conn.execute(text("""
+                     await conn.execute(text("""
                         INSERT INTO profiles (id, full_name, email, role, phone, created_at, updated_at) VALUES
                         ('00000000-0000-0000-0000-000000000001', 'Anil Ops (Admin)', 'admin@fos-system.internal', 'admin', '+91 80 5000 0001', NOW(), NOW()),
                         ('00000000-0000-0000-0000-000000000002', 'Marcus Vance', 'agent1@fos-system.internal', 'agent', '+91 98450 11234', NOW(), NOW()),

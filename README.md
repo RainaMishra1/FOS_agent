@@ -132,17 +132,7 @@ cd backend
 # Linux/macOS:
 source .venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Run automated tests (health, database, and auth/role guards)
-pytest tests/ -v
-
-# Start FastAPI development server
-python app/main.py
-# or
-uvicorn app.main:app --reload --port 8000
-```
+7
 
 Backend URLs:
 - Health check: `http://localhost:8000/api/v1/health`

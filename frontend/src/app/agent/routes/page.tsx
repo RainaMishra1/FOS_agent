@@ -44,7 +44,9 @@ export default function AgentRoutePage() {
         const stop = result.stops.find((v) => v.id === id);
         return stop?.customer_latitude != null && stop?.customer_longitude != null;
       });
-      try {
+      if (!result.origin) {
+        setRoadRoute(null);
+      } else try {
         setRoadRoute(await fetchAgentRouteGeometry(geometryIds, session?.access_token));
       } catch (routeErr: any) {
         setRoadRoute(null);
@@ -112,7 +114,7 @@ export default function AgentRoutePage() {
       </div>
       <div className="flex gap-2">
         <button onClick={() => void loadRoute(true)} disabled={loading} className="flex items-center gap-1.5 rounded-xl border border-beige-border bg-beige-card px-3 py-2 text-xs font-semibold text-beige-text disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh</button>
-        <button onClick={() => void optimize()} disabled={optimizing || loading || (routeData?.stops.length || 0) < 2} className="flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-50"><Sparkles className={`h-3.5 w-3.5 ${optimizing ? "animate-spin" : ""}`} />{optimizing ? "Optimizing…" : "Optimize Sequence"}</button>
+        <button onClick={() => void optimize()} disabled={optimizing || loading || !routeData?.origin || (routeData?.stops.length || 0) < 2} className="flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-50"><Sparkles className={`h-3.5 w-3.5 ${optimizing ? "animate-spin" : ""}`} />{optimizing ? "Optimizing…" : "Optimize Sequence"}</button>
       </div>
     </div>
 
@@ -121,13 +123,14 @@ export default function AgentRoutePage() {
 
     {loading && <div className="rounded-2xl border border-beige-border bg-beige-card p-8 text-center text-sm text-beige-muted">Loading your assigned route…</div>}
     {!loading && routeData && <>
+      {!routeData.origin && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{routeData.origin_error || "Your assigned stops are shown below, but a current GPS fix is needed to draw the road route or optimize the sequence."} Your assigned stops remain available below. Allow location access, wait for a better fix, then refresh.</span></div>}
       <div className="flex items-start gap-2 rounded-xl border border-beige-border bg-beige-sand/70 p-3 text-[11px] text-beige-muted"><Navigation className="mt-0.5 h-4 w-4 shrink-0 text-beige-terracotta" /><p><strong className="text-beige-text">Road route from live operational data.</strong> Travel distance and time come from OSRM road-network routing. Estimated visit durations are added separately; traffic conditions are not included.</p></div>
 
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Stops Today</span><strong className="text-base text-beige-text">{totalStopCount}</strong><span className="mt-0.5 block text-[10px] text-beige-olive">{completedCount} completed today</span></div>
         <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Road Distance</span><strong className="font-mono text-base text-beige-text">{roadRoute ? formatDistance(roadRoute.distance_meters) : "—"}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">OSRM driving route</span></div>
         <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">Est. Duration</span><strong className="font-mono text-base text-beige-olive">{roadRoute ? `${Math.round(roadRoute.duration_seconds / 60 + onSiteMinutes)} min` : "—"}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">Road + scheduled visit time</span></div>
-        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">GPS Starting Point</span><strong className="text-base capitalize text-beige-text">{routeData.origin.accuracy_meters == null ? "GPS" : `±${Math.round(routeData.origin.accuracy_meters)} m`}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">{routeData.origin.updated_at ? `Updated ${new Date(routeData.origin.updated_at).toLocaleTimeString()}` : "Latest saved position"}</span></div>
+        <div className="rounded-2xl border border-beige-border bg-beige-card p-3"><span className="block text-[10px] text-beige-muted">GPS Starting Point</span><strong className="text-base capitalize text-beige-text">{!routeData.origin ? "Unavailable" : routeData.origin.accuracy_meters == null ? "GPS" : `±${Math.round(routeData.origin.accuracy_meters)} m`}</strong><span className="mt-0.5 block text-[10px] text-beige-muted">{routeData.origin?.updated_at ? `Updated ${new Date(routeData.origin.updated_at).toLocaleTimeString()}` : "Latest saved position"}</span></div>
       </div>
 
       <section className="space-y-1.5"><h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text"><Compass className="h-3.5 w-3.5 text-beige-terracotta" />Road Route &amp; Assigned Stops</h3><AgentRoadRouteMap origin={routeData.origin} stops={visitsForMap} geometry={roadRoute?.geometry?.coordinates || []} /></section>

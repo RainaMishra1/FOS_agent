@@ -152,7 +152,15 @@ async def get_today_agent_route(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
     ref_date = as_of_date or datetime.now(timezone.utc).date()
-    return {"date": ref_date, "origin": await _agent_route_origin(agent, db), "stops": await _route_stops(agent, db, ref_date),
+    origin = None
+    origin_error = None
+    try:
+        origin = await _agent_route_origin(agent, db)
+    except HTTPException as exc:
+        # Keep assigned stops visible when a GPS fix is unavailable or too inaccurate.
+        origin_error = exc.detail
+    return {"date": ref_date, "origin": origin, "origin_error": origin_error,
+            "stops": await _route_stops(agent, db, ref_date),
             "completed": await _completed_route_stops(agent, db, ref_date)}
 
 

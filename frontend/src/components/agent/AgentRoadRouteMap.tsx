@@ -7,7 +7,7 @@ type Point = { latitude: number; longitude: number };
 type Stop = { id: string; customer_name?: string | null; customer_latitude?: number | null; customer_longitude?: number | null; status: string };
 
 export default function AgentRoadRouteMap({ origin, stops, geometry }: {
-  origin: Point; stops: Stop[]; geometry: [number, number][];
+  origin: Point | null; stops: Stop[]; geometry: [number, number][];
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<any>(null);
@@ -45,10 +45,12 @@ export default function AgentRoadRouteMap({ origin, stops, geometry }: {
     const layer = layerRef.current;
     layer.clearLayers();
     const bounds: [number, number][] = [];
-    const originLatLng: [number, number] = [origin.latitude, origin.longitude];
-    L.circleMarker(originLatLng, { radius: 9, color: "#fff", weight: 3, fillColor: "#64754f", fillOpacity: 1 })
-      .bindTooltip("Your location").addTo(layer);
-    bounds.push(originLatLng);
+    const originLatLng: [number, number] | null = origin ? [origin.latitude, origin.longitude] : null;
+    if (originLatLng) {
+      L.circleMarker(originLatLng, { radius: 9, color: "#fff", weight: 3, fillColor: "#64754f", fillOpacity: 1 })
+        .bindTooltip("Your location").addTo(layer);
+      bounds.push(originLatLng);
+    }
     stops.forEach((stop, index) => {
       if (stop.customer_latitude == null || stop.customer_longitude == null) return;
       const pos: [number, number] = [stop.customer_latitude, stop.customer_longitude];
@@ -61,16 +63,18 @@ export default function AgentRoadRouteMap({ origin, stops, geometry }: {
       L.polyline(geometry.map(([lon, lat]) => [lat, lon]), { color: "#bd6c4c", weight: 5, opacity: 0.85 }).addTo(layer);
     }
     if (bounds.length > 1) map.fitBounds(L.latLngBounds(bounds), { padding: [36, 36], maxZoom: 14 });
-    else map.setView(originLatLng, 14);
+    else if (bounds.length === 1) map.setView(bounds[0], 14);
+    else if (originLatLng) map.setView(originLatLng, 14);
+    else map.setView([20, 0], 2);
     const resize = () => map.invalidateSize();
     setTimeout(resize, 100);
-  }, [ready, origin.latitude, origin.longitude, stops, geometry]);
+  }, [ready, origin?.latitude, origin?.longitude, stops, geometry]);
 
   return <div className="relative h-[420px] overflow-hidden rounded-2xl border border-beige-border bg-beige-sand">
     <div ref={mapRef} className="absolute inset-0" />
     {!ready && <div className="absolute inset-0 flex items-center justify-center text-sm text-beige-muted">Loading OpenStreetMap…</div>}
     <div className="absolute left-3 top-3 z-[500] flex items-center gap-2 rounded-lg border border-beige-border bg-beige-card/95 px-3 py-2 text-xs font-semibold shadow-sm">
-      <Navigation className="h-4 w-4 text-beige-terracotta" /> Road route <span className="text-beige-muted">·</span> <MapPin className="h-4 w-4 text-beige-olive" /> Your GPS start
+      <Navigation className="h-4 w-4 text-beige-terracotta" /> Road route <span className="text-beige-muted">·</span> <MapPin className="h-4 w-4 text-beige-olive" /> {origin ? "Your GPS start" : "GPS start unavailable"}
     </div>
   </div>;
 }

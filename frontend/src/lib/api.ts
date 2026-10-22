@@ -387,7 +387,8 @@ export interface VisitApiResponse {
 
 export interface AgentRouteData {
   date: string;
-  origin: { latitude: number; longitude: number; source: string; updated_at?: string | null; accuracy_meters?: number | null };
+  origin: { latitude: number; longitude: number; source: string; updated_at?: string | null; accuracy_meters?: number | null } | null;
+  origin_error?: string | null;
   stops: VisitApiResponse[];
   completed: VisitApiResponse[];
 }
