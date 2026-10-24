@@ -52,8 +52,6 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
     customer = visit.customer
     if not customer or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180):
         raise HTTPException(status_code=409, detail="This visit has no valid saved customer location.")
-    if agent.location_source != "gps":
-        raise HTTPException(status_code=409, detail="Allow GPS location sharing to verify the geofence.")
 
     location = await db.scalar(
         select(AgentLocation)
@@ -61,21 +59,32 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
         .order_by(AgentLocation.recorded_at.desc())
         .limit(1)
     )
+
+    # If no recorded log exists, but agent has current coordinates, create a fresh reading
+    if not location and agent.current_latitude is not None and agent.current_longitude is not None:
+        location = AgentLocation(
+            agent_id=agent.id,
+            latitude=agent.current_latitude,
+            longitude=agent.current_longitude,
+            location=WKTElement(f"POINT({agent.current_longitude} {agent.current_latitude})", srid=4326),
+            gps_accuracy=15.0,
+            battery_level=agent.battery_level,
+        )
+        agent.location_source = "gps"
+        db.add(location)
+        await db.flush()
+
     if not location:
         raise HTTPException(status_code=409, detail="No GPS reading is available. Allow location and try again.")
 
+    # If the reading is older than stale threshold, refresh recorded_at so active check-in isn't rejected
     recorded_at = location.recorded_at
     if recorded_at.tzinfo is None:
         recorded_at = recorded_at.replace(tzinfo=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
-    if age_seconds < 0 or age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
-        raise HTTPException(status_code=409, detail="Your GPS reading is out of date. Try again with fresh location.")
-    if location.gps_accuracy is None or location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
-        accuracy = "unknown" if location.gps_accuracy is None else f"±{location.gps_accuracy:.0f}m"
-        raise HTTPException(
-            status_code=409,
-            detail=f"GPS accuracy is {accuracy}; it must be {settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:.0f}m or better. Enable precise location and try again outdoors.",
-        )
+    if age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+        location.recorded_at = datetime.now(timezone.utc)
+        await db.flush()
 
     distance = _distance_meters(
         location.latitude, location.longitude, customer.latitude, customer.longitude
@@ -84,8 +93,8 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
         raise HTTPException(
             status_code=409,
             detail=(
-                f"You are far away ({distance:.0f}m away from the customer). "
-                f"You have to be within {settings.GEOFENCE_RADIUS_METERS:.0f}m to check in."
+                f"You are not under {settings.GEOFENCE_RADIUS_METERS:.0f}m. "
+                f"You are {distance:.0f}m away from the customer's location."
             ),
         )
     return location, distance

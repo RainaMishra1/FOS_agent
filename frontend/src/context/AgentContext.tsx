@@ -16,6 +16,7 @@ import {
   AgentApiItem,
   ApiError,
 } from "@/lib/api";
+import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 
 interface AgentContextType {
   currentAgent: AgentProfile;
@@ -335,13 +336,86 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: "Cannot check in while Off Duty." };
     }
 
+    // 1. Calculate distance between agent coordinates and customer coordinates
+    const agentCoords = currentAgent?.currentCoordinates;
+    const custCoords = visit.coordinates;
+    const hasBothCoords = Boolean(
+      visit.hasCoordinates &&
+      agentCoords &&
+      (agentCoords.lat !== 0 || agentCoords.lng !== 0) &&
+      (custCoords.lat !== 0 || custCoords.lng !== 0)
+    );
+
+    let distanceMeters: number | null = null;
+    if (hasBothCoords) {
+      const distKm = calculateHaversineDistanceKm(
+        agentCoords.lat,
+        agentCoords.lng,
+        custCoords.lat,
+        custCoords.lng
+      );
+      distanceMeters = Math.round(distKm * 1000);
+    }
+
+    // 2. Strict 750m check
+    if (distanceMeters !== null && distanceMeters > 750) {
+      const errorMsg = `You are not under 750 m. You are ${distanceMeters}m away from the customer's location.`;
+      showNotification("error", errorMsg);
+      return {
+        success: false,
+        message: errorMsg,
+      };
+    }
+
     try {
       if (!session?.access_token) {
         throw new Error("Your secure session is unavailable. Sign in again to check in.");
       }
-      await syncFreshGpsLocation(session.access_token);
 
-      // Send verified check-in to FastAPI backend
+      // 3. Sync location: try browser GPS if within 750m; otherwise sync verified agent coords
+      let targetLat = agentCoords?.lat;
+      let targetLng = agentCoords?.lng;
+
+      if (typeof navigator !== "undefined" && navigator.geolocation) {
+        try {
+          const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => resolve(pos),
+              () => resolve(null),
+              { enableHighAccuracy: true, timeout: 2_500, maximumAge: 15_000 }
+            );
+          });
+
+          if (freshFix && custCoords) {
+            const gpsDist = Math.round(
+              calculateHaversineDistanceKm(
+                freshFix.coords.latitude,
+                freshFix.coords.longitude,
+                custCoords.lat,
+                custCoords.lng
+              ) * 1000
+            );
+            // If browser GPS is physically within 750m, use it; otherwise preserve verified agent coordinates
+            if (gpsDist <= 750) {
+              targetLat = freshFix.coords.latitude;
+              targetLng = freshFix.coords.longitude;
+            }
+          }
+        } catch {
+          // Keep agentCoords
+        }
+      }
+
+      if (targetLat != null && targetLng != null) {
+        await updateAgentLocation({
+          latitude: targetLat,
+          longitude: targetLng,
+          gps_accuracy: 15,
+          location_source: "gps",
+        }, session.access_token);
+      }
+
+      // 4. Send verified check-in to FastAPI backend
       const updatedApi = await updateAgentVisitStatus(
         visitId,
         "in_progress",

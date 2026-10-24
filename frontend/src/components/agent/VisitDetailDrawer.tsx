@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   AlertCircle,
   Navigation,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -33,15 +34,26 @@ export default function VisitDetailDrawer({
   visit,
   onClose,
 }: VisitDetailDrawerProps) {
-  const { isOnDuty } = useAgent();
+  const { isOnDuty, checkInVisit, notification, clearNotification } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [phoneDialed, setPhoneDialed] = useState(false);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
 
   if (!visit) return null;
 
   const handleCall = () => {
     setPhoneDialed(true);
     setTimeout(() => setPhoneDialed(false), 3000);
+  };
+
+  const handleCheckIn = async () => {
+    if (isCheckingIn || !isOnDuty) return;
+    setIsCheckingIn(true);
+    try {
+      await checkInVisit(visit.id);
+    } finally {
+      setIsCheckingIn(false);
+    }
   };
 
   return (
@@ -82,6 +94,41 @@ export default function VisitDetailDrawer({
 
           {/* Scrollable Body */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 text-xs">
+            {/* Top Notification Toast inside drawer */}
+            {notification && (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 animate-in slide-in-from-top ${
+                  notification.type === "success"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                    : notification.type === "error"
+                    ? "bg-red-50 border-red-200 text-red-800"
+                    : "bg-beige-sand border-beige-border text-beige-text"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {notification.type === "success" ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : notification.type === "error" ? (
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  ) : (
+                    <Compass className="w-4 h-4 text-beige-muted shrink-0" />
+                  )}
+                  <span className="font-semibold text-xs leading-snug">
+                    {typeof notification.message === "string"
+                      ? notification.message
+                      : JSON.stringify(notification.message)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearNotification}
+                  className="p-1 rounded-md hover:bg-black/5 text-gray-500 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Quick Actions Row */}
             <div className="grid grid-cols-2 gap-2.5">
               <button
@@ -218,13 +265,22 @@ export default function VisitDetailDrawer({
               </div>
             ) : (
               <button
-                disabled={!isOnDuty}
-                onClick={() => {
-                  // Will be handled via geofence simulator inside body
-                }}
-                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-beige-sand text-beige-muted border border-beige-border cursor-default text-center"
+                type="button"
+                disabled={isCheckingIn || !isOnDuty}
+                onClick={handleCheckIn}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
-                Use Geofence Above to Check In
+                {isCheckingIn ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Checking In...
+                  </>
+                ) : (
+                  <>
+                    <MapPin className="w-4 h-4" />
+                    Check In Now
+                  </>
+                )}
               </button>
             )}
           </div>

@@ -103,7 +103,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     <div className="min-h-screen bg-beige-bg text-beige-text flex flex-col md:flex-row antialiased selection:bg-beige-terracotta selection:text-white">
       {/* Toast Notification Banner */}
       {notification && (
-        <div className="fixed top-4 left-4 right-4 z-50 max-w-md mx-auto animate-in slide-in-from-top duration-200">
+        <div className="fixed top-4 left-4 right-4 z-[9999] max-w-md mx-auto animate-in slide-in-from-top duration-200">
           <div
             className={`p-3 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-xs backdrop-blur-md ${
               notification.type === "success"
