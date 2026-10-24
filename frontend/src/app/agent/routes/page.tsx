@@ -36,12 +36,11 @@ export default function AgentRoutePage() {
   const loadRoute = useCallback(async (keepOrder = false) => {
     setLoading(true); setError(null);
     try {
-      // Capture this device's current position for the route origin, then persist
-      // it through the authenticated location endpoint used by OSRM routing.
+      // Capture this device's current position for the route origin without stalling page load
       if (session?.access_token && typeof navigator !== "undefined" && navigator.geolocation) {
         const position = await new Promise<GeolocationPosition | null>((resolve) => {
           navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
-            enableHighAccuracy: true, timeout: 8_000, maximumAge: 0,
+            enableHighAccuracy: true, timeout: 2_500, maximumAge: 30_000,
           });
         });
         if (position) {

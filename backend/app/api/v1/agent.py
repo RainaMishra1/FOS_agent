@@ -84,8 +84,8 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
         raise HTTPException(
             status_code=409,
             detail=(
-                f"You are {distance:.1f}m from the customer's saved location. "
-                f"Check-in is allowed at {settings.GEOFENCE_RADIUS_METERS:.0f}m or less."
+                f"You are far away ({distance:.0f}m away from the customer). "
+                f"You have to be within {settings.GEOFENCE_RADIUS_METERS:.0f}m to check in."
             ),
         )
     return location, distance

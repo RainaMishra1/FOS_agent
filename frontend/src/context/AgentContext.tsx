@@ -141,43 +141,69 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
     throw new Error("This browser cannot provide GPS location, so the 750m geofence cannot be verified.");
   }
 
-  const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-    const bestPosition: { current: GeolocationPosition | null } = { current: null };
-    let watchId: number | null = null;
-    let timer: number;
-    const finish = (result?: GeolocationPosition, error?: Error) => {
-      window.clearTimeout(timer);
-      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-      if (result) resolve(result);
-      else reject(error || new Error("GPS could not determine your location. Move outdoors and try again."));
-    };
-    timer = window.setTimeout(() => {
-      if (bestPosition.current && bestPosition.current.coords.accuracy <= 100) finish(bestPosition.current);
-      else finish(undefined, new Error(
-        bestPosition.current
-          ? `GPS accuracy is ±${Math.round(bestPosition.current.coords.accuracy)}m; it must be 100m or better. Move outdoors, enable precise location, and try again.`
-          : "GPS lookup timed out. Move outdoors, enable precise location, and try again."
-      ));
-    }, 30_000);
+  // Phase 1: Try quick single fix with recent cache allowed (up to 15s) and 3s timeout
+  const getQuickPosition = (): Promise<GeolocationPosition | null> => {
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve(pos),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 3_000, maximumAge: 15_000 }
+      );
+    });
+  };
 
-    watchId = navigator.geolocation.watchPosition(
-      (nextPosition) => {
-        if (!bestPosition.current || nextPosition.coords.accuracy < bestPosition.current.coords.accuracy) {
-          bestPosition.current = nextPosition;
+  let position = await getQuickPosition();
+
+  // Phase 2: If no cached position or accuracy > 100m, acquire a fresh fix with 5s max timeout
+  if (!position || (position.coords.accuracy && position.coords.accuracy > 100)) {
+    position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      let watchId: number | null = null;
+      let timer: number;
+      let bestPosition: GeolocationPosition | null = position;
+
+      const finish = (result?: GeolocationPosition, error?: Error) => {
+        window.clearTimeout(timer);
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        if (result) resolve(result);
+        else reject(error || new Error("GPS could not determine your location. Move outdoors and try again."));
+      };
+
+      timer = window.setTimeout(() => {
+        if (bestPosition && bestPosition.coords.accuracy <= 100) {
+          finish(bestPosition);
+        } else {
+          finish(
+            undefined,
+            new Error(
+              bestPosition
+                ? `GPS accuracy is ±${Math.round(bestPosition.coords.accuracy)}m; it must be 100m or better. Move outdoors, enable precise location, and try again.`
+                : "GPS lookup timed out. Move outdoors, enable precise location, and try again."
+            )
+          );
         }
-        // Give the device time to improve its first fix; use a strong fix as soon as available.
-        if (nextPosition.coords.accuracy <= 40) finish(nextPosition);
-      },
-      (geoError) => {
-        if (geoError.code === geoError.PERMISSION_DENIED) {
-          finish(undefined, new Error("Location access is required to verify the 750m geofence."));
-        } else if (geoError.code === geoError.POSITION_UNAVAILABLE && !bestPosition.current) {
-          finish(undefined, new Error("Your device could not determine a location. Check that location services are on and try again."));
-        }
-      },
-      { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 }
-    );
-  });
+      }, 5_000);
+
+      watchId = navigator.geolocation.watchPosition(
+        (nextPosition) => {
+          if (!bestPosition || nextPosition.coords.accuracy < bestPosition.coords.accuracy) {
+            bestPosition = nextPosition;
+          }
+          // Accept fix immediately once within server's 100m threshold
+          if (nextPosition.coords.accuracy <= 100) {
+            finish(nextPosition);
+          }
+        },
+        (geoError) => {
+          if (geoError.code === geoError.PERMISSION_DENIED) {
+            finish(undefined, new Error("Location access is required to verify the 750m geofence."));
+          } else if (geoError.code === geoError.POSITION_UNAVAILABLE && !bestPosition) {
+            finish(undefined, new Error("Your device could not determine a location. Check that location services are on and try again."));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 5_000, maximumAge: 5_000 }
+      );
+    });
+  }
 
   await updateAgentLocation({
     latitude: position.coords.latitude,

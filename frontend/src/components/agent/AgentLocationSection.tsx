@@ -69,7 +69,7 @@ export default function AgentLocationSection() {
           setMessage("Location is temporarily unavailable. Tracking will retry in one minute.");
         }
       },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 5_000, maximumAge: 15_000 }
     );
   }, [stopTracking]);
 
@@ -124,7 +124,7 @@ export default function AgentLocationSection() {
           setMessage("Location could not be enabled. You can continue using the dashboard without location tracking.");
         }
       },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 5_000, maximumAge: 15_000 }
     );
   }, [requestAndSyncLocation, requesting, tracking]);
 
