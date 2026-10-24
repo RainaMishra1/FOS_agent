@@ -109,7 +109,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               notification.type === "success"
                 ? "bg-beige-card/95 border-beige-olive text-beige-olive"
                 : notification.type === "error"
-                ? "bg-[#FDF2F0]/95 border-beige-terracotta text-beige-terracotta"
+                ? "bg-beige-card/95 border-beige-terracotta text-beige-terracotta"
                 : "bg-beige-card/95 border-beige-border text-beige-text"
             }`}
           >

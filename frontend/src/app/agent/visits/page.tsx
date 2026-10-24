@@ -37,6 +37,7 @@ export default function MyVisitsPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [selectedVisitForDrawer, setSelectedVisitForDrawer] = useState<AgentVisit | null>(null);
   const [completeModalVisit, setCompleteModalVisit] = useState<AgentVisit | null>(null);
+  const [checkingInVisitId, setCheckingInVisitId] = useState<string | null>(null);
 
   const now = new Date();
   const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -45,20 +46,36 @@ export default function MyVisitsPage() {
   const filteredVisits = useMemo(() => {
     let list: AgentVisit[] = [];
 
+    // All distinct completed visits across current session visits and historical records
+    const allCompletedMap = new Map<string, AgentVisit>();
+    historyVisits.forEach((v) => allCompletedMap.set(v.id, v));
+    visits.filter((v) => v.status === "completed").forEach((v) => allCompletedMap.set(v.id, v));
+    const allCompletedList = Array.from(allCompletedMap.values());
+
+    // Active pending/in_progress visits for today
+    const todayActive = visits.filter(
+      (v) => (v.scheduledDate === todayDateStr || v.status === "in_progress") && v.status !== "completed"
+    );
+
+    // Upcoming future scheduled visits that are not completed
+    const upcomingActive = visits.filter(
+      (v) => v.scheduledDate > todayDateStr && v.status !== "completed" && v.status !== "in_progress"
+    );
+
     if (activeTab === "today") {
-      list = visits.filter(
-        (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
-      );
+      list = todayActive;
     } else if (activeTab === "upcoming") {
-      list = visits.filter((v) => v.scheduledDate !== todayDateStr && v.status !== "completed");
+      list = upcomingActive;
     } else if (activeTab === "completed") {
-      list = [
-        ...visits.filter((v) => v.status === "completed"),
-        ...historyVisits,
-      ];
+      list = allCompletedList;
     } else {
-      // all
-      list = [...visits, ...historyVisits];
+      // "all": deduplicated combine
+      const allMap = new Map<string, AgentVisit>();
+      visits.forEach((v) => allMap.set(v.id, v));
+      historyVisits.forEach((v) => {
+        if (!allMap.has(v.id)) allMap.set(v.id, v);
+      });
+      list = Array.from(allMap.values());
     }
 
     // Apply priority filter
@@ -83,19 +100,31 @@ export default function MyVisitsPage() {
 
   // Tab counts
   const todayCount = visits.filter(
-    (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
+    (v) => (v.scheduledDate === todayDateStr || v.status === "in_progress") && v.status !== "completed"
   ).length;
   const upcomingCount = visits.filter(
-    (v) => v.scheduledDate !== todayDateStr && v.status !== "completed"
+    (v) => v.scheduledDate > todayDateStr && v.status !== "completed" && v.status !== "in_progress"
   ).length;
-  const completedCount =
-    visits.filter((v) => v.status === "completed").length + historyVisits.length;
-  const allCount = visits.length + historyVisits.length;
 
-  const handleQuickCheckIn = (e: React.MouseEvent, visit: AgentVisit) => {
+  const completedMap = new Map<string, AgentVisit>();
+  historyVisits.forEach((v) => completedMap.set(v.id, v));
+  visits.filter((v) => v.status === "completed").forEach((v) => completedMap.set(v.id, v));
+  const completedCount = completedMap.size;
+
+  const allMap = new Map<string, AgentVisit>();
+  visits.forEach((v) => allMap.set(v.id, v));
+  historyVisits.forEach((v) => allMap.set(v.id, v));
+  const allCount = allMap.size;
+
+  const handleQuickCheckIn = async (e: React.MouseEvent, visit: AgentVisit) => {
     e.stopPropagation();
-    if (!isOnDuty) return;
-    checkInVisit(visit.id);
+    if (checkingInVisitId) return;
+    setCheckingInVisitId(visit.id);
+    try {
+      await checkInVisit(visit.id);
+    } finally {
+      setCheckingInVisitId(null);
+    }
   };
 
   return (
@@ -370,10 +399,17 @@ export default function MyVisitsPage() {
                       <button
                         type="button"
                         onClick={(e) => handleQuickCheckIn(e, visit)}
-                        disabled={!isOnDuty}
-                        className="px-3 py-1 rounded-lg text-xs font-bold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition shadow-2xs disabled:opacity-50"
+                        disabled={checkingInVisitId === visit.id}
+                        className="px-3 py-1 rounded-lg text-xs font-bold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition shadow-2xs disabled:opacity-75 cursor-pointer flex items-center gap-1.5 active:scale-95"
                       >
-                        Verify GPS & Check In
+                        {checkingInVisitId === visit.id ? (
+                          <>
+                            <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            <span>Verifying GPS...</span>
+                          </>
+                        ) : (
+                          "Verify GPS & Check In"
+                        )}
                       </button>
                     ) : (
                       <span className="text-[11px] font-semibold text-beige-muted group-hover:text-beige-text flex items-center gap-0.5">
@@ -402,6 +438,10 @@ export default function MyVisitsPage() {
         <CompleteVisitModal
           visit={completeModalVisit}
           onClose={() => setCompleteModalVisit(null)}
+          onSuccess={() => {
+            setCompleteModalVisit(null);
+            setSelectedVisitForDrawer(null);
+          }}
         />
       )}
     </div>

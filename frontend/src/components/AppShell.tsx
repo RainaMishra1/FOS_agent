@@ -9,10 +9,7 @@ import {
   Map,
   Users,
   Building2,
-  CalendarCheck,
-  Route,
-  Layers,
-  BarChart3,
+  Navigation,
   Settings,
   Menu,
   X,
@@ -45,7 +42,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(3);
 
   const isAuthPage = pathname === "/login" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
-  const isAgentRoute = Boolean(pathname?.startsWith("/agent"));
+  const isAgentRoute = Boolean(pathname === "/agent" || pathname?.startsWith("/agent/"));
 
   // 1. Client-side Route Guard for Admin Portal (called unconditionally for consistent hook execution)
   useEffect(() => {
@@ -91,27 +88,26 @@ export default function AppShell({ children }: AppShellProps) {
   }
 
   const navItems = [
-    { name: "Overview", href: "/", icon: LayoutDashboard },
+    { name: "Overview", href: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Live Operations Map", href: "/map", icon: Map },
     { name: "Field Agents", href: "/agents", icon: Users },
-    { name: "Customers & Leads", href: "/customers", icon: Building2 },
-    { name: "Assignments", href: "/assignments", icon: CalendarCheck },
-    { name: "Route Planning", href: "/routes", icon: Route },
-    { name: "Territories", href: "/territories", icon: Layers },
-    { name: "Reports & Analytics", href: "/analytics", icon: BarChart3 },
+    { name: "Agent Live Tracking", href: "/tracking", icon: Navigation },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   const getPageTitle = () => {
     switch (pathname) {
+      case "/admin/dashboard":
       case "/":
         return "Operations Overview";
       case "/map":
         return "Live Operations Map";
       case "/agents":
         return "Field Agents";
+      case "/tracking":
+        return "Agent Live Tracking";
       case "/customers":
-        return "Customers & Leads";
+        return "Agent Live Tracking";
       case "/assignments":
         return "Task Assignments";
       case "/routes":
@@ -166,7 +162,7 @@ export default function AppShell({ children }: AppShellProps) {
         {/* Sidebar Brand Header */}
         <div>
           <div className="h-16 px-4 border-b border-beige-border/80 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 overflow-hidden">
+            <Link href="/admin/dashboard" className="flex items-center gap-3 overflow-hidden">
               <div className="w-9 h-9 rounded-xl bg-beige-terracotta text-white flex items-center justify-center shrink-0 shadow-sm">
                 <Compass className="w-5 h-5" />
               </div>
@@ -413,7 +409,7 @@ export default function AppShell({ children }: AppShellProps) {
                       setShowUserMenu(false);
                       handleSignOut();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-beige-terracotta hover:bg-[#FDF2F0] transition font-medium text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-beige-terracotta hover:bg-beige-sand transition font-medium text-left"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>

@@ -271,7 +271,7 @@ export default function AgentProfilePage() {
         <button
           type="button"
           onClick={handleSignOut}
-          className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-[#FDF2F0] hover:bg-beige-terracotta hover:text-white text-beige-terracotta border border-beige-terracotta/30 transition flex items-center justify-center gap-2 shadow-2xs"
+          className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-beige-sand hover:bg-beige-terracotta hover:text-white text-beige-terracotta border border-beige-terracotta/30 transition flex items-center justify-center gap-2 shadow-2xs"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span>Sign Out of Mobile Portal</span>

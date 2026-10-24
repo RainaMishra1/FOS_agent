@@ -280,7 +280,7 @@ export default function CreateAgentModal({
             <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4">
               {/* Global API Error Alert */}
               {apiError && (
-                <div className="p-3 rounded-xl bg-[#FDF2F0] border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-start gap-2.5">
+                <div className="p-3 rounded-xl bg-beige-sand border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <span className="font-bold block">Creation Error</span>
@@ -529,7 +529,7 @@ export default function CreateAgentModal({
                 </div>
 
                 {errors.coordinates && (
-                  <p className="text-[11px] text-beige-terracotta font-medium bg-[#FDF2F0] p-2 rounded-lg border border-beige-terracotta/40">
+                  <p className="text-[11px] text-beige-terracotta font-medium bg-beige-sand p-2 rounded-lg border border-beige-terracotta/40">
                     {errors.coordinates}
                   </p>
                 )}

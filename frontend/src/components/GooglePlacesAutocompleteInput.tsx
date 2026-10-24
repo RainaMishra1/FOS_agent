@@ -158,7 +158,7 @@ export default function GooglePlacesAutocompleteInput({
           </span>
         ) : apiKeyMissing ? (
           <span className="flex items-center gap-1 text-beige-muted">
-            <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+            <AlertCircle className="h-3.5 w-3.5 text-beige-muted shrink-0" />
             OpenStreetMap search active (Configure <code className="font-mono text-[10px] bg-beige-sand px-1 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> for Google Places)
           </span>
         ) : (

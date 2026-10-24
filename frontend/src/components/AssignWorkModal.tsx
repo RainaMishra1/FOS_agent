@@ -463,7 +463,7 @@ export default function AssignWorkModal({
             {message && (
               <div
                 role="alert"
-                className="flex gap-2 rounded-xl border border-beige-terracotta/30 bg-[#FDF2F0] p-3 text-xs text-beige-terracotta"
+                className="flex gap-2 rounded-xl border border-beige-terracotta/30 bg-beige-sand p-3 text-xs text-beige-terracotta"
               >
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {message}
@@ -803,7 +803,7 @@ export default function AssignWorkModal({
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                           isEntranceVerified
                             ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                            : "bg-amber-100 text-amber-800 border border-amber-300"
+                            : "bg-beige-sand text-beige-text border border-beige-border"
                         }`}
                       >
                         {isEntranceVerified ? (

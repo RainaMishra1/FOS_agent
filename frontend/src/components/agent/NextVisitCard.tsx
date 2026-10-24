@@ -48,7 +48,7 @@ export default function NextVisitCard({
   const isCheckedIn = visit.status === "in_progress";
 
   const handleQuickCheckIn = async () => {
-    if (isCheckedIn || !isOnDuty || isCheckingIn) return;
+    if (isCheckedIn || isCheckingIn) return;
     setIsCheckingIn(true);
     try {
       await checkInVisit(visit.id);
@@ -129,7 +129,7 @@ export default function NextVisitCard({
             <button
               type="button"
               onClick={handleQuickCheckIn}
-              disabled={isCheckingIn || !isOnDuty}
+              disabled={isCheckingIn}
               className="col-span-2 sm:col-span-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-[0.98] bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-xs cursor-pointer disabled:opacity-50"
             >
               {isCheckingIn ? (

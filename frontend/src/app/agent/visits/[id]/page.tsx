@@ -146,7 +146,7 @@ export default function VisitDetailsPage() {
   if (errorStatus === 403) {
     return (
       <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-3 max-w-lg mx-auto">
-        <div className="w-12 h-12 rounded-2xl bg-[#FDF2F0] text-beige-terracotta mx-auto flex items-center justify-center">
+        <div className="w-12 h-12 rounded-2xl bg-beige-sand text-beige-terracotta mx-auto flex items-center justify-center">
           <ShieldAlert className="w-6 h-6" />
         </div>
         <h2 className="text-base font-bold text-beige-text">Access Forbidden</h2>
@@ -349,6 +349,7 @@ export default function VisitDetailsPage() {
         <CompleteVisitModal
           visit={visit}
           onClose={() => setShowCompleteModal(false)}
+          onSuccess={() => setShowCompleteModal(false)}
         />
       )}
     </div>

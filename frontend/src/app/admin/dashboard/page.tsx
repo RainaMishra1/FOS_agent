@@ -162,7 +162,7 @@ export default function OverviewPage() {
 
       {/* Error Alert State with Retry */}
       {error && (
-        <div className="p-4 rounded-2xl bg-[#FDF2F0] border border-beige-terracotta/40 text-beige-terracotta text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+        <div className="p-4 rounded-2xl bg-beige-card border border-beige-terracotta/40 text-beige-terracotta text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <div>

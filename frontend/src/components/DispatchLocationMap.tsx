@@ -193,8 +193,8 @@ export default function DispatchLocationMap({
               Entrance pin adjusted ({latitude?.toFixed(6)}, {longitude?.toFixed(6)})
             </span>
           ) : latitude != null && longitude != null ? (
-            <span className="flex items-center gap-1 font-medium text-amber-800">
-              <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+            <span className="flex items-center gap-1 font-medium text-beige-olive">
+              <AlertCircle className="h-3.5 w-3.5 text-beige-olive" />
               Placed at place centroid. Drag to building gate/entrance.
             </span>
           ) : (

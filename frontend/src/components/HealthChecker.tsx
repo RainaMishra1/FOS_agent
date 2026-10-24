@@ -114,7 +114,7 @@ export default function HealthChecker() {
           {dbData && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className={`p-3 rounded-lg border ${dbData.database_connected ? "bg-emerald-50/60 border-emerald-100 text-emerald-900" : "bg-amber-50/60 border-amber-100 text-amber-900"}`}>
+                <div className={`p-3 rounded-lg border ${dbData.database_connected ? "bg-emerald-50/60 border-emerald-100 text-emerald-900" : "bg-beige-sand/60 border-beige-border text-beige-text"}`}>
                   <div className="flex items-center gap-1.5 font-medium mb-1">
                     <Database className="w-3.5 h-3.5" />
                     <span>Database</span>
@@ -123,7 +123,7 @@ export default function HealthChecker() {
                     {dbData.database_connected ? "Connected (SQLAlchemy 2.x)" : "Not connected"}
                   </span>
                 </div>
-                <div className={`p-3 rounded-lg border ${dbData.postgis_enabled ? "bg-emerald-50/60 border-emerald-100 text-emerald-900" : "bg-amber-50/60 border-amber-100 text-amber-900"}`}>
+                <div className={`p-3 rounded-lg border ${dbData.postgis_enabled ? "bg-emerald-50/60 border-emerald-100 text-emerald-900" : "bg-beige-sand/60 border-beige-border text-beige-text"}`}>
                   <div className="flex items-center gap-1.5 font-medium mb-1">
                     <Globe className="w-3.5 h-3.5" />
                     <span>PostGIS</span>
@@ -134,7 +134,7 @@ export default function HealthChecker() {
                 </div>
               </div>
               {!dbData.database_connected && dbData.error && (
-                <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200/80 text-[11px] text-amber-800">
+                <div className="p-2.5 rounded-lg bg-beige-sand/80 border border-beige-border text-[11px] text-beige-text">
                   <span className="font-medium">Connectivity Check: </span>
                   <span>{dbData.error}</span>
                 </div>

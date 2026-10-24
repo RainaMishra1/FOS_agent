@@ -47,7 +47,7 @@ export default function CompleteVisitModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="relative w-full max-w-lg rounded-2xl bg-beige-card border border-beige-border shadow-2xl p-5 sm:p-6 space-y-4">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-beige-border">

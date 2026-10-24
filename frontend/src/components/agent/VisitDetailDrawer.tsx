@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
 import StatusBadge from "@/components/StatusBadge";
@@ -31,15 +31,29 @@ interface VisitDetailDrawerProps {
 }
 
 export default function VisitDetailDrawer({
-  visit,
+  visit: initialVisit,
   onClose,
 }: VisitDetailDrawerProps) {
-  const { isOnDuty, checkInVisit, notification, clearNotification } = useAgent();
+  const { visits, historyVisits, isOnDuty, checkInVisit, notification, clearNotification } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [phoneDialed, setPhoneDialed] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
 
-  if (!visit) return null;
+  // Synchronize with live visit state from AgentContext
+  const visit = initialVisit
+    ? visits.find((v) => v.id === initialVisit.id) ||
+      historyVisits.find((v) => v.id === initialVisit.id) ||
+      initialVisit
+    : null;
+
+  // Auto-close and vanish the drawer as soon as the visit is completed
+  useEffect(() => {
+    if (visit && visit.status === "completed") {
+      onClose();
+    }
+  }, [visit?.status, onClose]);
+
+  if (!visit || visit.status === "completed") return null;
 
   const handleCall = () => {
     setPhoneDialed(true);
@@ -47,7 +61,7 @@ export default function VisitDetailDrawer({
   };
 
   const handleCheckIn = async () => {
-    if (isCheckingIn || !isOnDuty) return;
+    if (isCheckingIn) return;
     setIsCheckingIn(true);
     try {
       await checkInVisit(visit.id);
@@ -58,7 +72,7 @@ export default function VisitDetailDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200">
         <div
           className="relative w-full sm:max-w-xl max-h-[90vh] bg-beige-card border-t sm:border border-beige-border sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200"
           onClick={(e) => e.stopPropagation()}
@@ -266,9 +280,9 @@ export default function VisitDetailDrawer({
             ) : (
               <button
                 type="button"
-                disabled={isCheckingIn || !isOnDuty}
+                disabled={isCheckingIn}
                 onClick={handleCheckIn}
-                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 {isCheckingIn ? (
                   <>
@@ -293,6 +307,7 @@ export default function VisitDetailDrawer({
           onClose={() => setShowCompleteModal(false)}
           onSuccess={() => {
             setShowCompleteModal(false);
+            onClose();
           }}
         />
       )}

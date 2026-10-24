@@ -455,7 +455,7 @@ export default function MapView({
 
         {/* Database Error Alert */}
         {error && (
-          <div className="absolute top-16 left-4 right-4 z-30 p-3 rounded-xl bg-[#FDF2F0] border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-center justify-between shadow-lg">
+          <div className="absolute top-16 left-4 right-4 z-30 p-3 rounded-xl bg-beige-card border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-center justify-between shadow-lg">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
@@ -500,7 +500,7 @@ export default function MapView({
               <span>GPS updated within 5 min</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="w-2 h-2 rounded-full bg-beige-olive"></span>
               <span>Admin-entered</span>
             </div>
           </div>

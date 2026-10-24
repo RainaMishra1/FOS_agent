@@ -135,16 +135,16 @@ export default function AgentRoadRouteMap({
 
       // Choose marker styling based on state
       const bg = isSelected
-        ? "#bd6c4c"
+        ? "#2D6A4F"
         : isNearest
-        ? "#d97706"
+        ? "#1B4332"
         : isDone
-        ? "#64754f"
+        ? "#40916C"
         : isInProgress
-        ? "#bd6c4c"
-        : "#44403c";
+        ? "#2D6A4F"
+        : "#5C6B57";
 
-      const border = isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #fef3c7" : "2px solid #ffffff";
+      const border = isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #E2F0E8" : "2px solid #ffffff";
       const scale = isSelected ? "1.25" : "1";
       const zIndex = isSelected ? 1000 : isNearest ? 900 : 500;
 
@@ -186,10 +186,10 @@ export default function AgentRoadRouteMap({
       const tooltipHtml = `
         <div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
           <strong style="color: #292524; font-size: 12px; display: block;">${stop.customer_name || "Customer Site"}</strong>
-          ${isNearest ? "<span style='color: #d97706; font-weight: bold;'>⚡ Nearest Pending Task</span><br/>" : ""}
+          ${isNearest ? "<span style='color: #1B4332; font-weight: bold;'>⚡ Nearest Pending Task</span><br/>" : ""}
           <span style="color: #78716c;">${stop.customer_address || "Address unavailable"}</span><br/>
           <span style="display: inline-block; margin-top: 3px; font-weight: 600; color: #44403c;">Status: ${stop.status}</span>
-          ${distText ? `<br/><span style="color: #bd6c4c; font-weight: 600;">${distText}</span>` : ""}
+          ${distText ? `<br/><span style="color: #2D6A4F; font-weight: 600;">${distText}</span>` : ""}
         </div>
       `;
 
@@ -208,7 +208,7 @@ export default function AgentRoadRouteMap({
       // Leaflet expects [lat, lon], GeoJSON coordinates are [lon, lat]
       const latLngs = geometry.map(([lon, lat]) => [lat, lon]);
       L.polyline(latLngs, {
-        color: "#bd6c4c",
+        color: "#2D6A4F",
         weight: 5,
         opacity: 0.9,
         lineJoin: "round",
@@ -232,7 +232,7 @@ export default function AgentRoadRouteMap({
   }, [ready, origin?.latitude, origin?.longitude, stops, geometry, selectedStopId]);
 
   return (
-    <div className="relative h-[440px] overflow-hidden rounded-2xl border border-beige-border bg-beige-sand shadow-xs">
+    <div className="relative isolate z-0 h-[440px] overflow-hidden rounded-2xl border border-beige-border bg-beige-sand shadow-xs">
       <div ref={mapRef} className="absolute inset-0" />
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center text-sm text-beige-muted">
@@ -241,7 +241,7 @@ export default function AgentRoadRouteMap({
       )}
 
       {/* Map Header Status Legend */}
-      <div className="absolute left-3 top-3 z-[500] flex flex-wrap items-center gap-2 rounded-xl border border-beige-border bg-beige-card/95 px-3 py-2 text-xs font-semibold shadow-sm backdrop-blur-xs">
+      <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-beige-border bg-beige-card/95 px-3 py-2 text-xs font-semibold shadow-sm backdrop-blur-xs">
         <span className="flex items-center gap-1.5 text-beige-text">
           <Navigation className="h-4 w-4 text-beige-terracotta" />
           {singleDestinationMode ? "Destination Route" : "Road route"}
@@ -263,7 +263,7 @@ export default function AgentRoadRouteMap({
       </div>
 
       {/* Hint overlay at bottom */}
-      <div className="absolute right-3 bottom-3 z-[500] rounded-lg border border-beige-border bg-beige-card/90 px-2.5 py-1 text-[10px] text-beige-muted shadow-xs pointer-events-none">
+      <div className="absolute right-3 bottom-3 z-10 rounded-lg border border-beige-border bg-beige-card/90 px-2.5 py-1 text-[10px] text-beige-muted shadow-xs pointer-events-none">
         Click marker to select task · OSRM road geometry
       </div>
     </div>

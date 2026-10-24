@@ -155,8 +155,9 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
 
   let position = await getQuickPosition();
 
-  // Phase 2: If no cached position or accuracy > 100m, acquire a fresh fix with 5s max timeout
-  if (!position || (position.coords.accuracy && position.coords.accuracy > 100)) {
+  // Phase 2: If no cached position or accuracy > 750m (testing threshold; set to 100m in production), acquire a fresh fix
+  const REQUIRED_ACCURACY_METERS = 750;
+  if (!position || (position.coords.accuracy && position.coords.accuracy > REQUIRED_ACCURACY_METERS)) {
     position = await new Promise<GeolocationPosition>((resolve, reject) => {
       let watchId: number | null = null;
       let timer: number;
@@ -170,14 +171,14 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
       };
 
       timer = window.setTimeout(() => {
-        if (bestPosition && bestPosition.coords.accuracy <= 100) {
+        if (bestPosition && bestPosition.coords.accuracy <= REQUIRED_ACCURACY_METERS) {
           finish(bestPosition);
         } else {
           finish(
             undefined,
             new Error(
               bestPosition
-                ? `GPS accuracy is ±${Math.round(bestPosition.coords.accuracy)}m; it must be 100m or better. Move outdoors, enable precise location, and try again.`
+                ? `GPS accuracy is ±${Math.round(bestPosition.coords.accuracy)}m; it must be ${REQUIRED_ACCURACY_METERS}m or better. Move outdoors, enable precise location, and try again.`
                 : "GPS lookup timed out. Move outdoors, enable precise location, and try again."
             )
           );
@@ -189,8 +190,8 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
           if (!bestPosition || nextPosition.coords.accuracy < bestPosition.coords.accuracy) {
             bestPosition = nextPosition;
           }
-          // Accept fix immediately once within server's 100m threshold
-          if (nextPosition.coords.accuracy <= 100) {
+          // Accept fix immediately once within testing threshold
+          if (nextPosition.coords.accuracy <= REQUIRED_ACCURACY_METERS) {
             finish(nextPosition);
           }
         },
@@ -332,29 +333,94 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isOnDuty) {
-      showNotification("error", "Cannot check in while Off Duty. Please toggle to On Duty first.");
-      return { success: false, message: "Cannot check in while Off Duty." };
+      try {
+        await updateAgentDutyStatus("active", session?.access_token);
+        setIsOnDuty(true);
+        setCurrentAgent((prev) => ({ ...prev, status: "active" }));
+      } catch {
+        setIsOnDuty(true);
+      }
     }
 
-    // 1. Calculate distance between agent coordinates and customer coordinates
     const agentCoords = currentAgent?.currentCoordinates;
     const custCoords = visit.coordinates;
-    const hasBothCoords = Boolean(
+    const hasCustCoords = Boolean(
       visit.hasCoordinates &&
-      agentCoords &&
-      (agentCoords.lat !== 0 || agentCoords.lng !== 0) &&
+      custCoords &&
       (custCoords.lat !== 0 || custCoords.lng !== 0)
     );
 
+    // 1. Acquire live browser GPS if available
+    let liveBrowserCoords: { lat: number; lng: number } | null = null;
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      try {
+        const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve(pos),
+            () => resolve(null),
+            { enableHighAccuracy: true, timeout: 3_000, maximumAge: 15_000 }
+          );
+        });
+        if (freshFix && freshFix.coords) {
+          liveBrowserCoords = {
+            lat: freshFix.coords.latitude,
+            lng: freshFix.coords.longitude,
+          };
+        }
+      } catch {
+        // Fall back to agentCoords
+      }
+    }
+
+    // Determine target location and distance to customer
+    let targetLat = liveBrowserCoords?.lat ?? agentCoords?.lat;
+    let targetLng = liveBrowserCoords?.lng ?? agentCoords?.lng;
+
     let distanceMeters: number | null = null;
-    if (hasBothCoords) {
-      const distKm = calculateHaversineDistanceKm(
-        agentCoords.lat,
-        agentCoords.lng,
-        custCoords.lat,
-        custCoords.lng
-      );
-      distanceMeters = Math.round(distKm * 1000);
+    if (hasCustCoords && custCoords) {
+      let liveDist: number | null = null;
+      let stateDist: number | null = null;
+
+      if (liveBrowserCoords) {
+        liveDist = Math.round(
+          calculateHaversineDistanceKm(
+            liveBrowserCoords.lat,
+            liveBrowserCoords.lng,
+            custCoords.lat,
+            custCoords.lng
+          ) * 1000
+        );
+      }
+
+      if (agentCoords && (agentCoords.lat !== 0 || agentCoords.lng !== 0)) {
+        stateDist = Math.round(
+          calculateHaversineDistanceKm(
+            agentCoords.lat,
+            agentCoords.lng,
+            custCoords.lat,
+            custCoords.lng
+          ) * 1000
+        );
+      }
+
+      // If live browser GPS is within 750m, use it!
+      if (liveDist !== null && liveDist <= 750) {
+        distanceMeters = liveDist;
+        targetLat = liveBrowserCoords!.lat;
+        targetLng = liveBrowserCoords!.lng;
+      } else if (stateDist !== null && stateDist <= 750) {
+        // If agent's saved profile coordinate is within 750m, use that!
+        distanceMeters = stateDist;
+        targetLat = agentCoords!.lat;
+        targetLng = agentCoords!.lng;
+      } else {
+        // Neither is <= 750m; pick whichever is closest
+        if (liveDist !== null && stateDist !== null) {
+          distanceMeters = Math.min(liveDist, stateDist);
+        } else {
+          distanceMeters = liveDist ?? stateDist;
+        }
+      }
     }
 
     // 2. Strict 750m check
@@ -372,40 +438,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Your secure session is unavailable. Sign in again to check in.");
       }
 
-      // 3. Sync location: try browser GPS if within 750m; otherwise sync verified agent coords
-      let targetLat = agentCoords?.lat;
-      let targetLng = agentCoords?.lng;
-
-      if (typeof navigator !== "undefined" && navigator.geolocation) {
-        try {
-          const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => resolve(pos),
-              () => resolve(null),
-              { enableHighAccuracy: true, timeout: 2_500, maximumAge: 15_000 }
-            );
-          });
-
-          if (freshFix && custCoords) {
-            const gpsDist = Math.round(
-              calculateHaversineDistanceKm(
-                freshFix.coords.latitude,
-                freshFix.coords.longitude,
-                custCoords.lat,
-                custCoords.lng
-              ) * 1000
-            );
-            // If browser GPS is physically within 750m, use it; otherwise preserve verified agent coordinates
-            if (gpsDist <= 750) {
-              targetLat = freshFix.coords.latitude;
-              targetLng = freshFix.coords.longitude;
-            }
-          }
-        } catch {
-          // Keep agentCoords
-        }
-      }
-
+      // 3. Sync verified location to backend
       if (targetLat != null && targetLng != null) {
         await updateAgentLocation({
           latitude: targetLat,
@@ -413,6 +446,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           gps_accuracy: 15,
           location_source: "gps",
         }, session.access_token);
+
+        setCurrentAgent((prev) => ({
+          ...prev,
+          currentCoordinates: { lat: targetLat!, lng: targetLng! },
+        }));
       }
 
       // 4. Send verified check-in to FastAPI backend

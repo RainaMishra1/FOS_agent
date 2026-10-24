@@ -32,11 +32,11 @@ export default function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
       case "break":
         return "bg-beige-sidebar text-beige-text border-beige-border font-medium";
       case "high":
-        return "bg-[#FDF2F0] text-beige-terracotta border-beige-terracotta/40 font-semibold";
+        return "bg-beige-terracotta-subtle text-beige-terracotta border-beige-terracotta/30 font-semibold";
       case "medium":
-        return "bg-[#FBF6EE] text-beige-amber border-beige-amber/40 font-medium";
+        return "bg-beige-amber-subtle text-beige-amber border-beige-amber/30 font-medium";
       case "low":
-        return "bg-[#F3F6F0] text-beige-olive border-beige-olive/40 font-medium";
+        return "bg-beige-olive-subtle text-beige-olive border-beige-olive/30 font-medium";
       default:
         return "bg-beige-sand text-beige-muted border-beige-border";
     }

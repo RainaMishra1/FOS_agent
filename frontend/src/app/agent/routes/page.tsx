@@ -433,8 +433,8 @@ function AgentRoutePageContent() {
       {!loading && routeData && (
         <>
           {!routeData.origin && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex items-start gap-2 rounded-xl border border-beige-border bg-beige-sand/60 p-3 text-sm text-beige-text">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-beige-muted" />
               <span>
                 {routeData.origin_error || "Your current location is unavailable, so the road route cannot be drawn."}{" "}
                 Your assigned destinations remain listed below. Allow browser location permissions and click Refresh.
@@ -484,23 +484,23 @@ function AgentRoutePageContent() {
 
           {/* Nearest Task Highlight Card */}
           {nearestPendingTask && (
-            <div className="rounded-2xl border border-amber-300 bg-amber-50/70 p-3.5 sm:p-4 text-xs shadow-xs">
+            <div className="rounded-2xl border border-beige-olive/30 bg-beige-olive-subtle/40 p-3.5 sm:p-4 text-xs shadow-xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-start gap-2.5">
-                  <div className="h-9 w-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="h-9 w-9 rounded-xl bg-beige-olive text-white flex items-center justify-center shrink-0 shadow-xs">
                     <Zap className="h-5 w-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-amber-950 text-sm">Nearest Pending Task:</span>
+                      <span className="font-bold text-beige-olive text-sm">Nearest Pending Task:</span>
                       <span className="font-bold text-beige-text text-sm">{nearestPendingTask.customer_name}</span>
                       <StatusBadge status={nearestPendingTask.status} size="sm" />
                     </div>
-                    <p className="text-stone-600 mt-0.5 flex items-center gap-1 text-[11px]">
-                      <MapPin className="h-3 w-3 text-beige-terracotta shrink-0" />
+                    <p className="text-beige-muted mt-0.5 flex items-center gap-1 text-[11px]">
+                      <MapPin className="h-3 w-3 text-beige-olive shrink-0" />
                       {nearestPendingTask.customer_address}
                     </p>
-                    <p className="font-semibold text-amber-800 text-[11px] mt-0.5">
+                    <p className="font-semibold text-beige-olive text-[11px] mt-0.5">
                       Straight-line distance:{" "}
                       {nearestPendingTask.distance_meters != null
                         ? formatDistance(nearestPendingTask.distance_meters)
@@ -551,7 +551,7 @@ function AgentRoutePageContent() {
 
             <AgentRoadRouteMap
               origin={routeData.origin}
-              stops={stopsWithDistances}
+              stops={pendingTasksList}
               geometry={roadRoute?.geometry?.coordinates || []}
               selectedStopId={selectedTaskStopId}
               onSelectStop={(stop) => {
@@ -594,7 +594,7 @@ function AgentRoutePageContent() {
                       isSelected
                         ? "border-beige-terracotta ring-2 ring-beige-terracotta/30 bg-beige-sand/20"
                         : isNearest
-                        ? "border-amber-300 hover:border-amber-400"
+                        ? "border-beige-olive/40 hover:border-beige-olive"
                         : "border-beige-border hover:border-beige-border-dark"
                     }`}
                   >
@@ -605,7 +605,7 @@ function AgentRoutePageContent() {
                             isSelected
                               ? "bg-beige-terracotta"
                               : isNearest
-                              ? "bg-amber-600"
+                              ? "bg-beige-olive"
                               : "bg-beige-text"
                           }`}
                         >
@@ -617,7 +617,7 @@ function AgentRoutePageContent() {
                             <h4 className="text-sm font-bold text-beige-text truncate">{visit.customerName}</h4>
                             <StatusBadge status={visit.status} size="sm" />
                             {isNearest && (
-                              <span className="px-2 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300">
+                              <span className="px-2 py-0.2 rounded-full bg-beige-olive-subtle text-beige-olive text-[10px] font-bold border border-beige-olive/30">
                                 Nearest
                               </span>
                             )}
@@ -677,8 +677,13 @@ function AgentRoutePageContent() {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => {
-                              if (isOnDuty) void checkInVisit(visit.id);
+                            onClick={async () => {
+                              if (isOnDuty) {
+                                const res = await checkInVisit(visit.id);
+                                if (res.success) {
+                                  void loadRoute(true);
+                                }
+                              }
                             }}
                             className="rounded-xl bg-beige-sand border border-beige-border px-3 py-2 text-xs font-bold text-beige-text hover:bg-beige-border transition"
                           >
@@ -696,10 +701,27 @@ function AgentRoutePageContent() {
       )}
 
       {selectedForDrawer && (
-        <VisitDetailDrawer visit={selectedForDrawer} onClose={() => setSelectedForDrawer(null)} />
+        <VisitDetailDrawer
+          visit={selectedForDrawer}
+          onClose={() => {
+            setSelectedForDrawer(null);
+            void loadRoute(true);
+          }}
+        />
       )}
       {completeVisit && (
-        <CompleteVisitModal visit={completeVisit} onClose={() => setCompleteVisit(null)} />
+        <CompleteVisitModal
+          visit={completeVisit}
+          onClose={() => {
+            setCompleteVisit(null);
+            void loadRoute(true);
+          }}
+          onSuccess={() => {
+            setCompleteVisit(null);
+            setSelectedForDrawer(null);
+            void loadRoute(true);
+          }}
+        />
       )}
     </div>
   );

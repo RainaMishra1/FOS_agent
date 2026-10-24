@@ -31,7 +31,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
   const isWithinGeofence = distanceMeters !== null && distanceMeters <= 750;
 
   const handleCheckIn = async () => {
-    if (isCheckingIn || !isOnDuty) return;
+    if (isCheckingIn) return;
     setIsCheckingIn(true);
     try {
       await checkInVisit(visit.id);
@@ -56,15 +56,15 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
 
           {/* Live Distance Estimate Banner */}
           {distanceMeters !== null && !isCompleted && !isInProgress && (
-            <div className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${isWithinGeofence ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
+            <div className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${isWithinGeofence ? "bg-beige-olive-subtle text-beige-olive border border-beige-olive/30" : "bg-beige-sand text-beige-text border border-beige-border"}`}>
               {isWithinGeofence ? (
                 <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-beige-olive shrink-0" />
                   <span>You are <strong>{distanceMeters}m</strong> away (within the 750m zone). Ready to check in!</span>
                 </>
               ) : (
                 <>
-                  <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  <AlertCircle className="h-3.5 w-3.5 text-beige-muted shrink-0" />
                   <span>You are far away: <strong>{formatDistance(distanceKm!)}</strong> ({distanceMeters}m). You have to be within 750m.</span>
                 </>
               )}
@@ -85,10 +85,20 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
         <button
           type="button"
           onClick={handleCheckIn}
-          disabled={isCheckingIn || !isOnDuty}
-          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-bold text-white shadow-md transition disabled:cursor-not-allowed disabled:opacity-50 ${isWithinGeofence ? "bg-emerald-600 hover:bg-emerald-700" : "bg-beige-terracotta hover:bg-beige-terracotta-light"}`}
+          disabled={isCheckingIn}
+          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-bold text-white shadow-md transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${isWithinGeofence ? "bg-emerald-600 hover:bg-emerald-700" : "bg-beige-terracotta hover:bg-beige-terracotta-light"}`}
         >
-          {isCheckingIn ? <><Loader2 className="h-4 w-4 animate-spin" />Acquiring GPS &amp; checking radius…</> : <><MapPin className="h-4 w-4" />{isOnDuty ? (isWithinGeofence ? "Check in now (Inside 750m)" : "Verify location & check in") : "Go On Duty to Check In"}</>}
+          {isCheckingIn ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Acquiring GPS &amp; checking radius…
+            </>
+          ) : (
+            <>
+              <MapPin className="h-4 w-4" />
+              {isWithinGeofence ? "Check in now (Inside 750m)" : "Verify GPS & Check In"}
+            </>
+          )}
         </button>
       )}
 

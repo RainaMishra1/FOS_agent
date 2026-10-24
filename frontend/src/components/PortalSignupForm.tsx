@@ -71,7 +71,7 @@ export default function PortalSignupForm({ portal }: { portal: UserRole }) {
       </header>
       <section className="bg-beige-card border border-beige-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-5">
         <div><h2 className="text-lg font-bold text-beige-text">Create {portalName} account</h2><p className="text-xs text-beige-muted mt-1">Registration key is used only to create this account.</p></div>
-        {message && <div role={success ? "status" : "alert"} className={`p-3 rounded-xl border text-xs flex gap-2 ${success ? "bg-[#F2F7F0] border-green-700/20 text-green-800" : "bg-[#FDF2F0] border-beige-terracotta/30 text-beige-terracotta"}`}><ShieldAlert className="w-4 h-4 shrink-0" />{message}</div>}
+        {message && <div role={success ? "status" : "alert"} className={`p-3 rounded-xl border text-xs flex gap-2 ${success ? "bg-[#F2F7F0] border-green-700/20 text-green-800" : "bg-beige-sand border-beige-terracotta/30 text-beige-terracotta"}`}><ShieldAlert className="w-4 h-4 shrink-0" />{message}</div>}
         <form onSubmit={submit} className="space-y-3.5">
           <label className="block text-xs font-semibold text-beige-text">Full name<div className="relative mt-1.5"><User className="absolute left-3 top-3 w-4 h-4 text-beige-muted" /><input className={`${inputClass} pl-10`} required maxLength={255} autoComplete="name" value={fullName} onChange={e => setFullName(e.target.value)} /></div></label>
           <label className="block text-xs font-semibold text-beige-text">Email<div className="relative mt-1.5"><Mail className="absolute left-3 top-3 w-4 h-4 text-beige-muted" /><input className={`${inputClass} pl-10`} required type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></div></label>

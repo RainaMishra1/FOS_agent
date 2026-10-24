@@ -63,7 +63,7 @@ export default function AgentDashboardPage() {
     <div className="space-y-5 animate-in fade-in duration-200">
       {/* Error / Offline Alert Banner with Retry */}
       {error && (
-        <div className="p-4 rounded-2xl bg-[#FDF2F0] border border-beige-terracotta/30 text-beige-terracotta flex items-center justify-between gap-3 animate-in fade-in">
+        <div className="p-4 rounded-2xl bg-beige-card border border-beige-terracotta/30 text-beige-terracotta flex items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
             <div>
