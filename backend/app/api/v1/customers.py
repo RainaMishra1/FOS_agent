@@ -1,12 +1,14 @@
+import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from geoalchemy2.elements import WKTElement
 
 from app.db.session import get_db
 from app.models.customer import Customer
 from app.models.profile import Profile
-from app.schemas.customer import CustomerListResponse, CustomerResponse
+from app.schemas.customer import CustomerListResponse, CustomerResponse, CustomerUpdateRequest
 from app.core.auth import require_admin
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
@@ -71,3 +73,55 @@ async def list_customers(
         limit=limit,
         items=items,
     )
+
+
+@router.get("/{customer_id}", response_model=CustomerResponse)
+async def get_customer(
+    customer_id: uuid.UUID,
+    current_user: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerResponse:
+    """Retrieve details for a single customer by UUID."""
+    customer = await db.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    return CustomerResponse.model_validate(customer)
+
+
+@router.patch("/{customer_id}", response_model=CustomerResponse)
+async def update_customer(
+    customer_id: uuid.UUID,
+    payload: CustomerUpdateRequest,
+    current_user: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerResponse:
+    """Update customer details, verified address, or entrance coordinates."""
+    customer = await db.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    if payload.name is not None:
+        customer.name = payload.name.strip()
+    if payload.company is not None:
+        customer.company = payload.company.strip()
+    if payload.contact_person is not None:
+        customer.contact_person = payload.contact_person.strip()
+    if payload.email is not None:
+        customer.email = payload.email.strip().lower()
+    if payload.phone is not None:
+        customer.phone = payload.phone.strip()
+    if payload.address is not None:
+        customer.address = payload.address.strip()
+    if payload.city is not None:
+        customer.city = payload.city.strip()
+    if payload.latitude is not None and payload.longitude is not None:
+        customer.latitude = payload.latitude
+        customer.longitude = payload.longitude
+        customer.location = WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326)
+    if payload.notes is not None:
+        customer.notes = payload.notes.strip()
+
+    await db.commit()
+    await db.refresh(customer)
+    return CustomerResponse.model_validate(customer)
+

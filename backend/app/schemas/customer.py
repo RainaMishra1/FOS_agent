@@ -30,3 +30,16 @@ class CustomerListResponse(BaseModel):
     warning: Optional[str] = (
         "Development-only endpoint. Authentication and role-based access control will be enforced in production."
     )
+
+
+class CustomerUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+    contact_person: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    notes: Optional[str] = None

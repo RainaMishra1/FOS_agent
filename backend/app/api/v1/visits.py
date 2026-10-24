@@ -354,13 +354,18 @@ async def dispatch_visit(
         raise HTTPException(status_code=422, detail="Select a valid address result or map location before dispatching.")
 
     try:
-        customer = await db.scalar(
-            select(Customer).where(
-                func.lower(Customer.name) == clean_name.lower(),
-                func.lower(Customer.address) == clean_address.lower(),
-                func.lower(Customer.city) == clean_city.lower(),
+        customer = None
+        if payload.customer_id:
+            customer = await db.get(Customer, payload.customer_id)
+
+        if not customer:
+            customer = await db.scalar(
+                select(Customer).where(
+                    func.lower(Customer.name) == clean_name.lower(),
+                    func.lower(Customer.address) == clean_address.lower(),
+                    func.lower(Customer.city) == clean_city.lower(),
+                )
             )
-        )
         if not customer:
             customer = Customer(
                 name=clean_name,
@@ -380,9 +385,18 @@ async def dispatch_visit(
             db.add(customer)
             await db.flush()
         else:
-            customer.latitude = latitude
-            customer.longitude = longitude
-            customer.location = WKTElement(f"POINT({longitude} {latitude})", srid=4326)
+            if customer.latitude != latitude or customer.longitude != longitude:
+                customer.latitude = latitude
+                customer.longitude = longitude
+                customer.location = WKTElement(f"POINT({longitude} {latitude})", srid=4326)
+            if payload.company:
+                customer.company = payload.company.strip()
+            if payload.contact_person:
+                customer.contact_person = payload.contact_person.strip()
+            if payload.phone:
+                customer.phone = payload.phone.strip()
+            if payload.email:
+                customer.email = payload.email.strip().lower()
 
         lead = Lead(
             customer_id=customer.id,

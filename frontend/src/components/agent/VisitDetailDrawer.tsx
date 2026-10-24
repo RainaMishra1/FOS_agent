@@ -141,12 +141,12 @@ export default function VisitDetailDrawer({
               </button>
 
               <Link
-                href="/agent/routes"
+                href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}`}
                 onClick={onClose}
                 className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-beige-terracotta-subtle/80 hover:bg-beige-terracotta-subtle border border-beige-terracotta/30 font-semibold text-beige-terracotta transition shadow-2xs active:scale-[0.98]"
               >
                 <Navigation className="w-3.5 h-3.5" />
-                <span>View on Route</span>
+                <span>Get Route</span>
               </Link>
             </div>
 

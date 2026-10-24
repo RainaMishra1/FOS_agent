@@ -466,6 +466,7 @@ export async function saveAdminRouteOrder(payload: {
 }
 
 export interface VisitDispatchPayload {
+  customer_id?: string;
   agent_id: string;
   customer_name: string;
   company?: string;
@@ -480,6 +481,54 @@ export interface VisitDispatchPayload {
   scheduled_time: string;
   priority: "high" | "medium" | "low";
   notes?: string;
+}
+
+export interface CustomerApiItem {
+  id: string;
+  customer_code?: string | null;
+  name: string;
+  company?: string | null;
+  contact_person?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  notes?: string | null;
+  created_at?: string;
+}
+
+export async function fetchCustomers(
+  token?: string | null,
+  params?: { search?: string; limit?: number; skip?: number; city?: string }
+): Promise<{ total: number; skip: number; limit: number; items: CustomerApiItem[] }> {
+  const q = new URLSearchParams();
+  if (params?.search) q.set("search", params.search);
+  if (params?.city) q.set("city", params.city);
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.skip) q.set("skip", String(params.skip));
+  const queryStr = q.toString() ? `?${q.toString()}` : "";
+  return await apiFetch<{ total: number; skip: number; limit: number; items: CustomerApiItem[] }>(
+    `/customers${queryStr}`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function updateCustomerCoordinates(
+  customerId: string,
+  payload: { latitude: number; longitude: number; address?: string; city?: string; notes?: string },
+  token?: string | null
+): Promise<CustomerApiItem> {
+  return await apiFetch<CustomerApiItem>(
+    `/customers/${customerId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
 }
 
 export interface GeocodeCandidate {

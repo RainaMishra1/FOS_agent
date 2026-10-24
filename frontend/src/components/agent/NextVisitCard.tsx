@@ -148,11 +148,11 @@ export default function NextVisitCard({
 
           {/* View Route Action */}
           <Link
-            href="/agent/routes"
+            href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}`}
             className="py-2.5 px-3 rounded-xl text-xs font-semibold bg-beige-sand/80 hover:bg-beige-sand border border-beige-border text-beige-text transition flex items-center justify-center gap-1.5 active:scale-[0.98]"
           >
             <Navigation className="w-3.5 h-3.5 text-beige-terracotta" />
-            <span>View Route</span>
+            <span>Get Route</span>
           </Link>
 
           {/* Details / Inspection Drawer */}

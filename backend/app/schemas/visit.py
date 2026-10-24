@@ -47,6 +47,7 @@ class VisitStatusUpdateRequest(BaseModel):
 
 class VisitDispatchRequest(BaseModel):
     """Admin dispatch with an explicitly entered and geocoded customer location."""
+    customer_id: Optional[uuid.UUID] = None
     agent_id: uuid.UUID
     customer_name: str = Field(..., min_length=1, max_length=255)
     company: Optional[str] = Field(None, max_length=255)

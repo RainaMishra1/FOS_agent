@@ -158,7 +158,9 @@ async def _agent_route_origin(agent: Agent, db: AsyncSession, *, require_plannin
         now = datetime.now(timezone.utc)
         if last_update.tzinfo is None:
             last_update = last_update.replace(tzinfo=timezone.utc)
-        if (now - last_update).total_seconds() > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+        age_seconds = (now - last_update).total_seconds()
+        # For route display, allow recent GPS readings without hard blocking
+        if require_planning_accuracy and age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
             raise HTTPException(status_code=409, detail="Your GPS location is out of date. Allow location access and wait for a fresh update.")
     return {"latitude": latest.latitude, "longitude": latest.longitude,
             "source": "gps", "updated_at": latest.recorded_at,
