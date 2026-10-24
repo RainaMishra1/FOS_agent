@@ -198,7 +198,7 @@ export default function AgentProfilePage() {
               <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
             </div>
             <strong className="text-sm font-bold text-beige-text">
-              100m Enforced
+              750m Enforced
             </strong>
             <p className="text-[10px] text-beige-olive font-medium">GPS Simulation Active</p>
           </div>

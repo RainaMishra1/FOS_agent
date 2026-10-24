@@ -40,7 +40,7 @@ class AgentLocation(Base):
     gps_accuracy: Mapped[Optional[float]] = mapped_column(
         Float,
         nullable=True,
-        comment="GPS accuracy radius in meters (policy threshold < 50m)",
+        comment="GPS accuracy radius in meters (policy threshold configured by backend)",
     )
     battery_level: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(

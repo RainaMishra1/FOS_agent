@@ -97,8 +97,8 @@ In the Render dashboard under **Environment**, add the following variables:
 | `AGENT_REGISTRATION_KEY` | High-entropy secret key for agent onboarding | **YES** |
 | `CORS_ORIGINS` | `["https://your-frontend.vercel.app"]` *(update once Vercel is deployed)* | No |
 | `CORS_ORIGIN_REGEX` | `https:\/\/.*\.vercel\.app` *(permits Vercel preview URLs)* | No |
-| `GEOFENCE_RADIUS_METERS` | `100.0` | No |
-| `MAX_ACCEPTABLE_GPS_ACCURACY_METERS` | `50.0` | No |
+| `GEOFENCE_RADIUS_METERS` | `750.0` | No |
+| `MAX_ACCEPTABLE_GPS_ACCURACY_METERS` | `100.0` | No |
 | `LOCATION_STALE_THRESHOLD_SECONDS` | `300` | No |
 
 ---

@@ -33,7 +33,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
         </div>
         <div>
           <h4 className="flex items-center gap-1.5 text-xs font-bold text-beige-text">
-            100-metre GPS geofence
+            750-metre GPS geofence
             <span className="rounded border border-beige-border bg-beige-sand px-1.5 py-0.5 text-[10px] font-normal text-beige-muted">Server verified</span>
           </h4>
           <p className="mt-1 text-[11px] text-beige-muted">
@@ -41,7 +41,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
               ? "Visit completion was verified against a fresh GPS reading and the saved site location."
               : isInProgress
               ? "Your check-in was verified. GPS range and accuracy will be checked again when you complete the visit."
-              : "Allow GPS when prompted. Check-in is accepted only within 100m of the saved site, with accurate, fresh location data."}
+              : "Allow GPS when prompted. Check-in is accepted only within 750m of the saved site, with accurate, fresh location data."}
           </p>
         </div>
       </div>
@@ -60,7 +60,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
       {(isCompleted || isInProgress) && visit.geofenceVerified && (
         <p className="flex items-center gap-1.5 rounded-xl border border-beige-olive/30 bg-beige-olive-subtle p-2.5 text-[11px] font-semibold text-beige-olive">
           <CheckCircle2 className="h-3.5 w-3.5" />
-          Inside the 100m geofence at the last verified GPS check.
+          Inside the 750m geofence at the last verified GPS check.
         </p>
       )}
     </section>

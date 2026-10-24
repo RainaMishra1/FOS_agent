@@ -7,7 +7,7 @@ import { OperationsProvider } from "@/context/OperationsContext";
 export const metadata: Metadata = {
   title: "FOS — Field Operations & Agent Management System",
   description:
-    "Location-based field agent tracking, geofenced 100m customer visits, and multi-stop route optimization.",
+    "Location-based field agent tracking, geofenced 750m customer visits, and multi-stop route optimization.",
 };
 
 export default function RootLayout({

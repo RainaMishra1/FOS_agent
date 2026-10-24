@@ -232,7 +232,7 @@ SEED_CUSTOMERS = [
         "notes": "Field stock verification and counter survey.",
         "lead_code": "LEAD-8850",
         "lead_priority": "low",
-        "agent_code": None,
+        "agent_code": "AGT-105",
     },
     {
         "customer_code": "CUST-408",
@@ -249,6 +249,134 @@ SEED_CUSTOMERS = [
         "lead_code": "LEAD-8855",
         "lead_priority": "medium",
         "agent_code": "AGT-101",
+    },
+    {
+        "customer_code": "CUST-409",
+        "name": "Nexus Health Systems",
+        "company": "Nexus Care Group",
+        "contact_person": "Dr. Rajesh Gupta (Medical Director)",
+        "email": "ops@nexushealth.in",
+        "phone": "+91 80 4330 1122",
+        "address": "12 Hosur Main Road, Madiwala",
+        "city": "Bengaluru",
+        "latitude": 12.9172,
+        "longitude": 77.6228,
+        "notes": "Medical diagnostic equipment routine inspection.",
+        "lead_code": "LEAD-8860",
+        "lead_priority": "high",
+        "agent_code": "AGT-106",
+    },
+    {
+        "customer_code": "CUST-410",
+        "name": "Indira Retail Mart",
+        "company": "Indira Hypermarkets Ltd",
+        "contact_person": "Mr. Pradeep Kumar (Branch Head)",
+        "email": "branch12@indiraretail.com",
+        "phone": "+91 80 2520 9988",
+        "address": "100 Ft Road, HAL 2nd Stage, Indiranagar",
+        "city": "Bengaluru",
+        "latitude": 12.9784,
+        "longitude": 77.6408,
+        "notes": "Store POS integration and quarterly audit.",
+        "lead_code": "LEAD-8865",
+        "lead_priority": "medium",
+        "agent_code": "AGT-105",
+    },
+    {
+        "customer_code": "CUST-411",
+        "name": "Aura FinTech Solutions",
+        "company": "Aura Global Ltd",
+        "contact_person": "Ms. Sangeeta Nair (Compliance Lead)",
+        "email": "compliance@auraglobal.io",
+        "phone": "+91 80 4911 3344",
+        "address": "Prestige Tech Park, Outer Ring Road",
+        "city": "Bengaluru",
+        "latitude": 12.9372,
+        "longitude": 77.6912,
+        "notes": "Annual hardware security audit and sign-off.",
+        "lead_code": "LEAD-8870",
+        "lead_priority": "high",
+        "agent_code": "AGT-106",
+    },
+    {
+        "customer_code": "CUST-412",
+        "name": "Brigade Tech Ventures",
+        "company": "Brigade Enterprises",
+        "contact_person": "Mr. Anand Murthy (Operations Chief)",
+        "email": "anand.m@brigadetech.in",
+        "phone": "+91 80 4115 6677",
+        "address": "Brigade Gateway, Malleshwaram",
+        "city": "Bengaluru",
+        "latitude": 12.9865,
+        "longitude": 77.5568,
+        "notes": "Tenant access clearance and kiosk inspection.",
+        "lead_code": "LEAD-8875",
+        "lead_priority": "medium",
+        "agent_code": "AGT-102",
+    },
+    {
+        "customer_code": "CUST-413",
+        "name": "Zenith Cloud Hub",
+        "company": "Zenith Systems Ltd",
+        "contact_person": "Ms. Pooja Hegde (Site Manager)",
+        "email": "ops@zenithcloud.in",
+        "phone": "+91 80 4600 2211",
+        "address": "Phase 1, Electronic City",
+        "city": "Bengaluru",
+        "latitude": 12.8452,
+        "longitude": 77.6602,
+        "notes": "Backup power unit inspection.",
+        "lead_code": "LEAD-8880",
+        "lead_priority": "low",
+        "agent_code": "AGT-103",
+    },
+    {
+        "customer_code": "CUST-414",
+        "name": "Koramangala Dental Studio",
+        "company": "Dental Care Network",
+        "contact_person": "Dr. Rohan Mathew",
+        "email": "contact@koralental.com",
+        "phone": "+91 80 2553 4400",
+        "address": "5th Block, Koramangala",
+        "city": "Bengaluru",
+        "latitude": 12.9348,
+        "longitude": 77.6200,
+        "notes": "Medical billing kiosk maintenance and verification.",
+        "lead_code": "LEAD-8885",
+        "lead_priority": "medium",
+        "agent_code": "AGT-104",
+    },
+    {
+        "customer_code": "CUST-415",
+        "name": "South Point Logistics",
+        "company": "South Point Cargo Ltd",
+        "contact_person": "Mr. Farhan Akhtar",
+        "email": "farhan@southpointcargo.com",
+        "phone": "+91 80 2678 9911",
+        "address": "JP Nagar 3rd Phase, Ring Road",
+        "city": "Bengaluru",
+        "latitude": 12.9090,
+        "longitude": 77.5950,
+        "notes": "Fleet tracking unit tag verification.",
+        "lead_code": "LEAD-8890",
+        "lead_priority": "high",
+        "agent_code": "AGT-107",
+    },
+    {
+        "customer_code": "CUST-416",
+        "name": "Metro Square Plaza",
+        "company": "Metro Retail Corp",
+        "contact_person": "Ms. Divya Ramesh",
+        "email": "divya@metrosquare.in",
+        "phone": "+91 80 4120 7788",
+        "address": "MG Road Metro Plaza, Level 2",
+        "city": "Bengaluru",
+        "latitude": 12.9755,
+        "longitude": 77.6070,
+        "notes": "Floor plan beacon survey and check-in.",
+        "lead_code": "LEAD-8895",
+        "lead_priority": "medium",
+        "agent_code": "AGT-108",
     },
 ]
 
@@ -384,30 +512,36 @@ async def run_seed():
                 if assigned_agent:
                     asn_stmt = select(Assignment).where(Assignment.lead_id == lead.id)
                     asn = (await session.execute(asn_stmt)).scalars().first()
+                    asn_code = f"ASN-{c_data['customer_code'].replace('CUST-', '')}"
                     if not asn:
                         asn = Assignment(
                             id=uuid.uuid4(),
-                            assignment_code=f"ASN-{c_data['customer_code'].replace('CUST-', '')}",
+                            assignment_code=asn_code,
                             lead_id=lead.id,
                             agent_id=assigned_agent.id,
                             assigned_by_id=admin_prof.id,
                             scheduled_date=today,
                             scheduled_time="10:30 AM",
-                            status="active" if c_data["customer_code"] in ("CUST-401", "CUST-403") else "assigned",
+                            status="active" if c_data["customer_code"] in ("CUST-401", "CUST-403", "CUST-411") else "assigned",
                             notes=c_data["notes"],
                         )
                         session.add(asn)
+                    else:
+                        asn.agent_id = assigned_agent.id
+                        asn.scheduled_date = today
+                        asn.status = "active" if c_data["customer_code"] in ("CUST-401", "CUST-403", "CUST-411") else "assigned"
 
                     # Scheduled Visit for Today
-                    vst_stmt = select(Visit).where(Visit.customer_id == cust.id, Visit.scheduled_date == today)
+                    vst_code = f"VST-{c_data['customer_code'].replace('CUST-', '')}"
+                    vst_stmt = select(Visit).where(or_(Visit.visit_code == vst_code, Visit.customer_id == cust.id))
                     vst = (await session.execute(vst_stmt)).scalars().first()
-                    status_val = "in_progress" if c_data["customer_code"] == "CUST-401" else (
-                        "completed" if c_data["customer_code"] == "CUST-404" else "pending"
+                    status_val = "in_progress" if c_data["customer_code"] in ("CUST-401", "CUST-411") else (
+                        "completed" if c_data["customer_code"] in ("CUST-404", "CUST-408", "CUST-412", "CUST-413", "CUST-415", "CUST-416") else "pending"
                     )
                     if not vst:
                         vst = Visit(
                             id=uuid.uuid4(),
-                            visit_code=f"VST-{c_data['customer_code'].replace('CUST-', '')}",
+                            visit_code=vst_code,
                             customer_id=cust.id,
                             agent_id=assigned_agent.id,
                             scheduled_date=today,
@@ -425,6 +559,32 @@ async def run_seed():
                             vst.completed_time = datetime.now(timezone.utc) - timedelta(hours=1)
                             vst.completion_notes = "POS terminal audit completed with store manager."
                         session.add(vst)
+                    else:
+                        vst.scheduled_date = today
+                        vst.agent_id = assigned_agent.id
+                        vst.status = status_val
+                        vst.geofence_verified = (status_val == "completed")
+                        vst.purpose = c_data["notes"] or "Field customer verification & inspection."
+                        if status_val == "in_progress":
+                            vst.check_in_time = datetime.now(timezone.utc) - timedelta(minutes=20)
+                            vst.completed_time = None
+                        elif status_val == "completed":
+                            vst.check_in_time = datetime.now(timezone.utc) - timedelta(hours=2)
+                            vst.completed_time = datetime.now(timezone.utc) - timedelta(hours=1)
+                            vst.completion_notes = vst.completion_notes or "Field inspection and verification completed."
+                        else:
+                            vst.check_in_time = None
+                            vst.completed_time = None
+
+            # Roll forward any other pending/in-progress visits to today so they never evaporate
+            await session.execute(
+                text("UPDATE visits SET scheduled_date = :today WHERE scheduled_date < :today AND status IN ('pending', 'in_progress', 'delayed')"),
+                {"today": today}
+            )
+            await session.execute(
+                text("UPDATE assignments SET scheduled_date = :today WHERE scheduled_date < :today AND status IN ('assigned', 'active')"),
+                {"today": today}
+            )
 
             await session.commit()
 

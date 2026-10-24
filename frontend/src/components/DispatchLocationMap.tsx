@@ -43,7 +43,10 @@ export default function DispatchLocationMap({
     const L = (window as any).L;
     if (!ready || !L || !elementRef.current) return;
     if (!mapRef.current) {
-      const map = L.map(elementRef.current).setView([latitude ?? 19.2403, longitude ?? 73.1305], latitude != null && longitude != null ? 16 : 12);
+      // Dispatch addresses in this app default to Bengaluru when no site pin
+      // has been selected yet. Keep the empty map aligned with that default;
+      // the previous Thane coordinates caused accidental out-of-city pins.
+      const map = L.map(elementRef.current).setView([latitude ?? 12.9716, longitude ?? 77.5946], latitude != null && longitude != null ? 16 : 12);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',

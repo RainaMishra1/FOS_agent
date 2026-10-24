@@ -293,6 +293,8 @@ export async function fetchDashboardSummary(
 
 /**
  * Fetches field agent directory with server-side pagination, search, and filtering.
+ * Pass `as_of_date` (YYYY-MM-DD) to scope assigned_tasks / completed_visits to that day.
+
  */
 export async function fetchAgents(
   token?: string | null,
@@ -302,6 +304,7 @@ export async function fetchAgents(
     status?: string;
     territory?: string;
     search?: string;
+    as_of_date?: string;
   } = {}
 ): Promise<AgentListApiResult> {
   const searchParams = new URLSearchParams();
@@ -310,6 +313,7 @@ export async function fetchAgents(
   if (params.status && params.status !== "all") searchParams.set("status", params.status);
   if (params.territory && params.territory !== "all") searchParams.set("territory", params.territory);
   if (params.search && params.search.trim()) searchParams.set("search", params.search.trim());
+  if (params.as_of_date) searchParams.set("as_of_date", params.as_of_date);
 
   const qs = searchParams.toString();
   const endpoint = `/agents${qs ? `?${qs}` : ""}`;
@@ -420,6 +424,45 @@ export async function fetchAgentRouteGeometry(visitIds: string[], token?: string
 export interface VisitListApiResponse {
   total: number;
   items: VisitApiResponse[];
+}
+
+export async function fetchScheduledVisits(
+  agentId: string,
+  visitDate: string,
+  token?: string | null,
+): Promise<VisitListApiResponse> {
+  const params = new URLSearchParams({ agent_id: agentId, visit_date: visitDate });
+  return await apiFetch<VisitListApiResponse>(`/visits?${params.toString()}`, { method: "GET" }, token);
+}
+
+export interface AdminRoutePreview {
+  ordered_visit_ids: string[];
+  geometry: { type: "LineString"; coordinates: [number, number][] } | null;
+  distance_meters: number;
+  duration_seconds: number;
+  legs: Array<{ distance: number; duration: number }>;
+  origin: { latitude: number; longitude: number; updated_at: string };
+}
+
+export async function previewAdminRoute(payload: {
+  agent_id: string;
+  scheduled_date: string;
+  visit_ids?: string[];
+  optimize?: boolean;
+}, token?: string | null): Promise<AdminRoutePreview> {
+  return await apiFetch<AdminRoutePreview>("/visits/route/optimize", {
+    method: "POST", body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function saveAdminRouteOrder(payload: {
+  agent_id: string;
+  scheduled_date: string;
+  visit_ids: string[];
+}, token?: string | null): Promise<{ saved: boolean; ordered_visit_ids: string[] }> {
+  return await apiFetch("/visits/route/order", {
+    method: "PUT", body: JSON.stringify(payload),
+  }, token);
 }
 
 export interface VisitDispatchPayload {

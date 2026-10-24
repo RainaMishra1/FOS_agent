@@ -8,7 +8,7 @@ import AgentRoadRouteMap from "@/components/agent/AgentRoadRouteMap";
 import StatusBadge from "@/components/StatusBadge";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
-import { fetchAgentRouteGeometry, fetchAgentTodayRoute, optimizeAgentTodayRoute, AgentRouteData, RoadRouteData } from "@/lib/api";
+import { fetchAgentRouteGeometry, fetchAgentTodayRoute, optimizeAgentTodayRoute, updateAgentLocation, AgentRouteData, RoadRouteData } from "@/lib/api";
 import { AlertTriangle, CheckCircle2, Clock, Compass, MapPin, Navigation, RefreshCw, Route, ShieldCheck, Sparkles } from "lucide-react";
 
 function formatDistance(meters: number) {
@@ -36,6 +36,27 @@ export default function AgentRoutePage() {
   const loadRoute = useCallback(async (keepOrder = false) => {
     setLoading(true); setError(null);
     try {
+      // Capture this device's current position for the route origin, then persist
+      // it through the authenticated location endpoint used by OSRM routing.
+      if (session?.access_token && typeof navigator !== "undefined" && navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition | null>((resolve) => {
+          navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
+            enableHighAccuracy: true, timeout: 8_000, maximumAge: 0,
+          });
+        });
+        if (position) {
+          try {
+            await updateAgentLocation({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              gps_accuracy: position.coords.accuracy,
+              location_source: "gps",
+            }, session.access_token);
+          } catch {
+            // Continue with the latest previously saved GPS location if syncing fails.
+          }
+        }
+      }
       const result = await fetchAgentTodayRoute(session?.access_token, localDateString());
       setRouteData(result);
       const ids = keepOrder && orderedIds.length ? orderedIds : result.stops.map((v) => v.id);
@@ -123,7 +144,7 @@ export default function AgentRoutePage() {
 
     {loading && <div className="rounded-2xl border border-beige-border bg-beige-card p-8 text-center text-sm text-beige-muted">Loading your assigned route…</div>}
     {!loading && routeData && <>
-      {!routeData.origin && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{routeData.origin_error || "Your assigned stops are shown below, but a current GPS fix is needed to draw the road route or optimize the sequence."} Your assigned stops remain available below. Allow location access, wait for a better fix, then refresh.</span></div>}
+      {!routeData.origin && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{routeData.origin_error || "Your current location is unavailable, so the road route cannot be drawn."} Your assigned destinations remain listed below. Allow location access and refresh to route from your current position.</span></div>}
       <div className="flex items-start gap-2 rounded-xl border border-beige-border bg-beige-sand/70 p-3 text-[11px] text-beige-muted"><Navigation className="mt-0.5 h-4 w-4 shrink-0 text-beige-terracotta" /><p><strong className="text-beige-text">Road route from live operational data.</strong> Travel distance and time come from OSRM road-network routing. Estimated visit durations are added separately; traffic conditions are not included.</p></div>
 
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">

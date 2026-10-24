@@ -238,7 +238,7 @@ export default function AgentMapPreview({
               title={`${stop.customerName} (${stop.scheduledTime})`}
             >
               <div className="relative flex flex-col items-center">
-                {/* Geofence 100m wave for in_progress/selected stop */}
+                {/* Highlight the active or selected stop; server enforcement is 750m. */}
                 {(isCurrent || isSelected) && (
                   <span className="absolute -inset-3 rounded-full bg-beige-terracotta/20 animate-pulse" />
                 )}

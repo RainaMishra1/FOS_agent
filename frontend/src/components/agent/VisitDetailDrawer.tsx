@@ -114,7 +114,7 @@ export default function VisitDetailDrawer({
                   <div>
                     <p className="font-semibold text-beige-text">{visit.address}</p>
                     <p className="text-[11px] text-beige-muted">
-                      Bengaluru • Mock Coords: {visit.coordinates.lat.toFixed(4)}°N, {visit.coordinates.lng.toFixed(4)}°E
+                      {visit.city || "Saved site"} • Site coordinates: {visit.coordinates.lat.toFixed(4)}°N, {visit.coordinates.lng.toFixed(4)}°E
                     </p>
                   </div>
                 </div>

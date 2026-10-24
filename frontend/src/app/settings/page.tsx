@@ -110,8 +110,8 @@ export default function SettingsPage() {
               </label>
               <input
                 type="number"
-                min="20"
-                max="500"
+                min="700"
+                max="800"
                 value={settings.geofenceRadiusMeters}
                 onChange={(e) =>
                   setSettings({ ...settings, geofenceRadiusMeters: Number(e.target.value) })
@@ -119,7 +119,7 @@ export default function SettingsPage() {
                 className="w-full text-xs rounded-xl bg-beige-bg border border-beige-border px-3 py-2 text-beige-text font-mono focus:outline-none focus:border-beige-terracotta"
               />
               <span className="text-[10px] text-beige-muted mt-1 block">
-                Standard client boundary: 100m default.
+                Server enforcement is currently set to 750m.
               </span>
             </div>
 
@@ -139,7 +139,7 @@ export default function SettingsPage() {
                 className="w-full text-xs rounded-xl bg-beige-bg border border-beige-border px-3 py-2 text-beige-text font-mono focus:outline-none focus:border-beige-terracotta"
               />
               <span className="text-[10px] text-beige-muted mt-1 block">
-                Rejects degraded fixes &gt; 50m.
+                Check-in rejects fixes with reported uncertainty &gt; 100m.
               </span>
             </div>
 
@@ -182,7 +182,7 @@ export default function SettingsPage() {
                   Mandatory Geofence Check-in Enforcement
                 </span>
                 <span className="text-[11px] text-beige-muted">
-                  Requires mobile agent GPS coordinates within 100m of customer pin to log completion.
+                  Requires fresh mobile GPS coordinates within 750m of the saved customer pin to check in or complete a visit.
                 </span>
               </div>
               <input

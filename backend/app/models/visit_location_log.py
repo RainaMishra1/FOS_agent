@@ -47,7 +47,7 @@ class VisitLocationLog(Base):
     distance_to_customer_meters: Mapped[Optional[float]] = mapped_column(
         Float,
         nullable=True,
-        comment="Distance from agent to customer site at event time (policy < 100m)",
+        comment="Distance from agent to customer site at event time; geofence policy is configured by the backend.",
     )
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

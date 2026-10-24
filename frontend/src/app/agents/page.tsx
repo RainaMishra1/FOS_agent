@@ -105,12 +105,15 @@ export default function AgentsPage() {
     setError(null);
 
     try {
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const res = await fetchAgents(session?.access_token, {
         skip,
         limit,
         status: statusFilter !== "all" ? statusFilter : undefined,
         territory: territoryFilter !== "all" ? territoryFilter : undefined,
         search: search.trim() || undefined,
+        as_of_date: todayStr,
       });
 
       const mapped = res.items.map(mapApiAgentToModel);

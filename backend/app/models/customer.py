@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class Customer(Base, TimestampMixin):
     """
     Customer entity representing client destination sites and corporate accounts.
-    Stores geocoded coordinates and PostGIS Point for 100m geofence validation.
+    Stores geocoded coordinates and PostGIS Point for geofence validation.
     """
     __tablename__ = "customers"
 

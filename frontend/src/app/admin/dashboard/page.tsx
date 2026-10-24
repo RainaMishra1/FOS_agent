@@ -26,6 +26,11 @@ import AssignWorkModal from "@/components/AssignWorkModal";
 import { fetchDashboardSummary, fetchAgents, DashboardSummaryData, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
+function localDateString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 export default function OverviewPage() {
   const { session, isAuthenticated } = useAuth();
   const [summary, setSummary] = useState<DashboardSummaryData | null>(null);
@@ -47,8 +52,8 @@ export default function OverviewPage() {
 
     try {
       const [summaryResult, agentResult] = await Promise.allSettled([
-        fetchDashboardSummary(session?.access_token),
-        fetchAgents(session?.access_token, { limit: 100 }),
+        fetchDashboardSummary(session?.access_token, localDateString()),
+        fetchAgents(session?.access_token, { limit: 100, as_of_date: localDateString() }),
       ]);
       if (summaryResult.status === "rejected") throw summaryResult.reason;
       setSummary(summaryResult.value);
@@ -101,7 +106,7 @@ export default function OverviewPage() {
             </span>
           </div>
           <p className="text-xs text-beige-muted mt-0.5">
-            Real-time field monitoring, 100m geofence tracking, and assignment dispatching.
+            Real-time field monitoring, 750m geofence tracking, and assignment dispatching.
           </p>
         </div>
 
@@ -314,7 +319,7 @@ export default function OverviewPage() {
               <span>Avg Geofence Accuracy</span>
               <span className="font-semibold text-beige-text font-mono">
                 {summary?.avg_geofence_accuracy_meters
-                  ? `${summary.avg_geofence_accuracy_meters}m (Target <50m)`
+                  ? `${summary.avg_geofence_accuracy_meters}m (Target <100m)`
                   : "N/A (Awaiting Check-ins)"}
               </span>
             </div>
@@ -469,7 +474,7 @@ export default function OverviewPage() {
                       </span>
                       {visit.geofence_verified && (
                         <span className="text-[9px] bg-beige-olive-subtle text-beige-olive px-1.5 py-0.2 rounded font-bold">
-                          100m Verified
+                          750m Verified
                         </span>
                       )}
                     </div>

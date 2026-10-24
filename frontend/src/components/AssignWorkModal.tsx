@@ -11,6 +11,8 @@ interface AssignWorkModalProps {
   isOpen: boolean;
   onClose: () => void;
   preselectedAgent?: Agent | null;
+  preselectedAgentId?: string;
+  preselectedDate?: string;
   onSuccess?: (message: string) => void;
 }
 
@@ -19,7 +21,7 @@ const today = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 
-export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onSuccess }: AssignWorkModalProps) {
+export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, preselectedAgentId, preselectedDate, onSuccess }: AssignWorkModalProps) {
   const { session } = useAuth();
   const [agents, setAgents] = useState<AgentApiItem[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -51,6 +53,10 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
     Number.isFinite(coordinates.longitude) && coordinates.latitude >= -90 &&
     coordinates.latitude <= 90 && coordinates.longitude >= -180 && coordinates.longitude <= 180);
 
+  useEffect(() => {
+    if (isOpen && preselectedDate) setScheduledDate(preselectedDate);
+  }, [isOpen, preselectedDate]);
+
   const loadAgents = useCallback(async () => {
     if (!isOpen) return;
     setAgentsLoading(true);
@@ -61,6 +67,7 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
       setAgents(available);
       setSelectedAgentId((current) => {
         if (current && available.some((agent) => agent.id === current)) return current;
+        if (preselectedAgentId && available.some((agent) => agent.id === preselectedAgentId)) return preselectedAgentId;
         if (preselectedAgent && available.some((agent) => agent.id === preselectedAgent.id)) return preselectedAgent.id;
         return available[0]?.id || "";
       });
@@ -71,7 +78,7 @@ export default function AssignWorkModal({ isOpen, onClose, preselectedAgent, onS
     } finally {
       setAgentsLoading(false);
     }
-  }, [isOpen, preselectedAgent, session?.access_token]);
+  }, [isOpen, preselectedAgent, preselectedAgentId, session?.access_token]);
 
   useEffect(() => { void loadAgents(); }, [loadAgents]);
 

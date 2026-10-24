@@ -50,11 +50,10 @@ export default function AgentDashboardPage() {
     setIsRefreshing(false);
   };
 
-  const todayDateStr = new Date().toISOString().split("T")[0];
-  const todayVisits = visits.filter(
-    (v) => v.scheduledDate === todayDateStr || v.status === "completed" || v.status === "in_progress"
-  );
-  const completedToday = visits.filter((v) => v.status === "completed");
+  const now = new Date();
+  const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const todayVisits = visits.filter((v) => v.scheduledDate === todayDateStr);
+  const completedToday = todayVisits.filter((v) => v.status === "completed");
 
   const handleOpenDetails = (visit: AgentVisit) => {
     setActiveDrawerVisit(visit);
@@ -209,7 +208,7 @@ export default function AgentDashboardPage() {
             <ShieldCheck className="w-4 h-4 text-beige-olive" />
           </div>
           <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            100m
+            750m
           </div>
           <div className="text-[10px] text-beige-olive font-medium mt-0.5">
             100% compliance target

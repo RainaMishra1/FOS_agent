@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, or_, and_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,8 +47,16 @@ async def get_dashboard_summary(
             select(func.count(Agent.id)).where(Agent.status == "active").scalar_subquery().label("active_agents"),
             select(func.count(Customer.id)).scalar_subquery().label("total_customers"),
             select(func.count(Lead.id)).scalar_subquery().label("total_leads"),
-            select(func.count(Visit.id)).where(Visit.scheduled_date == ref_date).scalar_subquery().label("visits_scheduled"),
-            select(func.count(Visit.id)).where(Visit.scheduled_date == ref_date, Visit.status == "completed").scalar_subquery().label("visits_completed"),
+            select(func.count(Visit.id)).where(
+                or_(
+                    Visit.scheduled_date == ref_date,
+                    and_(Visit.scheduled_date < ref_date, Visit.status.in_(["pending", "in_progress", "delayed"]))
+                )
+            ).scalar_subquery().label("visits_scheduled"),
+            select(func.count(Visit.id)).where(
+                Visit.scheduled_date == ref_date,
+                Visit.status == "completed"
+            ).scalar_subquery().label("visits_completed"),
             select(func.count(Assignment.id)).where(Assignment.status.in_(["assigned", "pending"])).scalar_subquery().label("pending_assignments"),
         )
         kpi_res = await db.execute(kpi_query)
@@ -100,7 +108,13 @@ async def get_dashboard_summary(
                     func.count(Visit.id).label("total"),
                     func.count(case((Visit.status == "completed", 1))).label("completed"),
                 )
-                .where(Visit.scheduled_date == ref_date, Visit.agent_id.in_(agent_ids))
+                .where(
+                    or_(
+                        Visit.scheduled_date == ref_date,
+                        and_(Visit.scheduled_date < ref_date, Visit.status.in_(["pending", "in_progress", "delayed"]))
+                    ),
+                    Visit.agent_id.in_(agent_ids),
+                )
                 .group_by(Visit.agent_id)
             )
             agt_stats_res = await db.execute(agt_stats_q)
@@ -179,7 +193,12 @@ async def get_dashboard_summary(
                 joinedload(Visit.customer),
                 joinedload(Visit.agent).joinedload(Agent.profile),
             )
-            .where(Visit.scheduled_date == ref_date)
+            .where(
+                or_(
+                    Visit.scheduled_date == ref_date,
+                    and_(Visit.scheduled_date < ref_date, Visit.status.in_(["pending", "in_progress", "delayed"]))
+                )
+            )
             .order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
             .limit(10)
         )

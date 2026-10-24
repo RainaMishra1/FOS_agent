@@ -63,6 +63,19 @@ class VisitDispatchRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=5000)
 
 
+class AdminRoutePlanRequest(BaseModel):
+    agent_id: uuid.UUID
+    scheduled_date: date
+    visit_ids: Optional[List[uuid.UUID]] = None
+    optimize: bool = False
+
+
+class AdminRouteOrderRequest(BaseModel):
+    agent_id: uuid.UUID
+    scheduled_date: date
+    visit_ids: List[uuid.UUID] = Field(..., min_length=1)
+
+
 class AgentStats(BaseModel):
     today_total: int
     today_completed: int

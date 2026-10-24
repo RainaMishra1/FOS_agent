@@ -1,6 +1,6 @@
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, or_
@@ -159,13 +159,17 @@ async def list_agents(
     status: Optional[str] = Query(None, description="Filter by agent status (e.g. active, busy, break)"),
     territory: Optional[str] = Query(None, description="Filter by operational territory"),
     search: Optional[str] = Query(None, description="Search by agent name, code, territory, or email"),
+    as_of_date: Optional[date] = Query(None, description="Reference date for visit stats (defaults to today)"),
     current_admin: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AgentListResponse:
     """
     List field agents with pagination, search, and status filtering.
     Restricted to Administrators only. Field agents cannot view all peers.
+    Returns today's assigned_tasks and completed_visits counts (not all-time).
     """
+    ref_date = as_of_date or datetime.now(timezone.utc).date()
+
     query = select(Agent).options(joinedload(Agent.profile))
     count_query = select(func.count(Agent.id))
 
@@ -192,22 +196,28 @@ async def list_agents(
     result = await db.execute(query)
     agents = result.unique().scalars().all()
 
+    # Batch-fetch today's visit stats for all agents in a single GROUP BY query
+    # to avoid N+1 per-agent round-trips.
+    agent_ids = [a.id for a in agents]
+    agent_stats_map: dict = {}
+    if agent_ids:
+        from sqlalchemy import case as sa_case
+        stats_q = (
+            select(
+                Visit.agent_id,
+                func.count(Visit.id).label("total"),
+                func.count(sa_case((Visit.status == "completed", 1))).label("completed"),
+            )
+            .where(Visit.scheduled_date == ref_date, Visit.agent_id.in_(agent_ids))
+            .group_by(Visit.agent_id)
+        )
+        stats_res = await db.execute(stats_q)
+        for row in stats_res.fetchall():
+            agent_stats_map[row[0]] = (row[1], row[2])
+
     items = []
     for agent in agents:
-        assigned_tasks = (
-            await db.scalar(
-                select(func.count(Visit.id)).where(Visit.agent_id == agent.id)
-            )
-            or 0
-        )
-        completed_visits = (
-            await db.scalar(
-                select(func.count(Visit.id)).where(
-                    Visit.agent_id == agent.id, Visit.status == "completed"
-                )
-            )
-            or 0
-        )
+        assigned_tasks, completed_visits = agent_stats_map.get(agent.id, (0, 0))
         items.append(_to_agent_response(agent, assigned_tasks, completed_visits))
 
     return AgentListResponse(
@@ -360,6 +370,7 @@ async def get_current_agent_profile(
 ) -> AgentResponse:
     """
     Retrieve operational record and current telemetry for the authenticated field agent.
+    Returns today's visit stats (not all-time totals).
     """
     if not current_user.agent:
         raise HTTPException(
@@ -367,13 +378,21 @@ async def get_current_agent_profile(
             detail="Field agent operational record not linked to this profile.",
         )
     agent = current_user.agent
+    ref_date = datetime.now(timezone.utc).date()
+    from sqlalchemy import case as sa_case
     assigned_tasks = (
-        await db.scalar(select(func.count(Visit.id)).where(Visit.agent_id == agent.id)) or 0
+        await db.scalar(
+            select(func.count(Visit.id)).where(
+                Visit.agent_id == agent.id, Visit.scheduled_date == ref_date
+            )
+        ) or 0
     )
     completed_visits = (
         await db.scalar(
             select(func.count(Visit.id)).where(
-                Visit.agent_id == agent.id, Visit.status == "completed"
+                Visit.agent_id == agent.id,
+                Visit.scheduled_date == ref_date,
+                Visit.status == "completed",
             )
         )
         or 0
@@ -384,6 +403,7 @@ async def get_current_agent_profile(
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent_by_id(
     agent_id: str,
+    as_of_date: Optional[date] = Query(None, description="Reference date for visit stats (defaults to today)"),
     current_user: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
@@ -391,7 +411,10 @@ async def get_agent_by_id(
     Retrieve a single agent's profile by UUID or employee code.
     - Admins can view any agent.
     - Field agents can ONLY view their own agent record.
+    Returns today's assigned_tasks and completed_visits counts.
     """
+    ref_date = as_of_date or datetime.now(timezone.utc).date()
+
     try:
         parsed_uuid = uuid.UUID(agent_id)
         filter_expr = or_(Agent.id == parsed_uuid, func.upper(Agent.agent_code) == agent_id.upper())
@@ -419,13 +442,21 @@ async def get_agent_by_id(
                 detail="Access denied: Field agents may only view their own operational data.",
             )
 
+    # Today's visit stats only
+    from sqlalchemy import case as sa_case
     assigned_tasks = (
-        await db.scalar(select(func.count(Visit.id)).where(Visit.agent_id == agent.id)) or 0
+        await db.scalar(
+            select(func.count(Visit.id)).where(
+                Visit.agent_id == agent.id, Visit.scheduled_date == ref_date
+            )
+        ) or 0
     )
     completed_visits = (
         await db.scalar(
             select(func.count(Visit.id)).where(
-                Visit.agent_id == agent.id, Visit.status == "completed"
+                Visit.agent_id == agent.id,
+                Visit.scheduled_date == ref_date,
+                Visit.status == "completed",
             )
         )
         or 0

@@ -100,7 +100,7 @@ export default function NextVisitCard({
             <span className="font-semibold text-[11px] sm:text-xs">
               {isCheckedIn
                 ? `GPS geofence verified at ${visit.checkInTime || "check-in"}; it will be checked again at completion.`
-                : "Fresh GPS must be within 100m of the site to check in."}
+                : "Fresh GPS must be within 750m of the site to check in."}
             </span>
           </div>
 

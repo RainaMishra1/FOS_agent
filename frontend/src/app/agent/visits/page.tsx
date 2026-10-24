@@ -38,7 +38,8 @@ export default function MyVisitsPage() {
   const [selectedVisitForDrawer, setSelectedVisitForDrawer] = useState<AgentVisit | null>(null);
   const [completeModalVisit, setCompleteModalVisit] = useState<AgentVisit | null>(null);
 
-  const todayDateStr = new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   // Filter logic
   const filteredVisits = useMemo(() => {
@@ -347,7 +348,7 @@ export default function MyVisitsPage() {
                     ) : (
                       <span className="flex items-center gap-1 text-[11px] text-beige-muted bg-beige-sand px-2 py-0.5 rounded-full border border-beige-border">
                         <MapPin className="w-3 h-3" />
-                        Fresh GPS check required within 100m
+                        Fresh GPS check required within 750m
                       </span>
                     )}
                   </div>

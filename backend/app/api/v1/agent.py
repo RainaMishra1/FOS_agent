@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 import httpx
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ from app.schemas.visit import (
     AgentStats,
     AgentDutyUpdateRequest,
 )
-from app.core.auth import require_agent
+from app.core.auth import require_agent, require_authenticated
 from app.api.v1.visits import _to_visit_response, VALID_VISIT_STATUSES
 from app.api.v1.agents import _to_agent_response
 
@@ -71,7 +71,11 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
     if age_seconds < 0 or age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
         raise HTTPException(status_code=409, detail="Your GPS reading is out of date. Try again with fresh location.")
     if location.gps_accuracy is None or location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
-        raise HTTPException(status_code=409, detail="GPS accuracy is too low to verify the geofence. Try again outdoors.")
+        accuracy = "unknown" if location.gps_accuracy is None else f"±{location.gps_accuracy:.0f}m"
+        raise HTTPException(
+            status_code=409,
+            detail=f"GPS accuracy is {accuracy}; it must be {settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:.0f}m or better. Enable precise location and try again outdoors.",
+        )
 
     distance = _distance_meters(
         location.latitude, location.longitude, customer.latitude, customer.longitude
@@ -79,7 +83,10 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
     if distance > settings.GEOFENCE_RADIUS_METERS:
         raise HTTPException(
             status_code=409,
-            detail=f"You are {distance:.0f}m away. Move within {settings.GEOFENCE_RADIUS_METERS:.0f}m to continue.",
+            detail=(
+                f"You are {distance:.1f}m from the customer's saved location. "
+                f"Check-in is allowed at {settings.GEOFENCE_RADIUS_METERS:.0f}m or less."
+            ),
         )
     return location, distance
 
@@ -96,8 +103,14 @@ async def _route_stops(agent: Agent, db: AsyncSession, ref_date: date):
     result = await db.execute(
         select(Visit, priority.label("priority"))
         .options(joinedload(Visit.customer))
-        .where(Visit.agent_id == agent.id, Visit.scheduled_date == ref_date,
-               Visit.status.in_(["pending", "in_progress", "delayed"]))
+        .where(
+            Visit.agent_id == agent.id,
+            or_(
+                Visit.scheduled_date == ref_date,
+                and_(Visit.scheduled_date < ref_date, Visit.status.in_(["pending", "in_progress", "delayed"]))
+            ),
+            Visit.status.in_(["pending", "in_progress", "delayed"]),
+        )
         .order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
     )
     rows = result.unique().all()
@@ -118,7 +131,7 @@ async def _completed_route_stops(agent: Agent, db: AsyncSession, ref_date: date)
     return [_to_visit_response(v).model_dump(mode="json") for v in result.unique().scalars().all()]
 
 
-async def _agent_route_origin(agent: Agent, db: AsyncSession):
+async def _agent_route_origin(agent: Agent, db: AsyncSession, *, require_planning_accuracy: bool = True):
     if agent.location_source != "gps":
         raise HTTPException(status_code=409, detail="Your route needs your GPS starting location. Allow location access and wait for a location update.")
     latest = await db.scalar(
@@ -129,7 +142,7 @@ async def _agent_route_origin(agent: Agent, db: AsyncSession):
         raise HTTPException(status_code=409, detail="Your route needs a recorded GPS reading. Allow location access and wait for a location update.")
     if not (-90 <= latest.latitude <= 90 and -180 <= latest.longitude <= 180):
         raise HTTPException(status_code=409, detail="Your saved GPS location is invalid. Send a fresh location update.")
-    if latest.gps_accuracy is None or latest.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
+    if require_planning_accuracy and (latest.gps_accuracy is None or latest.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS):
         raise HTTPException(status_code=409, detail="GPS accuracy is not sufficient for route planning. Wait for a more accurate location update.")
     last_update = latest.recorded_at
     if last_update:
@@ -155,7 +168,9 @@ async def get_today_agent_route(
     origin = None
     origin_error = None
     try:
-        origin = await _agent_route_origin(agent, db)
+        # A fresh GPS position is enough to draw the map route; the stricter
+        # accuracy threshold remains required for sequence optimization.
+        origin = await _agent_route_origin(agent, db, require_planning_accuracy=False)
     except HTTPException as exc:
         # Keep assigned stops visible when a GPS fix is unavailable or too inaccurate.
         origin_error = exc.detail
@@ -217,7 +232,7 @@ async def get_agent_route_geometry(
     agent = current_user.agent
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
-    origin = await _agent_route_origin(agent, db)
+    origin = await _agent_route_origin(agent, db, require_planning_accuracy=False)
     ids = [part.strip() for part in visit_ids.split(",") if part.strip()]
     if not ids:
         return {"geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": []}
@@ -252,6 +267,7 @@ async def get_my_agent_profile(
     """
     Retrieve operational details for the authenticated field agent.
     Determines agent identity from verified JWT token subject.
+    Returns today's visit stats (assigned and completed) not all-time totals.
     """
     agent = current_user.agent
     if not agent:
@@ -260,14 +276,21 @@ async def get_my_agent_profile(
             detail="No operational agent profile linked to this account.",
         )
 
-    # Compute assigned and completed tasks
+    # Today's visit stats only (not all-time)
+    ref_date = datetime.now(timezone.utc).date()
     assigned_tasks = (
-        await db.scalar(select(func.count(Visit.id)).where(Visit.agent_id == agent.id)) or 0
+        await db.scalar(
+            select(func.count(Visit.id)).where(
+                Visit.agent_id == agent.id, Visit.scheduled_date == ref_date
+            )
+        ) or 0
     )
     completed_visits = (
         await db.scalar(
             select(func.count(Visit.id)).where(
-                Visit.agent_id == agent.id, Visit.status == "completed"
+                Visit.agent_id == agent.id,
+                Visit.scheduled_date == ref_date,
+                Visit.status == "completed",
             )
         )
         or 0
@@ -279,28 +302,53 @@ async def get_my_agent_profile(
 @router.get("/dashboard", response_model=AgentDashboardResponse)
 async def get_agent_dashboard(
     as_of_date: Optional[date] = Query(None, description="Operational reference date, defaults to today"),
-    current_user: Profile = Depends(require_agent),
+    agent_id: Optional[uuid.UUID] = Query(None, description="Agent UUID (admin preview)"),
+    current_user: Profile = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDashboardResponse:
     """
     Retrieve personalized operational control dashboard for the authenticated field agent.
     Computes today's progress, upcoming visits, recent history, and next active appointment.
     Guarantees strict data isolation: only visits assigned to the authenticated agent are returned.
+    Administrators are permitted to preview operational agent dashboards.
     """
-    agent = current_user.agent
-    if not agent:
+    if current_user.role == "agent":
+        agent = current_user.agent
+        if not agent:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No operational agent profile linked to this account.",
+            )
+    elif current_user.role == "admin":
+        if agent_id:
+            agent = await db.get(Agent, agent_id)
+        else:
+            stmt = select(Agent).options(joinedload(Agent.profile)).order_by(Agent.agent_code.asc()).limit(1)
+            agent = (await db.execute(stmt)).scalars().first()
+        if not agent:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No operational agent record found.",
+            )
+    else:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No operational agent profile linked to this account.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent privileges required to access this resource.",
         )
 
     ref_date = as_of_date or datetime.now(timezone.utc).date()
 
-    # 1. Fetch Today's Visits for this agent
+    # 1. Fetch Today's Visits for this agent (including pending rollover from earlier today / past)
     today_query = (
         select(Visit)
         .options(joinedload(Visit.customer))
-        .where(Visit.agent_id == agent.id, Visit.scheduled_date == ref_date)
+        .where(
+            Visit.agent_id == agent.id,
+            or_(
+                Visit.scheduled_date == ref_date,
+                and_(Visit.scheduled_date < ref_date, Visit.status.in_(["pending", "in_progress", "delayed"]))
+            )
+        )
         .order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
     )
     today_res = await db.execute(today_query)
@@ -340,12 +388,9 @@ async def get_agent_dashboard(
     history_raw = history_res.unique().scalars().all()
     recent_history = [_to_visit_response(v) for v in history_raw]
 
-    # Agent Response
-    assigned_tasks = await db.scalar(select(func.count(Visit.id)).where(Visit.agent_id == agent.id)) or 0
-    total_completed = await db.scalar(
-        select(func.count(Visit.id)).where(Visit.agent_id == agent.id, Visit.status == "completed")
-    ) or 0
-    agent_info = _to_agent_response(agent, assigned_tasks, total_completed)
+    # Agent Response - use today's visit counts so displayed assigned/completed
+    # matches the dashboard KPI cards, not all-time totals.
+    agent_info = _to_agent_response(agent, today_total, today_completed)
 
     stats = AgentStats(
         today_total=today_total,

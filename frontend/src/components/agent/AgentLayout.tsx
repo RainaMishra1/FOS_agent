@@ -254,7 +254,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             <Battery className="w-3.5 h-3.5 text-beige-olive" />
           </div>
           <div className="flex items-center justify-between">
-            <span>Geofence: 100m Active</span>
+            <span>Geofence: 750m Active</span>
             <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
           </div>
           <button

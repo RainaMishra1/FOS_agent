@@ -123,7 +123,7 @@ export default function LiveMapPage() {
           </div>
           <div>
             <span className="text-[10px] text-beige-muted uppercase tracking-wider block">Geofence Radius</span>
-            <span className="font-bold text-sm text-beige-text">100m Enforced</span>
+            <span className="font-bold text-sm text-beige-text">750m Enforced</span>
           </div>
         </div>
       </div>

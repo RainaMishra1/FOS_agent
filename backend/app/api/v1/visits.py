@@ -3,7 +3,7 @@ import asyncio
 import time
 import math
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
@@ -16,11 +16,12 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.visit import Visit
 from app.models.agent import Agent
+from app.models.agent_location import AgentLocation
 from app.models.customer import Customer
 from app.models.lead import Lead
 from app.models.assignment import Assignment
 from app.models.profile import Profile
-from app.schemas.visit import VisitResponse, VisitListResponse, VisitStatusUpdateRequest, VisitDispatchRequest
+from app.schemas.visit import VisitResponse, VisitListResponse, VisitStatusUpdateRequest, VisitDispatchRequest, AdminRoutePlanRequest, AdminRouteOrderRequest
 from app.core.auth import require_authenticated, require_admin
 
 router = APIRouter(prefix="/visits", tags=["Visits"])
@@ -202,6 +203,132 @@ async def reverse_geocode_dispatch_location(
 
 
 VALID_VISIT_STATUSES = {"pending", "in_progress", "completed", "delayed"}
+
+
+async def _admin_route_data(agent_id, scheduled_date, db: AsyncSession):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Selected agent was not found.")
+    if agent.location_source != "gps":
+        raise HTTPException(status_code=409, detail="The selected agent has not shared a live GPS location yet.")
+    origin = await db.scalar(
+        select(AgentLocation).where(AgentLocation.agent_id == agent.id)
+        .order_by(AgentLocation.recorded_at.desc()).limit(1)
+    )
+    if not origin:
+        raise HTTPException(status_code=409, detail="The selected agent has no recorded GPS location.")
+    recorded_at = origin.recorded_at
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - recorded_at).total_seconds() > settings.LOCATION_STALE_THRESHOLD_SECONDS:
+        raise HTTPException(status_code=409, detail="The selected agent's GPS location is stale. Ask them to open the agent app and refresh location.")
+    result = await db.execute(
+        select(Visit).options(joinedload(Visit.customer)).where(
+            Visit.agent_id == agent.id,
+            Visit.scheduled_date == scheduled_date,
+            Visit.status.in_(["pending", "in_progress", "delayed"]),
+        ).order_by(Visit.order_index.asc(), Visit.scheduled_time.asc())
+    )
+    visits = result.unique().scalars().all()
+    if any(v.customer.latitude is None or v.customer.longitude is None for v in visits):
+        raise HTTPException(status_code=409, detail="Every scheduled destination needs mapped coordinates before road routing.")
+    return agent, origin, visits
+
+
+@router.post("/route/optimize")
+async def optimize_admin_route(
+    payload: AdminRoutePlanRequest,
+    current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview an OSRM road route for the agent's persisted visits without saving the order."""
+    _, origin, visits = await _admin_route_data(payload.agent_id, payload.scheduled_date, db)
+    if not visits:
+        return {"ordered_visit_ids": [], "geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": []}
+    by_id = {v.id: v for v in visits}
+    if payload.visit_ids is not None:
+        if len(payload.visit_ids) != len(by_id) or set(payload.visit_ids) != set(by_id):
+            raise HTTPException(status_code=409, detail="The route stops changed. Refresh the list and try again.")
+        ordered = [by_id[visit_id] for visit_id in payload.visit_ids]
+    else:
+        ordered = list(visits)
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            if payload.optimize:
+                coords = [(origin.longitude, origin.latitude)] + [(v.customer.longitude, v.customer.latitude) for v in visits]
+                coord_path = ";".join(f"{lon},{lat}" for lon, lat in coords)
+                table_response = await client.get(
+                    f"{settings.OSRM_BASE_URL.rstrip('/')}/table/v1/driving/{coord_path}",
+                    params={"annotations": "duration"},
+                )
+                table_response.raise_for_status()
+                table = table_response.json()
+                durations = table.get("durations", [])
+                if table.get("code") != "Ok" or len(durations) != len(coords) or any(len(row) != len(coords) for row in durations):
+                    raise ValueError("Invalid OSRM duration matrix")
+
+                in_progress = [v for v in visits if v.status == "in_progress"]
+                remaining = [v for v in visits if v.status != "in_progress"]
+                ordered = list(in_progress)
+                current_index = visits.index(in_progress[-1]) + 1 if in_progress else 0
+                while remaining:
+                    next_visit = min(
+                        remaining,
+                        key=lambda v: durations[current_index][visits.index(v) + 1]
+                        if durations[current_index][visits.index(v) + 1] is not None else float("inf"),
+                    )
+                    ordered.append(next_visit)
+                    remaining.remove(next_visit)
+                    current_index = visits.index(next_visit) + 1
+
+            ordered_path = ";".join(
+                f"{lon},{lat}" for lon, lat in
+                [(origin.longitude, origin.latitude)] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+            )
+            route_response = await client.get(
+                f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{ordered_path}",
+                params={"overview": "full", "geometries": "geojson", "steps": "false"},
+            )
+            route_response.raise_for_status()
+            route_data = route_response.json()
+            if route_data.get("code") != "Ok" or not route_data.get("routes"):
+                raise ValueError("No OSRM road route")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail="OSRM road routing is temporarily unavailable. Try again later.") from exc
+    route = route_data["routes"][0]
+    return {
+        "ordered_visit_ids": [str(v.id) for v in ordered],
+        "geometry": route["geometry"],
+        "distance_meters": route["distance"],
+        "duration_seconds": route["duration"],
+        "legs": route.get("legs", []),
+        "origin": {"latitude": origin.latitude, "longitude": origin.longitude, "updated_at": origin.recorded_at},
+    }
+
+
+@router.put("/route/order")
+async def save_admin_route_order(
+    payload: AdminRouteOrderRequest,
+    current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist the complete active visit sequence so the assigned agent sees it."""
+    result = await db.execute(
+        select(Visit).where(
+            Visit.agent_id == payload.agent_id,
+            Visit.scheduled_date == payload.scheduled_date,
+            Visit.status.in_(["pending", "in_progress", "delayed"]),
+        )
+    )
+    visits = result.scalars().all()
+    by_id = {v.id: v for v in visits}
+    if len(payload.visit_ids) != len(by_id) or set(payload.visit_ids) != set(by_id):
+        raise HTTPException(status_code=409, detail="The route changed while you were planning it. Refresh the stops and try again.")
+    for index, visit_id in enumerate(payload.visit_ids, start=1):
+        by_id[visit_id].order_index = index
+    await db.commit()
+    return {"saved": True, "agent_id": str(payload.agent_id), "scheduled_date": payload.scheduled_date,
+            "ordered_visit_ids": [str(v) for v in payload.visit_ids]}
 
 
 @router.post("/dispatch", response_model=VisitResponse, status_code=status.HTTP_201_CREATED)
@@ -459,6 +586,11 @@ async def update_visit_status(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: Cannot modify another agent's assigned visit.",
+            )
+        if payload.status in {"in_progress", "completed"} or payload.geofence_verified is True:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Use the GPS-verified agent check-in endpoint to start or complete a visit.",
             )
         # Agents cannot reopen an already completed visit
         if visit.status == "completed" and payload.status != "completed":

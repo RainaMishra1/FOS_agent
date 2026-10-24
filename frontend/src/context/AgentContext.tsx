@@ -75,7 +75,7 @@ function mapApiVisitToAgentVisit(v: VisitApiResponse): AgentVisit {
     scheduledDate: v.scheduled_date,
     estimatedDuration: `${v.estimated_duration_minutes || 45} mins`,
     purpose: v.purpose || "On-site Field Inspection & Verification",
-    priority: "medium",
+    priority: (v.priority === "high" || v.priority === "low" ? v.priority : "medium"),
     status: (v.status as any) || "pending",
     geofenceVerified: v.geofence_verified,
     checkInTime: v.check_in_time
@@ -132,24 +132,50 @@ function extractErrorMessage(err: any, fallback: string): string {
   return fallback;
 }
 
+function localDateString(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 async function syncFreshGpsLocation(token: string): Promise<void> {
   if (!navigator.geolocation) {
-    throw new Error("This browser cannot provide GPS location, so the 100m geofence cannot be verified.");
+    throw new Error("This browser cannot provide GPS location, so the 750m geofence cannot be verified.");
   }
 
   const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      resolve,
+    const bestPosition: { current: GeolocationPosition | null } = { current: null };
+    let watchId: number | null = null;
+    let timer: number;
+    const finish = (result?: GeolocationPosition, error?: Error) => {
+      window.clearTimeout(timer);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (result) resolve(result);
+      else reject(error || new Error("GPS could not determine your location. Move outdoors and try again."));
+    };
+    timer = window.setTimeout(() => {
+      if (bestPosition.current && bestPosition.current.coords.accuracy <= 100) finish(bestPosition.current);
+      else finish(undefined, new Error(
+        bestPosition.current
+          ? `GPS accuracy is ±${Math.round(bestPosition.current.coords.accuracy)}m; it must be 100m or better. Move outdoors, enable precise location, and try again.`
+          : "GPS lookup timed out. Move outdoors, enable precise location, and try again."
+      ));
+    }, 30_000);
+
+    watchId = navigator.geolocation.watchPosition(
+      (nextPosition) => {
+        if (!bestPosition.current || nextPosition.coords.accuracy < bestPosition.current.coords.accuracy) {
+          bestPosition.current = nextPosition;
+        }
+        // Give the device time to improve its first fix; use a strong fix as soon as available.
+        if (nextPosition.coords.accuracy <= 40) finish(nextPosition);
+      },
       (geoError) => {
         if (geoError.code === geoError.PERMISSION_DENIED) {
-          reject(new Error("Location access is required to verify the 100m geofence."));
-        } else if (geoError.code === geoError.TIMEOUT) {
-          reject(new Error("GPS lookup timed out. Try again when your location is available."));
-        } else {
-          reject(new Error("Your current GPS location is unavailable. Move to an open area and try again."));
+          finish(undefined, new Error("Location access is required to verify the 750m geofence."));
+        } else if (geoError.code === geoError.POSITION_UNAVAILABLE && !bestPosition.current) {
+          finish(undefined, new Error("Your device could not determine a location. Check that location services are on and try again."));
         }
       },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 }
     );
   });
 
@@ -193,7 +219,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setError(null);
 
       try {
-        const data = await fetchAgentDashboard(session?.access_token);
+        const data = await fetchAgentDashboard(session?.access_token, localDateString());
         setIsLiveBackend(true);
 
         if (data.agent) {
@@ -384,14 +410,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   // Computed statistics from live visits
   const stats = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localDateString();
     const todayVisits = visits.filter(
-      (v) => v.scheduledDate === today || v.status === "completed" || v.status === "in_progress"
+      (v) =>
+        v.scheduledDate === today ||
+        v.status === "in_progress" ||
+        (["pending", "delayed"].includes(v.status) && (!v.scheduledDate || v.scheduledDate <= today))
     );
 
     const todayTotal = todayVisits.length;
     const todayCompleted = todayVisits.filter((v) => v.status === "completed").length;
-    const todayRemaining = todayTotal - todayCompleted;
+    const todayRemaining = todayVisits.filter((v) => ["pending", "in_progress", "delayed"].includes(v.status)).length;
     const completionPercentage =
       todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 

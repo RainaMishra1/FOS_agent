@@ -96,7 +96,7 @@ export default function AnalyticsPage() {
         <MetricCard
           title="Avg Check-in Accuracy"
           value="14.2m"
-          subtitle="Target <50m radius"
+          subtitle="Target <100m GPS accuracy"
           icon={ShieldCheck}
           accentColor="olive"
         />

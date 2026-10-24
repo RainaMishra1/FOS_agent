@@ -17,6 +17,13 @@ from app.db import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Auto-seed on startup in development to keep operational dates up-to-date
+    try:
+        from app.db.seeder import run_seed
+        seed_result = await run_seed()
+        print(f"[Startup Seeder] Synced visits: {seed_result}")
+    except Exception as exc:
+        print(f"[Startup Seeder Warning] {exc}")
     yield
     # Shutdown actions
     await engine.dispose()

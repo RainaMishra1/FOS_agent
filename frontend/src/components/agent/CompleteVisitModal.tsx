@@ -78,7 +78,7 @@ export default function CompleteVisitModal({
             <span className="text-beige-muted">Geofence Status:</span>
             <span className="font-semibold text-beige-olive flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Fresh GPS and 100m range checked on submit
+              Fresh GPS and 750m range checked on submit
             </span>
           </div>
           <div className="flex items-center justify-between">
