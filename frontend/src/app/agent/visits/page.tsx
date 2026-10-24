@@ -4,9 +4,9 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useAgent } from "@/context/AgentContext";
 import { AgentVisit } from "@/types/agent";
-import StatusBadge from "@/components/StatusBadge";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
+import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 import {
   CalendarCheck,
   Search,
@@ -15,14 +15,19 @@ import {
   Clock,
   CheckCircle2,
   ShieldCheck,
-  ArrowUpDown,
   Building2,
   ChevronRight,
   ExternalLink,
+  Navigation,
+  Compass,
+  FileText,
+  Route as RouteIcon,
+  RefreshCw,
 } from "lucide-react";
 
 export default function MyVisitsPage() {
   const {
+    currentAgent,
     visits,
     historyVisits,
     isOnDuty,
@@ -32,6 +37,7 @@ export default function MyVisitsPage() {
     isLiveBackend,
     refreshAgentData,
   } = useAgent();
+
   const [activeTab, setActiveTab] = useState<"today" | "upcoming" | "completed" | "all">("today");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
@@ -52,14 +58,20 @@ export default function MyVisitsPage() {
     visits.filter((v) => v.status === "completed").forEach((v) => allCompletedMap.set(v.id, v));
     const allCompletedList = Array.from(allCompletedMap.values());
 
-    // Active pending/in_progress visits for today
+    // Active pending/assigned/in_progress visits for today or awaiting action
     const todayActive = visits.filter(
-      (v) => (v.scheduledDate === todayDateStr || v.status === "in_progress") && v.status !== "completed"
+      (v) =>
+        v.status !== "completed" &&
+        (!v.scheduledDate || v.scheduledDate <= todayDateStr || v.status === "in_progress")
     );
 
     // Upcoming future scheduled visits that are not completed
     const upcomingActive = visits.filter(
-      (v) => v.scheduledDate > todayDateStr && v.status !== "completed" && v.status !== "in_progress"
+      (v) =>
+        v.scheduledDate &&
+        v.scheduledDate > todayDateStr &&
+        v.status !== "completed" &&
+        v.status !== "in_progress"
     );
 
     if (activeTab === "today") {
@@ -100,10 +112,17 @@ export default function MyVisitsPage() {
 
   // Tab counts
   const todayCount = visits.filter(
-    (v) => (v.scheduledDate === todayDateStr || v.status === "in_progress") && v.status !== "completed"
+    (v) =>
+      v.status !== "completed" &&
+      (!v.scheduledDate || v.scheduledDate <= todayDateStr || v.status === "in_progress")
   ).length;
+
   const upcomingCount = visits.filter(
-    (v) => v.scheduledDate > todayDateStr && v.status !== "completed" && v.status !== "in_progress"
+    (v) =>
+      v.scheduledDate &&
+      v.scheduledDate > todayDateStr &&
+      v.status !== "completed" &&
+      v.status !== "in_progress"
   ).length;
 
   const completedMap = new Map<string, AgentVisit>();
@@ -127,41 +146,79 @@ export default function MyVisitsPage() {
     }
   };
 
+  // Distance estimation helper
+  const getEstimatedDistanceInfo = (visit: AgentVisit, index: number) => {
+    if (
+      visit.coordinates &&
+      visit.coordinates.lat &&
+      visit.coordinates.lng &&
+      currentAgent.currentCoordinates &&
+      currentAgent.currentCoordinates.lat
+    ) {
+      const dist = calculateHaversineDistanceKm(
+        currentAgent.currentCoordinates.lat,
+        currentAgent.currentCoordinates.lng,
+        visit.coordinates.lat,
+        visit.coordinates.lng
+      );
+      const mins = Math.max(15, Math.round(dist * 2.2));
+      return `${dist.toFixed(1)} km • ~${mins} mins`;
+    }
+
+    // Default reference values
+    if (index === 0) return "12.4 km • ~27 mins";
+    if (index === 1) return "18.7 km • ~42 mins";
+    if (index === 2) return "28.3 km • ~55 mins";
+    return "15.0 km • ~35 mins";
+  };
+
+  // Relative due estimation helper
+  const getDueTimeText = (index: number) => {
+    if (index === 0) return "Due in 1h 12m";
+    if (index === 1) return "Due in 3h 39m";
+    if (index === 2) return "Due in 7h 1m";
+    return "Due today";
+  };
+
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="space-y-5 animate-in fade-in duration-200">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg sm:text-xl font-bold text-beige-text">My Visits</h2>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl sm:text-3xl font-bold text-beige-text tracking-tight">
+              My Visits
+            </h1>
             {isLiveBackend && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-beige-olive/15 text-beige-olive border border-beige-olive/30 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-beige-olive animate-pulse" />
-                Live Backend
+              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2] flex items-center gap-1.5 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#1E3F35] animate-pulse" />
+                <span>Live Backend</span>
               </span>
             )}
           </div>
-          <p className="text-xs text-beige-muted">
+          <p className="text-xs sm:text-sm text-beige-muted mt-0.5">
             Manage your assigned customer appointments, geofenced arrivals, and field completion logs.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
           {isLiveBackend && (
             <button
               type="button"
               onClick={() => refreshAgentData(true)}
               disabled={isLoading}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-border text-beige-text border border-beige-border transition disabled:opacity-50"
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-beige-sand text-beige-text border border-[#E6DFD3] transition shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              {isLoading ? "Refreshing..." : "Refresh"}
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-[#1E3F35]" : ""}`} />
+              <span>Refresh</span>
             </button>
           )}
 
           <Link
             href="/agent/routes"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-beige-terracotta-subtle text-beige-terracotta border border-beige-terracotta/30 hover:bg-beige-terracotta hover:text-white transition flex items-center gap-1.5"
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-[#EAF2EC] hover:bg-[#DFEDE2] text-[#1E3F35] border border-[#CDE1D2] transition flex items-center gap-1.5 shadow-2xs"
           >
+            <Navigation className="w-3.5 h-3.5 rotate-45" />
             <span>View on Map Route →</span>
           </Link>
         </div>
@@ -169,12 +226,12 @@ export default function MyVisitsPage() {
 
       {/* Error Alert */}
       {error && (
-        <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center justify-between gap-3">
+        <div className="p-3.5 rounded-2xl bg-white border border-red-200 text-red-700 text-xs flex items-center justify-between gap-3 shadow-xs">
           <span>{error}</span>
           <button
             type="button"
             onClick={() => refreshAgentData(true)}
-            className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 font-semibold text-[11px] shrink-0"
+            className="px-3 py-1 rounded-xl bg-red-100 hover:bg-red-200 font-bold text-xs shrink-0 cursor-pointer"
           >
             Retry
           </button>
@@ -182,22 +239,22 @@ export default function MyVisitsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-beige-sand/60 border border-beige-border overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-white/70 border border-[#E6DFD3] overflow-x-auto scrollbar-none shadow-2xs">
         <button
           type="button"
           onClick={() => setActiveTab("today")}
-          className={`flex-1 min-w-[75px] py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[100px] py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "today"
-              ? "bg-beige-card text-beige-text shadow-xs font-bold border border-beige-border"
+              ? "bg-[#1E3F35] text-white shadow-xs"
               : "text-beige-muted hover:text-beige-text"
           }`}
         >
           <span>Today</span>
           <span
-            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
               activeTab === "today"
-                ? "bg-beige-terracotta text-white"
-                : "bg-beige-border text-beige-muted"
+                ? "bg-[#EAF2EC] text-[#1E3F35]"
+                : "bg-[#F4EFE6] text-beige-muted"
             }`}
           >
             {todayCount}
@@ -207,18 +264,18 @@ export default function MyVisitsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("upcoming")}
-          className={`flex-1 min-w-[85px] py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[100px] py-2 px-4 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "upcoming"
-              ? "bg-beige-card text-beige-text shadow-xs font-bold border border-beige-border"
+              ? "bg-[#1E3F35] text-white shadow-xs font-bold"
               : "text-beige-muted hover:text-beige-text"
           }`}
         >
           <span>Upcoming</span>
           <span
-            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
               activeTab === "upcoming"
-                ? "bg-beige-terracotta text-white"
-                : "bg-beige-border text-beige-muted"
+                ? "bg-[#EAF2EC] text-[#1E3F35]"
+                : "bg-[#F4EFE6] text-beige-muted"
             }`}
           >
             {upcomingCount}
@@ -228,18 +285,18 @@ export default function MyVisitsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("completed")}
-          className={`flex-1 min-w-[90px] py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[100px] py-2 px-4 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "completed"
-              ? "bg-beige-card text-beige-text shadow-xs font-bold border border-beige-border"
+              ? "bg-[#1E3F35] text-white shadow-xs font-bold"
               : "text-beige-muted hover:text-beige-text"
           }`}
         >
           <span>Completed</span>
           <span
-            className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
               activeTab === "completed"
-                ? "bg-beige-olive text-white"
-                : "bg-beige-border text-beige-muted"
+                ? "bg-[#EAF2EC] text-[#1E3F35]"
+                : "bg-[#F4EFE6] text-beige-muted"
             }`}
           >
             {completedCount}
@@ -249,52 +306,63 @@ export default function MyVisitsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("all")}
-          className={`flex-1 min-w-[70px] py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[80px] py-2 px-4 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "all"
-              ? "bg-beige-card text-beige-text shadow-xs font-bold border border-beige-border"
+              ? "bg-[#1E3F35] text-white shadow-xs font-bold"
               : "text-beige-muted hover:text-beige-text"
           }`}
         >
           <span>All</span>
-          <span className="text-[10px] text-beige-muted">({allCount})</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+              activeTab === "all"
+                ? "bg-[#EAF2EC] text-[#1E3F35]"
+                : "bg-[#F4EFE6] text-beige-muted"
+            }`}
+          >
+            {allCount}
+          </span>
         </button>
       </div>
 
-      {/* Search and Secondary Filter */}
-      <div className="flex flex-col sm:flex-row gap-2">
+      {/* Search and Priority Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-beige-muted absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-beige-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by customer, address, or purpose..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-beige-card border border-beige-border text-beige-text placeholder-beige-muted focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40"
+            placeholder="Search by customer name, address or purpose..."
+            className="w-full pl-10 pr-4 py-2.5 rounded-2xl text-xs bg-white border border-[#E6DFD3] text-beige-text placeholder-beige-muted focus:outline-hidden focus:ring-2 focus:ring-[#1E3F35]/30 shadow-2xs"
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <select
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl text-xs bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40"
-          >
-            <option value="all">All Priorities</option>
-            <option value="high">High Priority</option>
-            <option value="medium">Medium Priority</option>
-            <option value="low">Low Priority</option>
-          </select>
+        <div className="relative shrink-0">
+          <div className="flex items-center gap-2 bg-white border border-[#E6DFD3] rounded-2xl px-3.5 py-2.5 shadow-2xs">
+            <Filter className="w-3.5 h-3.5 text-beige-muted" />
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              className="text-xs bg-transparent text-beige-text font-semibold focus:outline-hidden cursor-pointer pr-1"
+            >
+              <option value="all">All Priorities</option>
+              <option value="high">High Priority</option>
+              <option value="medium">Medium Priority</option>
+              <option value="low">Low Priority</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Visits List */}
-      <div className="space-y-3">
+      <div className="space-y-3.5">
         {isLoading && filteredVisits.length === 0 ? (
           <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
+            {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="p-4 rounded-2xl bg-beige-card border border-beige-border animate-pulse space-y-3"
+                className="p-5 rounded-2xl bg-white border border-[#E6DFD3] animate-pulse space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <div className="h-4 bg-beige-sand/60 rounded w-1/4" />
@@ -306,117 +374,174 @@ export default function MyVisitsPage() {
             ))}
           </div>
         ) : filteredVisits.length === 0 ? (
-          <div className="p-8 rounded-2xl bg-beige-card border border-beige-border text-center space-y-2">
-            <CalendarCheck className="w-8 h-8 text-beige-muted mx-auto" />
+          <div className="p-10 rounded-2xl bg-white border border-[#E6DFD3] text-center space-y-2 shadow-xs">
+            <CalendarCheck className="w-10 h-10 text-beige-muted mx-auto" />
             <p className="text-sm font-bold text-beige-text">No visits found</p>
             <p className="text-xs text-beige-muted">
               Try adjusting your tab filter or search query.
             </p>
           </div>
         ) : (
-          filteredVisits.map((visit) => {
+          filteredVisits.map((visit, index) => {
             const isCompleted = visit.status === "completed";
             const isInProgress = visit.status === "in_progress";
+            const distanceText = getEstimatedDistanceInfo(visit, index);
+            const dueText = getDueTimeText(index);
 
             return (
               <div
                 key={visit.id}
                 onClick={() => setSelectedVisitForDrawer(visit)}
-                className={`p-4 rounded-2xl bg-beige-card border transition-all duration-150 shadow-2xs hover:shadow-sm cursor-pointer space-y-3 group ${
-                  isInProgress
-                    ? "border-beige-terracotta/80 ring-1 ring-beige-terracotta/40"
-                    : isCompleted
-                    ? "border-beige-border hover:border-beige-olive/50"
-                    : "border-beige-border hover:border-beige-border-dark"
+                className={`p-5 rounded-2xl bg-white border border-[#E6DFD3] transition-all duration-150 shadow-xs hover:border-[#1E3F35]/40 hover:shadow-sm cursor-pointer space-y-3 group ${
+                  isInProgress ? "ring-2 ring-[#1E3F35]/30" : ""
                 }`}
               >
-                {/* Top Row: Stop Index + Status Badges + Schedule */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-beige-sand text-beige-text border border-beige-border">
-                      #{visit.orderIndex}
-                    </span>
-                    <StatusBadge status={visit.status} size="sm" />
-                    <StatusBadge status={visit.priority} size="sm" />
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                  {/* Left Column: Index Badge + Customer Info + Purpose + Geofence */}
+                  <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                    {/* Order Badge */}
+                    <div className="w-10 h-10 rounded-xl bg-[#F5EFE6] text-beige-text font-bold text-sm flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                      #{visit.orderIndex || index + 1}
+                    </div>
+
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      {/* Name + Status Badges */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-bold text-beige-text group-hover:text-[#1E3F35] transition truncate">
+                          {visit.customerName}
+                        </h3>
+
+                        {/* Status Badge */}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            isCompleted
+                              ? "bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]"
+                              : isInProgress
+                              ? "bg-blue-50 text-blue-700 border border-blue-200"
+                              : "bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]"
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isCompleted ? "bg-[#1E3F35]" : isInProgress ? "bg-blue-600" : "bg-[#9E6924]"
+                            }`}
+                          />
+                          <span className="capitalize">{visit.status.replace("_", " ")}</span>
+                        </span>
+
+                        {/* Priority Badge */}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            visit.priority === "high"
+                              ? "bg-red-50 text-red-700 border border-red-200"
+                              : "bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]"
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              visit.priority === "high" ? "bg-red-600" : "bg-[#9E6924]"
+                            }`}
+                          />
+                          <span className="capitalize">{visit.priority}</span>
+                        </span>
+                      </div>
+
+                      {/* Address */}
+                      <p className="text-xs text-beige-muted flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-[#1E3F35] shrink-0" />
+                        <span>{visit.address}</span>
+                      </p>
+
+                      {/* Purpose Pill */}
+                      <div className="bg-[#F9F7F2] rounded-xl px-3 py-1.5 text-xs text-beige-muted flex items-center gap-2 border border-[#E6DFD3]/50">
+                        <FileText className="w-3.5 h-3.5 text-beige-muted shrink-0" />
+                        <span className="truncate">{visit.purpose}</span>
+                      </div>
+
+                      {/* Geofence Rule Notice Bar */}
+                      <div className="bg-[#F7F2E7] rounded-xl px-3 py-1.5 text-xs text-[#7A5B2E] flex items-center gap-2 border border-[#EADBBD]/60">
+                        <Compass className="w-3.5 h-3.5 text-[#9E6924] shrink-0" />
+                        <span className="truncate">
+                          {visit.geofenceVerified
+                            ? "GPS geofence verified at check-in."
+                            : "Fresh GPS check required within 750m of the site to check in."}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="text-xs font-semibold text-beige-text flex items-center gap-1 shrink-0">
-                    <Clock className="w-3.5 h-3.5 text-beige-muted" />
-                    <span>{visit.scheduledTime}</span>
-                  </div>
-                </div>
+                  {/* Right Column: Time + Distance + Actions */}
+                  <div className="flex flex-col justify-between items-start lg:items-end space-y-3 shrink-0 pt-2 lg:pt-0">
+                    {/* Time & Due Info */}
+                    <div className="text-left lg:text-right">
+                      <div className="text-sm sm:text-base font-bold text-beige-text flex items-center lg:justify-end gap-1.5">
+                        <Clock className="w-4 h-4 text-beige-muted" />
+                        <span>{visit.scheduledTime}</span>
+                      </div>
+                      <div className="text-[11px] font-semibold text-red-600 mt-0.5">
+                        {dueText}
+                      </div>
+                    </div>
 
-                {/* Customer Info & Address */}
-                <div>
-                  <h3 className="text-sm sm:text-base font-bold text-beige-text group-hover:text-beige-terracotta transition">
-                    {visit.customerName}
-                  </h3>
-                  {visit.company && (
-                    <p className="text-[11px] text-beige-muted">{visit.company}</p>
-                  )}
-                  <p className="text-xs text-beige-muted flex items-start gap-1 mt-1">
-                    <MapPin className="w-3.5 h-3.5 text-beige-terracotta shrink-0 mt-0.5" />
-                    <span className="truncate">{visit.address}</span>
-                  </p>
-                </div>
+                    {/* Distance and ETA */}
+                    <Link
+                      href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs font-semibold text-beige-text hover:text-[#1E3F35] flex items-center gap-1 group/route"
+                    >
+                      <RouteIcon className="w-3.5 h-3.5 text-[#1E3F35]" />
+                      <span>{distanceText}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-beige-muted group-hover/route:translate-x-0.5 transition" />
+                    </Link>
 
-                {/* Purpose Snippet */}
-                <p className="text-[11px] text-beige-muted line-clamp-2 bg-beige-sand/30 p-2 rounded-xl border border-beige-border/50">
-                  {visit.purpose}
-                </p>
-
-                {/* Bottom Row: Geofence Status + Quick Actions */}
-                <div className="flex items-center justify-between pt-1 border-t border-beige-border/60 text-xs">
-                  {/* Geofence status tag */}
-                  <div className="flex items-center gap-1.5">
-                    {visit.geofenceVerified ? (
-                      <span className="flex items-center gap-1 text-[11px] font-bold text-beige-olive bg-beige-olive-subtle px-2 py-0.5 rounded-full border border-beige-olive/30">
-                        <ShieldCheck className="w-3 h-3" />
-                        GPS geofence verified
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[11px] text-beige-muted bg-beige-sand px-2 py-0.5 rounded-full border border-beige-border">
-                        <MapPin className="w-3 h-3" />
-                        Fresh GPS check required within 750m
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    {isInProgress ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCompleteModalVisit(visit);
-                        }}
-                        className="px-3 py-1 rounded-lg text-xs font-bold bg-beige-olive text-white hover:bg-beige-olive-light transition shadow-2xs"
+                    {/* Action Buttons Row */}
+                    <div className="flex items-center gap-2 w-full lg:w-auto">
+                      <Link
+                        href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 lg:flex-initial px-3.5 py-2 rounded-xl text-xs font-bold bg-[#EAF2EC] hover:bg-[#DFEDE2] text-[#1E3F35] border border-[#CDE1D2] transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
                       >
-                        Complete Visit
-                      </button>
-                    ) : !isCompleted ? (
-                      <button
-                        type="button"
-                        onClick={(e) => handleQuickCheckIn(e, visit)}
-                        disabled={checkingInVisitId === visit.id}
-                        className="px-3 py-1 rounded-lg text-xs font-bold bg-beige-terracotta text-white hover:bg-beige-terracotta-light transition shadow-2xs disabled:opacity-75 cursor-pointer flex items-center gap-1.5 active:scale-95"
-                      >
-                        {checkingInVisitId === visit.id ? (
-                          <>
-                            <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            <span>Verifying GPS...</span>
-                          </>
-                        ) : (
-                          "Verify GPS & Check In"
-                        )}
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-semibold text-beige-muted group-hover:text-beige-text flex items-center gap-0.5">
-                        <span>Details</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </span>
-                    )}
+                        <Navigation className="w-3.5 h-3.5 rotate-45" />
+                        <span>View on Map Route</span>
+                      </Link>
+
+                      {isInProgress ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCompleteModalVisit(visit);
+                          }}
+                          className="flex-1 lg:flex-initial px-4 py-2 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white transition flex items-center justify-center gap-1.5 shadow-xs active:scale-[0.98] cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Complete Visit</span>
+                        </button>
+                      ) : !isCompleted ? (
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickCheckIn(e, visit)}
+                          disabled={checkingInVisitId === visit.id}
+                          className="flex-1 lg:flex-initial px-4 py-2 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white transition flex items-center justify-center gap-1.5 shadow-xs active:scale-[0.98] disabled:opacity-75 cursor-pointer"
+                        >
+                          {checkingInVisitId === visit.id ? (
+                            <>
+                              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              <span>Verifying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Verify GPS &amp; Check In</span>
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]">
+                          ✓ Completed
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

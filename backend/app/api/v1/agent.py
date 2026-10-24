@@ -257,8 +257,10 @@ async def get_agent_route_geometry(
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord_path}", params={"overview": "full", "geometries": "geojson", "steps": "false"})
+            response = await client.get(
+                f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord_path}",
+                params={"overview": "full", "geometries": "geojson", "steps": "true"},
+            )
             response.raise_for_status()
             result = response.json()
         if result.get("code") != "Ok" or not result.get("routes"):
@@ -366,28 +368,7 @@ async def get_agent_dashboard(
     today_raw = today_res.unique().scalars().all()
     today_visits = [_to_visit_response(v) for v in today_raw]
 
-    # 2. Compute today's statistics
-    today_total = len(today_visits)
-    today_completed = sum(1 for v in today_visits if v.status == "completed")
-    today_remaining = sum(1 for v in today_visits if v.status in ("pending", "in_progress", "delayed"))
-    completion_pct = round((today_completed / today_total) * 100, 1) if today_total > 0 else 0.0
-
-    # Determine next appointment
-    next_visit = next((v for v in today_visits if v.status in ("in_progress", "pending", "delayed")), None)
-
-    # 3. Fetch Upcoming Visits (future dates)
-    upcoming_query = (
-        select(Visit)
-        .options(joinedload(Visit.customer))
-        .where(Visit.agent_id == agent.id, Visit.scheduled_date > ref_date, Visit.status != "completed")
-        .order_by(Visit.scheduled_date.asc(), Visit.order_index.asc())
-        .limit(10)
-    )
-    upcoming_res = await db.execute(upcoming_query)
-    upcoming_raw = upcoming_res.unique().scalars().all()
-    upcoming_visits = [_to_visit_response(v) for v in upcoming_raw]
-
-    # 4. Fetch Recent Visit History (completed visits)
+    # 2. Fetch Recent Visit History (completed visits)
     history_query = (
         select(Visit)
         .options(joinedload(Visit.customer))
@@ -399,8 +380,29 @@ async def get_agent_dashboard(
     history_raw = history_res.unique().scalars().all()
     recent_history = [_to_visit_response(v) for v in history_raw]
 
-    # Agent Response - use today's visit counts so displayed assigned/completed
-    # matches the dashboard KPI cards, not all-time totals.
+    # 3. Compute statistics incorporating both active assignments and completed visits
+    completed_in_today = sum(1 for v in today_visits if v.status == "completed")
+    today_completed = max(completed_in_today, len(recent_history))
+    today_remaining = sum(1 for v in today_visits if v.status in ("pending", "in_progress", "delayed"))
+    today_total = today_remaining + today_completed
+    completion_pct = round((today_completed / today_total) * 100, 1) if today_total > 0 else 0.0
+
+    # Determine next appointment
+    next_visit = next((v for v in today_visits if v.status in ("in_progress", "pending", "delayed")), None)
+
+    # 4. Fetch Upcoming Visits (future dates)
+    upcoming_query = (
+        select(Visit)
+        .options(joinedload(Visit.customer))
+        .where(Visit.agent_id == agent.id, Visit.scheduled_date > ref_date, Visit.status != "completed")
+        .order_by(Visit.scheduled_date.asc(), Visit.order_index.asc())
+        .limit(10)
+    )
+    upcoming_res = await db.execute(upcoming_query)
+    upcoming_raw = upcoming_res.unique().scalars().all()
+    upcoming_visits = [_to_visit_response(v) for v in upcoming_raw]
+
+    # Agent Response - reflects operational workload and completed visits
     agent_info = _to_agent_response(agent, today_total, today_completed)
 
     stats = AgentStats(

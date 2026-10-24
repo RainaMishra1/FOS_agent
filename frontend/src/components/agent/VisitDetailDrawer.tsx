@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
 import StatusBadge from "@/components/StatusBadge";
@@ -23,7 +24,6 @@ import {
   Navigation,
   Loader2,
 } from "lucide-react";
-import Link from "next/link";
 
 interface VisitDetailDrawerProps {
   visit: AgentVisit | null;
@@ -268,34 +268,45 @@ export default function VisitDetailDrawer({
             {visit.status === "in_progress" ? (
               <button
                 onClick={() => setShowCompleteModal(true)}
-                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-beige-terracotta hover:bg-beige-terracotta-light text-white shadow-md transition flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                Complete Visit
+                <span>Complete Visit</span>
               </button>
             ) : visit.status === "completed" ? (
-              <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-beige-olive-subtle text-beige-olive text-center border border-beige-olive/30">
+              <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-[#EAF2EC] text-[#1E3F35] text-center border border-[#CDE1D2]">
                 ✓ Visit Completed
               </div>
             ) : (
-              <button
-                type="button"
-                disabled={isCheckingIn}
-                onClick={handleCheckIn}
-                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-              >
-                {isCheckingIn ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Checking In...
-                  </>
-                ) : (
-                  <>
-                    <MapPin className="w-4 h-4" />
-                    Check In Now
-                  </>
-                )}
-              </button>
+              <>
+                <Link
+                  href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}&start=true`}
+                  onClick={onClose}
+                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Navigation className="w-4 h-4 text-white" />
+                  <span>Start Nav</span>
+                </Link>
+
+                <button
+                  type="button"
+                  disabled={isCheckingIn}
+                  onClick={handleCheckIn}
+                  className="flex-1 py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2] hover:bg-[#D8E9DC] shadow-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {isCheckingIn ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Checking In...</span>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-4 h-4" />
+                      <span>Check In</span>
+                    </>
+                  )}
+                </button>
+              </>
             )}
           </div>
         </div>

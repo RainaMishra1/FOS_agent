@@ -4,41 +4,36 @@ import { TaskStatus, AgentStatus, PriorityLevel } from "@/types";
 interface StatusBadgeProps {
   status: TaskStatus | AgentStatus | PriorityLevel | string;
   size?: "sm" | "md";
+  className?: string;
+  type?: string;
 }
 
-export default function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
-  const normalized = status.toLowerCase();
+export default function StatusBadge({ status, size = "md", className = "" }: StatusBadgeProps) {
+  const normalized = (status || "").toLowerCase();
 
-  const sizeClasses = size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs";
+  const sizeClasses = size === "sm" ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs";
 
-  // Warm beige & earth palette badges
   const getBadgeStyle = () => {
     switch (normalized) {
       case "active":
-        return "bg-beige-olive-subtle text-beige-olive border-beige-olive/30 font-medium";
       case "completed":
-        return "bg-[#EBF3E8] text-[#4A6B3D] border-[#C8DEC0] font-medium";
-      case "assigned":
-      case "in_progress":
-        return "bg-beige-terracotta-subtle text-beige-terracotta border-beige-terracotta/30 font-medium";
-      case "pending":
-        return "bg-beige-amber-subtle text-beige-amber border-beige-amber/30 font-medium";
-      case "delayed":
-        return "bg-[#FBEBEB] text-[#9E3F3F] border-[#E8C0C0] font-medium";
-      case "inactive":
-        return "bg-beige-sand text-beige-muted border-beige-border font-medium";
-      case "busy":
-        return "bg-[#F3ECDF] text-[#785E38] border-[#DFCFB6] font-medium";
-      case "break":
-        return "bg-beige-sidebar text-beige-text border-beige-border font-medium";
-      case "high":
-        return "bg-beige-terracotta-subtle text-beige-terracotta border-beige-terracotta/30 font-semibold";
-      case "medium":
-        return "bg-beige-amber-subtle text-beige-amber border-beige-amber/30 font-medium";
       case "low":
-        return "bg-beige-olive-subtle text-beige-olive border-beige-olive/30 font-medium";
+        return "bg-[#EAF2EC] text-[#1E3F35] border-[#D0E2D5] font-semibold";
+      case "in_progress":
+        return "bg-[#EAF2EC] text-[#1E3F35] border-[#D0E2D5] font-semibold";
+      case "assigned":
+      case "pending":
+      case "medium":
+      case "busy":
+        return "bg-[#F8EFE2] text-[#9E6924] border-[#EAD4B4] font-semibold";
+      case "delayed":
+      case "high":
+        return "bg-[#FDF2F2] text-[#9E3F3F] border-[#F2C6C6] font-semibold";
+      case "break":
+        return "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE] font-semibold";
+      case "inactive":
       default:
-        return "bg-beige-sand text-beige-muted border-beige-border";
+        return "bg-[#EFEBE2] text-[#756F66] border-[#E6DFD3] font-medium";
     }
   };
 
@@ -47,25 +42,27 @@ export default function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
       case "active":
       case "completed":
       case "low":
-        return "bg-beige-olive";
-      case "assigned":
       case "in_progress":
-      case "high":
-        return "bg-beige-terracotta";
+        return "bg-[#1E3F35]";
+      case "assigned":
       case "pending":
       case "medium":
       case "busy":
-        return "bg-beige-amber";
+        return "bg-[#9E6924]";
       case "delayed":
+      case "high":
         return "bg-[#9E3F3F]";
+      case "break":
+        return "bg-[#2563EB]";
+      case "inactive":
       default:
-        return "bg-beige-muted";
+        return "bg-[#756F66]";
     }
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border tracking-wide capitalize ${sizeClasses} ${getBadgeStyle()}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border tracking-wide capitalize shadow-2xs ${sizeClasses} ${getBadgeStyle()} ${className}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${getDotColor()}`} />
       {normalized.replace("_", " ")}

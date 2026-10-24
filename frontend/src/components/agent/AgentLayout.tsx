@@ -41,8 +41,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   // Route protection for Field Agent Portal
   useEffect(() => {
     if (isAgentAuthPage) return;
-    if (!isLoading && (!isAuthenticated || !profile || role !== "agent" || !profile.agent_id)) {
-      if (role === "admin") { router.replace("/admin/dashboard"); return; }
+    if (!isLoading && (!isAuthenticated || !profile || (role !== "agent" && role !== "admin"))) {
       const redirectParam = pathname ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
       router.replace(`/agent/login${redirectParam}`);
     }
@@ -53,7 +52,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
-        <div className="w-12 h-12 rounded-2xl bg-beige-terracotta text-white flex items-center justify-center animate-pulse shadow-md mb-3">
+        <div className="w-12 h-12 rounded-2xl bg-[#1E3F35] text-white flex items-center justify-center animate-pulse shadow-md mb-3">
           <Compass className="w-6 h-6 animate-spin" />
         </div>
         <p className="text-xs font-semibold text-beige-text">Verifying Field Agent Session...</p>
@@ -62,10 +61,10 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     );
   }
 
-  if (!isAuthenticated || !profile || role !== "agent" || !profile.agent_id) {
+  if (!isAuthenticated || !profile || (role !== "agent" && role !== "admin")) {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
-        <Loader2 className="w-6 h-6 text-beige-terracotta animate-spin mb-2" />
+        <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
         <p className="text-xs text-beige-muted">Redirecting to login...</p>
       </div>
     );
@@ -85,8 +84,8 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     .toUpperCase();
 
   const navItems = [
-    { name: "My Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
-    { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining },
+    { name: "Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
+    { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 3 },
     { name: "My Routes", href: "/agent/routes", icon: Route },
     { name: "Visit History", href: "/agent/history", icon: History },
     { name: "My Profile", href: "/agent/profile", icon: User },
@@ -100,24 +99,24 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   }).format(new Date());
 
   return (
-    <div className="min-h-screen bg-beige-bg text-beige-text flex flex-col md:flex-row antialiased selection:bg-beige-terracotta selection:text-white">
+    <div className="min-h-screen bg-[#F5F2EB] text-beige-text flex flex-col md:flex-row antialiased selection:bg-[#1E3F35] selection:text-white">
       {/* Toast Notification Banner */}
       {notification && (
         <div className="fixed top-4 left-4 right-4 z-[9999] max-w-md mx-auto animate-in slide-in-from-top duration-200">
           <div
             className={`p-3 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-xs backdrop-blur-md ${
               notification.type === "success"
-                ? "bg-beige-card/95 border-beige-olive text-beige-olive"
+                ? "bg-white/95 border-[#CDE1D2] text-[#1E3F35]"
                 : notification.type === "error"
-                ? "bg-beige-card/95 border-beige-terracotta text-beige-terracotta"
-                : "bg-beige-card/95 border-beige-border text-beige-text"
+                ? "bg-white/95 border-red-300 text-red-700"
+                : "bg-white/95 border-[#E6DFD3] text-beige-text"
             }`}
           >
             <div className="flex items-center gap-2">
               {notification.type === "success" ? (
-                <CheckCircle2 className="w-4 h-4 text-beige-olive shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-[#1E3F35] shrink-0" />
               ) : notification.type === "error" ? (
-                <AlertCircle className="w-4 h-4 text-beige-terracotta shrink-0" />
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
               ) : (
                 <Info className="w-4 h-4 text-beige-muted shrink-0" />
               )}
@@ -140,79 +139,61 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
       )}
 
       {/* Desktop Sidebar (hidden on mobile, visible on md+) */}
-      <aside className="hidden md:flex flex-col justify-between w-64 bg-beige-sidebar border-r border-beige-border p-4 sticky top-0 h-screen shrink-0">
-        <div className="space-y-6">
-          {/* Brand & Mode Switcher */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between pb-3 border-b border-beige-border/80">
-              <Link href="/agent/dashboard" className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-beige-terracotta text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                  <Compass className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-sm tracking-tight text-beige-text block">
-                    FOS Agent
-                  </span>
-                  <span className="text-[10px] text-beige-muted block">Field Operations</span>
-                </div>
-              </Link>
-            </div>
-
-            {/* Quick Switch back to Admin Console if permitted */}
-            {profile?.role === "admin" && (
-              <Link
-                href="/"
-                className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold bg-beige-card/70 hover:bg-beige-card border border-beige-border text-beige-muted hover:text-beige-text transition shadow-2xs group"
-              >
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-beige-olive" />
-                  Admin Console
+      <aside className="hidden md:flex flex-col justify-between w-64 bg-[#F4EFE6] border-r border-[#E6DFD3] p-4 sticky top-0 h-screen shrink-0 overflow-y-auto">
+        <div className="space-y-5">
+          {/* Brand Header */}
+          <div className="pb-3 border-b border-[#E6DFD3]/80">
+            <Link href="/agent/dashboard" className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Compass className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-sm tracking-tight text-beige-text block">
+                  FOS Agent
                 </span>
-                <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-              </Link>
-            )}
+                <span className="text-[10px] text-beige-muted block">Field Operations System</span>
+              </div>
+            </Link>
           </div>
 
-          {/* Agent Duty Profile Card */}
-          <div className="p-3 rounded-2xl bg-beige-card border border-beige-border shadow-2xs space-y-2.5">
+          {/* Agent Profile Card */}
+          <div className="p-3.5 rounded-2xl bg-white border border-[#E6DFD3] shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <div className="w-8 h-8 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                    {agentInitials}
-                  </div>
-                  <span
-                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                      isOnDuty ? "bg-beige-olive" : "bg-beige-muted"
-                    }`}
-                  />
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                  {agentInitials}
                 </div>
                 <div className="truncate">
                   <span className="font-bold text-xs text-beige-text block leading-tight truncate">
                     {agentName}
                   </span>
-                  <span className="text-[10px] text-beige-muted block">{profile?.agent_code || currentAgent.id}</span>
+                  <span className="text-[10px] text-beige-muted block">
+                    Agent ID: {profile?.agent_code || currentAgent.id}
+                  </span>
                 </div>
               </div>
+              <ChevronRight className="w-4 h-4 text-beige-muted shrink-0" />
             </div>
 
-            {/* Duty Toggle Button */}
-            <button
-              type="button"
-              onClick={toggleDuty}
-              className={`w-full py-1.5 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border shadow-2xs ${
-                isOnDuty
-                  ? "bg-beige-olive-subtle text-beige-olive border-beige-olive/30 hover:bg-beige-olive/20"
-                  : "bg-beige-sand text-beige-muted border-beige-border hover:bg-beige-border"
-              }`}
-            >
-              <Power className="w-3.5 h-3.5" />
-              <span>{isOnDuty ? "Status: ON DUTY" : "Status: OFF DUTY"}</span>
-            </button>
+            <div className="flex items-center justify-between pt-1 border-t border-[#E6DFD3]/60">
+              <button
+                type="button"
+                onClick={toggleDuty}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition ${
+                  isOnDuty
+                    ? "bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]"
+                    : "bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"}`} />
+                <span>{isOnDuty ? "On Duty" : "Off Duty"}</span>
+              </button>
+              <span className="text-xs text-beige-muted font-medium">Field Agent</span>
+            </div>
           </div>
 
           {/* Navigation Links */}
-          <nav className="space-y-1">
+          <nav className="space-y-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
@@ -221,23 +202,23 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition group ${
+                  className={`relative flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition group ${
                     isActive
-                      ? "bg-beige-card text-beige-text font-bold shadow-xs border border-beige-border"
-                      : "text-beige-muted hover:text-beige-text hover:bg-beige-sidebar-hover"
+                      ? "bg-[#EAF2EC] text-[#1E3F35] font-bold shadow-2xs before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-[#1E3F35] before:rounded-r"
+                      : "text-beige-muted hover:text-beige-text hover:bg-[#EAE4D9]/60"
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon
                       className={`w-4 h-4 transition ${
-                        isActive ? "text-beige-terracotta" : "text-beige-muted group-hover:text-beige-text"
+                        isActive ? "text-[#1E3F35]" : "text-beige-muted group-hover:text-beige-text"
                       }`}
                     />
                     <span>{item.name}</span>
                   </div>
 
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-beige-terracotta text-white">
+                    <span className="w-5 h-5 rounded-full bg-[#1E3F35] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
                       {item.badge}
                     </span>
                   )}
@@ -247,82 +228,106 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
           </nav>
         </div>
 
-        {/* Desktop Sidebar Footer with Sign Out */}
-        <div className="pt-3 border-t border-beige-border/80 text-[11px] text-beige-muted space-y-2">
-          <div className="flex items-center justify-between">
-            <span>Battery: {currentAgent.batteryLevel}%</span>
-            <Battery className="w-3.5 h-3.5 text-beige-olive" />
+        {/* Desktop Sidebar Footer: Device & Location Card */}
+        <div className="pt-4 space-y-3">
+          <div className="p-3.5 rounded-2xl bg-white border border-[#E6DFD3] shadow-2xs space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-beige-text">Device & Location</span>
+              <ChevronRight className="w-3.5 h-3.5 text-beige-muted" />
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-beige-muted">
+                <Battery className="w-4 h-4 text-beige-muted" />
+                <span className="text-[11px]">Battery</span>
+                <span className="font-bold text-beige-text text-xs">{currentAgent.batteryLevel || 100}%</span>
+              </div>
+              <div className="w-14 h-2 bg-[#E6DFD3] rounded-full overflow-hidden">
+                <div
+                  className="bg-[#1E3F35] h-full rounded-full transition-all"
+                  style={{ width: `${currentAgent.batteryLevel || 100}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs pt-1 border-t border-[#E6DFD3]/60">
+              <div className="flex items-center gap-2 text-beige-muted">
+                <ShieldCheck className="w-4 h-4 text-beige-muted" />
+                <span className="text-[11px]">Geofence Status</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#1E3F35]" />
+                <span className="text-[11px] font-semibold text-[#1E3F35]">Within Active Zone</span>
+                <ChevronRight className="w-3 h-3 text-beige-muted" />
+              </div>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span>Geofence: 750m Active</span>
-            <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full mt-2 flex items-center gap-2 p-2 rounded-xl text-xs text-beige-muted hover:text-beige-terracotta hover:bg-beige-card transition"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile Sticky Header */}
-        <header className="sticky top-0 z-30 bg-beige-card/95 backdrop-blur-md border-b border-beige-border px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Link href="/agent/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-beige-terracotta text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                <Compass className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-bold text-xs sm:text-sm text-beige-text block leading-tight">
-                  FOS Mobile
-                </span>
-                <span className="text-[10px] text-beige-muted block">{currentDate}</span>
-              </div>
-            </Link>
+        {/* Sticky Header */}
+        <header className="sticky top-0 z-30 bg-[#F5F2EB]/90 backdrop-blur-md border-b border-[#E6DFD3] px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center font-bold text-xs shadow-2xs">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="font-bold text-sm text-beige-text block leading-tight">
+                FOS Mobile
+              </span>
+              <span className="text-[11px] text-beige-muted block">
+                Field Operations • {currentAgent.territory.split("(")[0].trim() || "Mumbai"}
+              </span>
+            </div>
           </div>
 
-          {/* Right Header: On Duty Toggle + Sign Out */}
-          <div className="flex items-center gap-2">
-            {/* Duty Status Pill Toggle */}
+          {/* Right Header: Date + Duty Toggle + Logout */}
+          <div className="flex items-center gap-2.5">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-medium text-beige-text shadow-2xs">
+              <CalendarCheck className="w-3.5 h-3.5 text-beige-muted" />
+              <span>{currentDate}</span>
+            </div>
+
+            {/* Duty Status Pill Dropdown */}
             <button
               type="button"
               onClick={toggleDuty}
-              className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border transition shadow-2xs ${
+              className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 border transition shadow-2xs cursor-pointer ${
                 isOnDuty
-                  ? "bg-beige-olive-subtle text-beige-olive border-beige-olive/30"
-                  : "bg-beige-sand text-beige-muted border-beige-border"
+                  ? "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2] hover:bg-[#DFEDE2]"
+                  : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0] hover:bg-[#F5ECD9]"
               }`}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  isOnDuty ? "bg-beige-olive animate-pulse" : "bg-beige-muted"
+                  isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"
                 }`}
               />
               <span>{isOnDuty ? "On Duty" : "Off Duty"}</span>
+              <span className="text-[10px] opacity-70">▾</span>
             </button>
 
-            {/* Sign Out Button on Mobile */}
+            {/* Sign Out Button */}
             <button
               onClick={handleSignOut}
-              className="p-1.5 rounded-xl bg-beige-sand/60 hover:bg-beige-sand border border-beige-border text-beige-muted hover:text-beige-terracotta transition"
-              title="Sign Out"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-beige-sand border border-[#E6DFD3] text-xs font-semibold text-beige-text hover:text-red-700 transition shadow-2xs cursor-pointer"
+              title="Logout"
             >
               <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </header>
 
         {/* Page Content Body */}
-        <main className="flex-1 p-4 sm:p-6 max-w-4xl w-full mx-auto pb-24 md:pb-8">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-10">
           {children}
         </main>
 
         {/* Mobile Fixed Bottom Navigation Bar (md:hidden) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-beige-card/95 backdrop-blur-md border-t border-beige-border px-2 py-1.5 shadow-[0_-4px_12px_rgba(48,45,40,0.05)]">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E6DFD3] px-2 py-1.5 shadow-[0_-4px_12px_rgba(48,45,40,0.05)]">
           <div className="flex items-center justify-around">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -334,14 +339,14 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                   href={item.href}
                   className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition relative min-w-[56px] ${
                     isActive
-                      ? "text-beige-terracotta font-bold"
+                      ? "text-[#1E3F35] font-bold"
                       : "text-beige-muted hover:text-beige-text"
                   }`}
                 >
                   <div className="relative">
                     <Icon className="w-5 h-5" />
                     {item.badge !== undefined && item.badge > 0 && (
-                      <span className="absolute -top-1 -right-2 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-beige-terracotta text-white leading-tight">
+                      <span className="absolute -top-1 -right-2 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#1E3F35] text-white leading-tight">
                         {item.badge}
                       </span>
                     )}
@@ -350,7 +355,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                     {item.name.replace("My ", "")}
                   </span>
                   {isActive && (
-                    <span className="w-1 h-1 rounded-full bg-beige-terracotta mt-0.5" />
+                    <span className="w-1 h-1 rounded-full bg-[#1E3F35] mt-0.5" />
                   )}
                 </Link>
               );

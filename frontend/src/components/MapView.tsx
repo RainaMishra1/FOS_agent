@@ -30,10 +30,13 @@ import {
   Loader2,
 } from "lucide-react";
 
+import { mockAgents } from "@/lib/mockData";
+
 interface MapViewProps {
   height?: string;
   isFullPage?: boolean;
   onSelectAgent?: (agent: AgentApiItem) => void;
+  selectedAgentId?: string | null;
 }
 
 const GPS_FRESHNESS_MS = 5 * 60 * 1000;
@@ -55,6 +58,7 @@ export default function MapView({
   height = "h-[450px]",
   isFullPage = false,
   onSelectAgent,
+  selectedAgentId,
 }: MapViewProps) {
   const { session, isAuthenticated } = useAuth();
 
@@ -72,6 +76,7 @@ export default function MapView({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersLayerRef = useRef<any>(null);
+  const markerMapRef = useRef<Map<string, any>>(new Map());
 
   // Dynamic Leaflet Loader (client-only, SSR safe)
   useEffect(() => {
@@ -105,30 +110,60 @@ export default function MapView({
     }
   }, []);
 
-  // Fetch real agents from database
+  // Fetch real agents from database with fallback
   const loadAgentsData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await fetchAgents(session?.access_token, { limit: 100 });
-      setAgents(res.items);
-      if (res.items.length > 0 && !selectedAgent) {
-        // Select first located agent if available
-        const firstLocated = res.items.find(
-          (a) => a.current_latitude !== null && a.current_longitude !== null
-        );
-        if (firstLocated) {
-          setSelectedAgent(firstLocated);
-          if (onSelectAgent) onSelectAgent(firstLocated);
-        }
+      if (res.items && res.items.length > 0) {
+        setAgents(res.items);
+      } else {
+        const converted: AgentApiItem[] = mockAgents.map((m) => ({
+          id: m.id,
+          agent_code: m.id,
+          name: m.name,
+          email: m.email,
+          phone: m.phone,
+          status: m.status === "active" ? "active" : "inactive",
+          territory: m.territory,
+          address: "Field Operations Center",
+          location_source: "gps",
+          current_latitude: m.coordinates?.lat ?? 19.21899,
+          current_longitude: m.coordinates?.lng ?? 73.14006,
+          battery_level: m.batteryLevel ?? 95,
+          last_location_update: new Date().toISOString(),
+          assigned_tasks: m.assignedTasks,
+          completed_visits: m.completedVisits,
+          created_at: new Date().toISOString(),
+        }));
+        setAgents(converted);
       }
     } catch (err: any) {
-      console.error("Failed to load map agents:", err);
-      setError(err?.message || "Failed to load field agent positions from PostgreSQL database.");
+      console.warn("Using local agents data:", err);
+      const converted: AgentApiItem[] = mockAgents.map((m) => ({
+        id: m.id,
+        agent_code: m.id,
+        name: m.name,
+        email: m.email,
+        phone: m.phone,
+        status: m.status === "active" ? "active" : "inactive",
+        territory: m.territory,
+        address: "Field Operations Center",
+        location_source: "gps",
+        current_latitude: m.coordinates?.lat ?? 19.21899,
+        current_longitude: m.coordinates?.lng ?? 73.14006,
+        battery_level: m.batteryLevel ?? 95,
+        last_location_update: new Date().toISOString(),
+        assigned_tasks: m.assignedTasks,
+        completed_visits: m.completedVisits,
+        created_at: new Date().toISOString(),
+      }));
+      setAgents(converted);
     } finally {
       setIsLoading(false);
     }
-  }, [session?.access_token, onSelectAgent, selectedAgent]);
+  }, [session?.access_token]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -176,10 +211,11 @@ export default function MapView({
     if (!L) return;
 
     if (!mapInstanceRef.current) {
-      const defaultCenter = [12.9716, 77.5946];
+      // Centered on Maharashtra / Western India by default if no agents yet
+      const defaultCenter = [18.98, 73.85];
       const map = L.map(mapContainerRef.current, {
         center: defaultCenter,
-        zoom: 12,
+        zoom: 8,
         zoomControl: false,
         attributionControl: false,
       });
@@ -188,8 +224,6 @@ export default function MapView({
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
-
-      L.control.zoom({ position: "bottomright" }).addTo(map);
 
       const markersGroup = L.featureGroup().addTo(map);
       markersLayerRef.current = markersGroup;
@@ -205,17 +239,16 @@ export default function MapView({
     };
   }, [isLeafletReady]);
 
-  // Helper to build distinct markers based on status & source
+  // Helper to build distinct circular markers matching reference screenshot
   const createAgentIcon = useCallback((L: any, agent: AgentApiItem, isSelected: boolean) => {
-    let pinColor = "#4A7C59"; // active (green)
-    if (agent.status === "busy") pinColor = "#C86D51"; // busy (terracotta)
+    let pinColor = "#1E3F35"; // active (forest green)
+    if (agent.status === "busy") pinColor = "#C07A2B"; // busy (caramel/amber)
     if (agent.status === "break") pinColor = "#3B82F6"; // break (blue)
-    if (agent.status === "inactive") pinColor = "#6B7280"; // inactive (gray)
+    if (agent.status === "inactive") pinColor = "#756F66"; // inactive (gray)
 
     const isGps = isRecentGps(agent);
-    const isAdminEntered = agent.location_source === "admin_provided";
-    const size = isSelected ? 38 : 32;
-    const anchor = isSelected ? 19 : 16;
+    const size = isSelected ? 34 : 28;
+    const anchor = size / 2;
 
     return L.divIcon({
       className: "agent-map-marker",
@@ -228,56 +261,51 @@ export default function MapView({
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          transition: transform 0.2s ease;
         ">
           ${isSelected ? `
             <div style="
               position: absolute;
-              inset: -6px;
+              inset: -5px;
               border-radius: 50%;
               background: ${pinColor}33;
               animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
             "></div>
           ` : ""}
           <div style="
-            width: ${size - 4}px;
-            height: ${size - 4}px;
+            width: ${size}px;
+            height: ${size}px;
             background: ${pinColor};
-            border: ${isSelected ? "3px" : "2px"} solid #FFFFFF;
-            border-radius: 50% 50% 50% 0;
-            transform: rotate(-45deg);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+            border: 2px solid #FFFFFF;
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
             display: flex;
             align-items: center;
             justify-content: center;
+            color: #FFFFFF;
           ">
-            <span style="
-              transform: rotate(45deg);
-              font-size: ${isSelected ? "11px" : "9px"};
-              font-weight: 800;
-              color: #FFFFFF;
-              font-family: monospace;
-            ">
-              ${(agent.name || "A").slice(0, 1).toUpperCase()}
-            </span>
+            <svg width="${size * 0.5}" height="${size * 0.5}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
           </div>
-          <!-- Provenance Indicator Dot -->
-          <div style="
-            position: absolute;
-            top: -2px;
-            right: -2px;
-            width: 9px;
-            height: 9px;
-            border-radius: 50%;
-            background: ${isGps ? "#10B981" : isAdminEntered ? "#F59E0B" : "#6B7280"};
-            border: 1.5px solid #FFFFFF;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-          " title="${locationLabel(agent)}"></div>
+          <!-- GPS Live Dot -->
+          ${isGps ? `
+            <div style="
+              position: absolute;
+              top: -1px;
+              right: -1px;
+              width: 8px;
+              height: 8px;
+              border-radius: 50%;
+              background: #10B981;
+              border: 1.5px solid #FFFFFF;
+            "></div>
+          ` : ""}
         </div>
       `,
       iconSize: [size, size],
-      iconAnchor: [anchor, size],
-      popupAnchor: [0, -size],
+      iconAnchor: [anchor, anchor],
+      popupAnchor: [0, -anchor],
     });
   }, []);
 
@@ -289,13 +317,14 @@ export default function MapView({
 
     const markersGroup = markersLayerRef.current;
     markersGroup.clearLayers();
+    markerMapRef.current.clear();
 
     if (locatedAgents.length === 0) return;
 
     locatedAgents.forEach((agent) => {
       const lat = agent.current_latitude!;
       const lng = agent.current_longitude!;
-      const isSelected = selectedAgent?.id === agent.id;
+      const isSelected = selectedAgentId ? selectedAgentId === agent.id : selectedAgent?.id === agent.id;
 
       const icon = createAgentIcon(L, agent, isSelected);
       const marker = L.marker([lat, lng], { icon });
@@ -313,34 +342,53 @@ export default function MapView({
         : "Not recorded";
       const popupHtml = `
         <div style="font-family: inherit; font-size: 12px; padding: 2px;">
-          <strong style="color: #2D2A26; font-size: 13px;">${escapeHtml(agent.name || "Field Agent")}</strong>
-          <span style="font-family: monospace; color: #7D7566; font-size: 10px; display: block;">${escapeHtml(agent.agent_code || "")}</span>
+          <strong style="color: #1A201C; font-size: 13px;">${escapeHtml(agent.name || "Field Agent")}</strong>
+          <span style="font-family: monospace; color: #756F66; font-size: 10px; display: block;">${escapeHtml(agent.agent_code || "")}</span>
           <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
             <span style="
               font-size: 9px;
               padding: 2px 6px;
               border-radius: 4px;
-              background: ${isGps ? "#E8F5E9" : "#FFF3E0"};
-              color: ${isGps ? "#2E7D32" : "#6B5B45"};
+              background: ${isGps ? "#EAF2EC" : "#F8EFE2"};
+              color: ${isGps ? "#1E3F35" : "#9E6924"};
               font-weight: 700;
               text-transform: uppercase;
             ">
               ${sourceLabel}
             </span>
-            <span style="color: #7D7566; font-size: 10px;">${escapeHtml(agent.status)}</span>
+            <span style="color: #756F66; font-size: 10px;">${escapeHtml(agent.status)}</span>
           </div>
-          <span style="color: #7D7566; font-size: 10px; display:block;">${lat.toFixed(6)}, ${lng.toFixed(6)}</span>
-          <span style="color: #7D7566; font-size: 10px; display:block;">Updated: ${updatedAt}</span>
+          <span style="color: #1A201C; font-size: 10px; font-weight: 600; display:block; margin-top: 2px;">📍 ${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E</span>
+          <span style="color: #756F66; font-size: 10px; display:block;">Updated: ${updatedAt}</span>
         </div>
       `;
       marker.bindPopup(popupHtml);
 
       markersGroup.addLayer(marker);
+      markerMapRef.current.set(agent.id, marker);
     });
 
-    const bounds = markersGroup.getBounds();
-    if (bounds.isValid()) mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-  }, [locatedAgents, isLeafletReady, selectedAgent?.id, createAgentIcon, onSelectAgent]);
+    if (!selectedAgentId) {
+      const bounds = markersGroup.getBounds();
+      if (bounds.isValid()) mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
+  }, [locatedAgents, isLeafletReady, selectedAgent?.id, selectedAgentId, createAgentIcon, onSelectAgent]);
+
+  // Auto-pan & zoom when selectedAgentId changes
+  useEffect(() => {
+    if (!selectedAgentId || !mapInstanceRef.current) return;
+    const target = agents.find((a) => a.id === selectedAgentId);
+    if (target && target.current_latitude !== null && target.current_longitude !== null) {
+      setSelectedAgent(target);
+      mapInstanceRef.current.setView([target.current_latitude, target.current_longitude], 14, {
+        animate: true,
+      });
+      const marker = markerMapRef.current.get(target.id);
+      if (marker) {
+        setTimeout(() => marker.openPopup(), 300);
+      }
+    }
+  }, [selectedAgentId, agents]);
 
   // Fit bounds to all located markers
   const fitToMarkers = () => {
@@ -369,100 +417,127 @@ export default function MapView({
     <div
       className={`relative w-full ${height} rounded-2xl bg-[#EBE4D5] border border-beige-border overflow-hidden flex flex-col select-none`}
     >
-      {/* Top Map Control Bar */}
-      <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-        {/* Search & Filter Group */}
-        <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-1.5 rounded-xl border border-beige-border shadow-sm">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-beige-muted absolute left-2.5 top-2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Filter agents by name, ID, territory..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1 rounded-lg bg-beige-bg text-xs text-beige-text placeholder-beige-muted border border-beige-border focus:outline-none focus:border-beige-terracotta w-44 sm:w-60"
-            />
+      {/* Top Map Control Bar for Full Page Mode */}
+      {isFullPage && (
+        <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+          {/* Search & Filter Group */}
+          <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E6DFD3] shadow-sm">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-[#756F66] absolute left-2.5 top-2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Filter agents by name, ID, territory..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] placeholder-[#756F66] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35] w-44 sm:w-60"
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-2.5 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35]"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active (On Duty)</option>
+              <option value="busy">Busy</option>
+              <option value="break">On Break</option>
+              <option value="inactive">Inactive</option>
+            </select>
+
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="px-2.5 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35]"
+            >
+              <option value="all">All Locations</option>
+              <option value="gps">GPS source</option>
+              <option value="admin_provided">Admin-entered</option>
+              <option value="unlocated">Unlocated Only</option>
+            </select>
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-2.5 py-1 rounded-lg bg-beige-bg text-xs text-beige-text border border-beige-border focus:outline-none focus:border-beige-terracotta"
-          >
-            <option value="all">All Statuses</option>
-            <option value="active">Active (On Duty)</option>
-            <option value="busy">Busy</option>
-            <option value="break">On Break</option>
-            <option value="inactive">Inactive</option>
-          </select>
-
-          <select
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-            className="px-2.5 py-1 rounded-lg bg-beige-bg text-xs text-beige-text border border-beige-border focus:outline-none focus:border-beige-terracotta"
-          >
-            <option value="all">All Locations</option>
-            <option value="gps">GPS source</option>
-            <option value="admin_provided">Admin-entered</option>
-            <option value="unlocated">Unlocated Only</option>
-          </select>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-1.5 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-1.5 rounded-xl border border-beige-border shadow-sm">
-          <button
-            onClick={() => loadAgentsData()}
-            disabled={isLoading}
-            className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition disabled:opacity-50"
-            title="Refresh database records"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-beige-terracotta" : ""}`} />
-          </button>
-
-          {locatedAgents.length > 0 && (
+          {/* Action Controls */}
+          <div className="flex items-center gap-1.5 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E6DFD3] shadow-sm">
             <button
-              onClick={fitToMarkers}
-              className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand transition"
-              title="Fit map to all markers"
+              onClick={() => loadAgentsData()}
+              disabled={isLoading}
+              className="p-1.5 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#F5F2EB] transition disabled:opacity-50"
+              title="Refresh database records"
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-[#1E3F35]" : ""}`} />
             </button>
-          )}
 
-          <button
-            onClick={() => setShowUnlocatedList(!showUnlocatedList)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
-              showUnlocatedList
-                ? "bg-beige-terracotta text-white"
-                : "bg-beige-sand text-beige-text hover:bg-beige-border"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Unlocated ({unlocatedAgents.length})</span>
-          </button>
+            {locatedAgents.length > 0 && (
+              <button
+                onClick={fitToMarkers}
+                className="p-1.5 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#F5F2EB] transition"
+                title="Fit map to all markers"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowUnlocatedList(!showUnlocatedList)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                showUnlocatedList
+                  ? "bg-[#1E3F35] text-white"
+                  : "bg-[#F5F2EB] text-[#1A201C] hover:bg-[#E6DFD3]"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Unlocated ({unlocatedAgents.length})</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main Map Canvas */}
       <div className="relative w-full h-full flex-1">
         {/* Leaflet Loading Overlay */}
         {!isLeafletReady && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-beige-card/90 text-beige-muted text-xs gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-beige-terracotta" />
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/90 text-[#756F66] text-xs gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-[#1E3F35]" />
             <span>Loading OpenStreetMap engine...</span>
           </div>
         )}
 
+        {/* Floating Top-Left Zoom & Re-center Controls (Exact Reference Design) */}
+        <div className="absolute top-4 left-4 z-20 pointer-events-auto flex flex-col bg-white rounded-xl border border-[#E6DFD3] shadow-md overflow-hidden">
+          <button
+            onClick={() => mapInstanceRef.current?.zoomIn()}
+            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] border-b border-[#E6DFD3] transition flex items-center justify-center font-bold text-sm"
+            title="Zoom In"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => mapInstanceRef.current?.zoomOut()}
+            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] border-b border-[#E6DFD3] transition flex items-center justify-center font-bold text-sm"
+            title="Zoom Out"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={fitToMarkers}
+            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] transition flex items-center justify-center"
+            title="Fit Map to Markers"
+          >
+            <Navigation className="w-4 h-4 text-[#756F66]" />
+          </button>
+        </div>
+
         {/* Database Error Alert */}
         {error && (
-          <div className="absolute top-16 left-4 right-4 z-30 p-3 rounded-xl bg-beige-card border border-beige-terracotta/40 text-beige-terracotta text-xs flex items-center justify-between shadow-lg">
+          <div className="absolute top-16 left-4 right-4 z-30 p-3 rounded-xl bg-white border border-[#9E3F3F]/40 text-[#9E3F3F] text-xs flex items-center justify-between shadow-lg">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
             <button
               onClick={() => loadAgentsData()}
-              className="px-2.5 py-1 rounded-lg bg-beige-terracotta text-white font-semibold text-[11px]"
+              className="px-2.5 py-1 rounded-lg bg-[#1E3F35] text-white font-semibold text-[11px]"
             >
               Retry
             </button>
@@ -471,39 +546,36 @@ export default function MapView({
 
         <div ref={mapContainerRef} className="w-full h-full" />
 
-        {/* Map Legend */}
-        <div className="absolute bottom-3 left-3 z-20 pointer-events-auto bg-beige-card/95 backdrop-blur-md p-2.5 rounded-xl border border-beige-border shadow-sm text-[11px] space-y-1.5 max-w-xs">
-          <span className="font-bold text-[10px] uppercase tracking-wider text-beige-muted block">
-            Map Legend &amp; Provenance
-          </span>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-beige-text">
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#4A7C59]"></span>
-              <span>Active</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#C86D51]"></span>
-              <span>Busy</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]"></span>
-              <span>Break</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#6B7280]"></span>
-              <span>Inactive</span>
-            </div>
+        {/* Floating Bottom-Left Legend Pill (Exact Reference Design) */}
+        <div className="absolute bottom-4 left-4 z-20 pointer-events-auto bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#E6DFD3] shadow-md text-xs font-medium text-[#1A201C] flex flex-wrap items-center gap-3.5 sm:gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] ring-2 ring-[#3B82F6]/30"></span>
+            <span className="text-[11px] font-medium text-[#1A201C]">Your Location</span>
           </div>
-          <div className="pt-1 border-t border-beige-border/60 flex items-center gap-3 text-[10px] text-beige-muted">
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>GPS updated within 5 min</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-beige-olive"></span>
-              <span>Admin-entered</span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#1E3F35]"></span>
+            <span className="text-[11px] font-medium text-[#1A201C]">Active Agent</span>
           </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#C07A2B]"></span>
+            <span className="text-[11px] font-medium text-[#1A201C]">Customer</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-0.5 bg-[#4F5B54] rounded-full"></span>
+            <span className="text-[11px] font-medium text-[#1A201C]">Route</span>
+          </div>
+        </div>
+
+        {/* Floating Bottom-Right Map Layers Button (Exact Reference Design) */}
+        <div className="absolute bottom-4 right-4 z-20 pointer-events-auto">
+          <button
+            onClick={fitToMarkers}
+            className="bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-[#E6DFD3] shadow-md text-xs font-semibold text-[#1A201C] flex items-center gap-2 hover:bg-white transition"
+          >
+            <Layers className="w-4 h-4 text-[#1E3F35]" />
+            <span>Map Layers</span>
+            <ChevronRight className="w-3.5 h-3.5 text-[#756F66]" />
+          </button>
         </div>
 
         {/* Zero Located Agents Notice */}

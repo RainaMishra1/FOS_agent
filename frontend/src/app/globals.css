@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 :root {
-  --bg-main: #F7F5F0;
-  --text-main: #1F241F;
-  --text-muted: #666C64;
-  --border-subtle: #E3DCD0;
+  --bg-main: #F5F2EB;
+  --text-main: #1A201C;
+  --text-muted: #756F66;
+  --border-subtle: #E6DFD3;
   --card-bg: #FFFFFF;
 }
 

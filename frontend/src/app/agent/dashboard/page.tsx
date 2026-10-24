@@ -7,7 +7,6 @@ import { AgentVisit } from "@/types/agent";
 import NextVisitCard from "@/components/agent/NextVisitCard";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import AgentLocationSection from "@/components/agent/AgentLocationSection";
-import StatusBadge from "@/components/StatusBadge";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -17,12 +16,12 @@ import {
   ShieldCheck,
   Compass,
   ArrowRight,
-  Battery,
+  ChevronRight,
+  Crosshair,
   AlertTriangle,
-  Sparkles,
-  PhoneCall,
-  Coffee,
   RefreshCw,
+  MapPin,
+  Calendar,
 } from "lucide-react";
 
 export default function AgentDashboardPage() {
@@ -52,29 +51,34 @@ export default function AgentDashboardPage() {
 
   const now = new Date();
   const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const todayVisits = visits.filter((v) => v.scheduledDate === todayDateStr);
-  const completedToday = todayVisits.filter((v) => v.status === "completed");
+  const todayVisits = visits.filter((v) => v.scheduledDate === todayDateStr || !v.scheduledDate);
+  const completedToday = visits.filter((v) => v.status === "completed");
 
   const handleOpenDetails = (visit: AgentVisit) => {
     setActiveDrawerVisit(visit);
   };
 
+  const displayCompleted = stats.todayCompleted ?? historyVisits.length;
+  const displayRemaining = stats.todayRemaining ?? (visits.filter((v) => v.status !== "completed").length);
+  const displayTotalVisits = stats.todayTotal ?? (displayRemaining + displayCompleted);
+  const displayPct = stats.completionPercentage ?? (displayTotalVisits > 0 ? Math.round((displayCompleted / displayTotalVisits) * 100) : 0);
+
   return (
-    <div className="space-y-5 animate-in fade-in duration-200">
-      {/* Error / Offline Alert Banner with Retry */}
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Error / Backend Alert Banner */}
       {error && (
-        <div className="p-4 rounded-2xl bg-beige-card border border-beige-terracotta/30 text-beige-terracotta flex items-center justify-between gap-3 animate-in fade-in">
+        <div className="p-4 rounded-2xl bg-white border border-red-200 text-red-800 flex items-center justify-between gap-3 shadow-xs">
           <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 shrink-0 text-red-600 mt-0.5" />
             <div>
-              <h4 className="text-xs font-bold">Backend Sync Failed</h4>
+              <h4 className="text-xs font-bold">Backend Sync Notice</h4>
               <p className="text-[11px] opacity-90 mt-0.5">{error}</p>
             </div>
           </div>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="px-3 py-1.5 rounded-xl bg-beige-terracotta text-white font-semibold text-xs hover:bg-beige-terracotta/90 transition flex items-center gap-1.5 shrink-0"
+            className="px-3 py-1.5 rounded-xl bg-[#1E3F35] text-white font-semibold text-xs hover:bg-[#162F27] transition flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
             <span>Retry Connection</span>
@@ -82,196 +86,192 @@ export default function AgentDashboardPage() {
         </div>
       )}
 
-      {/* 1. Welcome Header & Agent Profile Card */}
-      <div className="rounded-2xl bg-gradient-to-br from-beige-card via-beige-sand/40 to-beige-sand/70 border border-beige-border p-4 sm:p-5 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-12 h-12 rounded-2xl bg-beige-terracotta text-white font-bold text-base flex items-center justify-center shadow-sm">
-                {currentAgent.initials}
-              </div>
-              <span
-                className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                  isOnDuty ? "bg-beige-olive animate-pulse" : "bg-beige-muted"
-                }`}
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-beige-text">
-                  Welcome back, {currentAgent.name}
-                </h2>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-beige-sand text-beige-muted border border-beige-border font-semibold">
-                  {currentAgent.id}
-                </span>
-                {isLiveBackend && (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-beige-sand text-beige-olive border border-beige-olive/30 font-semibold">
-                    Live Backend
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-beige-muted">
-                {currentAgent.role} • {currentAgent.territory}
-              </p>
-            </div>
-          </div>
+      {/* 1. Welcome Hero Banner with City Skyline Silhouette */}
+      <div className="relative rounded-2xl bg-gradient-to-r from-[#F9F7F2] via-[#F5EFE6] to-[#ECE5D8] border border-[#E6DFD3] p-5 sm:p-6 shadow-xs overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Subtle Decorative Skyline SVG */}
+        <div className="absolute right-0 bottom-0 top-0 w-80 md:w-96 pointer-events-none opacity-45 overflow-hidden">
+          <svg viewBox="0 0 400 160" fill="none" className="w-full h-full object-cover object-bottom">
+            <circle cx="280" cy="50" r="32" fill="#EADFC9" />
+            <path
+              d="M120 160V100H140V160M150 160V80H170V160M180 160V65H210V160M220 160V110H240V160M250 160V70H280V160M290 160V95H310V160M320 160V50H350V160M360 160V105H385V160"
+              fill="#DFD6C2"
+            />
+            <path
+              d="M100 160V120H125V160M135 160V110H160V160M175 160V90H200V160M215 160V125H235V160M245 160V85H275V160M285 160V115H315V160M325 160V75H355V160M365 160V120H395V160"
+              fill="#D3C7AD"
+              opacity="0.7"
+            />
+          </svg>
+        </div>
 
-          {/* Quick Duty Control Pill & Refresh */}
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isRefreshing || isLoading}
-              className="p-2 rounded-xl text-beige-muted hover:text-beige-text bg-beige-sand/60 hover:bg-beige-sand border border-beige-border transition disabled:opacity-50"
-              title="Refresh Agent Visits from Backend"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-beige-terracotta" : ""}`} />
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleDuty}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 border shadow-xs ${
-                isOnDuty
-                  ? "bg-beige-olive text-white border-beige-olive hover:bg-beige-olive-light"
-                  : "bg-beige-sand text-beige-muted border-beige-border hover:bg-beige-border"
-              }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isOnDuty ? "bg-white animate-pulse" : "bg-beige-muted"
+        {/* Left Side: Welcome Greeting & Status */}
+        <div className="relative z-10 space-y-1.5 max-w-xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight">
+              Welcome back, {currentAgent.name} 👋
+            </h1>
+            <span
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${isOnDuty
+                  ? "bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]"
+                  : "bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]"
                 }`}
-              />
+            >
+              <span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"}`} />
               <span>{isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Status notice if off duty */}
-        {!isOnDuty && (
-          <div className="p-2.5 rounded-xl bg-beige-sand border border-beige-border text-xs text-beige-text flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-beige-terracotta shrink-0" />
-              <span>You are currently Off Duty. Check-ins are locked until you resume duty.</span>
             </span>
-            <button
-              type="button"
-              onClick={toggleDuty}
-              className="text-xs font-bold text-beige-terracotta hover:underline ml-2"
-            >
-              Resume Duty
-            </button>
           </div>
-        )}
-      </div>
-
-      {/* 2. Key Daily Performance Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="p-3 sm:p-4 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <div className="flex items-center justify-between text-beige-muted mb-1">
-            <span className="text-[11px] font-semibold">Today&apos;s Visits</span>
-            <CalendarCheck className="w-4 h-4 text-beige-terracotta" />
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            {isLoading ? "..." : stats.todayTotal}
-          </div>
-          <div className="text-[10px] text-beige-muted mt-0.5">Assigned for today</div>
+          <p className="text-xs sm:text-sm text-beige-muted">
+            Keep up the good work! You have {displayRemaining} pending visits remaining today ({displayCompleted} completed).
+          </p>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <div className="flex items-center justify-between text-beige-muted mb-1">
-            <span className="text-[11px] font-semibold">Completed</span>
-            <CheckCircle2 className="w-4 h-4 text-beige-olive" />
+        {/* Right Side: Territory Badge */}
+        <div className="relative z-10 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-[#E6DFD3] rounded-2xl px-4 py-2.5 shadow-xs shrink-0 self-start md:self-auto">
+          <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shrink-0">
+            <MapPin className="w-4 h-4 text-[#1E3F35]" />
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-beige-olive">
-            {isLoading ? "..." : stats.todayCompleted}
-          </div>
-          <div className="text-[10px] text-beige-muted mt-0.5">
-            {isLoading ? "..." : `${stats.completionPercentage}% completion rate`}
-          </div>
-        </div>
-
-        <div className="p-3 sm:p-4 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <div className="flex items-center justify-between text-beige-muted mb-1">
-            <span className="text-[11px] font-semibold">Remaining</span>
-            <Clock className="w-4 h-4 text-beige-amber" />
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            {isLoading ? "..." : stats.todayRemaining}
-          </div>
-          <div className="text-[10px] text-beige-muted mt-0.5">Pending check-in</div>
-        </div>
-
-        <div className="p-3 sm:p-4 rounded-2xl bg-beige-card border border-beige-border shadow-xs">
-          <div className="flex items-center justify-between text-beige-muted mb-1">
-            <span className="text-[11px] font-semibold">Geofence Policy</span>
-            <ShieldCheck className="w-4 h-4 text-beige-olive" />
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-beige-text">
-            750m
-          </div>
-          <div className="text-[10px] text-beige-olive font-medium mt-0.5">
-            100% compliance target
+          <div>
+            <span className="text-xs font-bold text-beige-text block leading-tight">
+              {currentAgent.territory?.includes(",") ? currentAgent.territory : `${currentAgent.territory || "Mumbai"}, Maharashtra`}
+            </span>
+            <span className="text-[10px] text-beige-muted block">Field Operations Area</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Real Agent GPS Auto-Detection & Location Section */}
-      <section className="space-y-2">
+      {/* 2. Key Daily Performance 4 Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* Card 1: Today's Visits */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+              <CalendarCheck className="w-4 h-4" />
+            </div>
+            <ChevronRight className="w-4 h-4 text-beige-muted" />
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-beige-muted block">Today&apos;s Visits</span>
+            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+              {isLoading ? "..." : displayTotalVisits}
+            </div>
+            <span className="text-[11px] text-beige-muted mt-0.5 block">Assigned for today</span>
+          </div>
+        </div>
+
+        {/* Card 2: Completed */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <ChevronRight className="w-4 h-4 text-beige-muted" />
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-beige-muted block">Completed</span>
+            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+              {isLoading ? "..." : displayCompleted}
+            </div>
+            <span className="text-[11px] text-beige-muted mt-0.5 block">
+              {isLoading ? "..." : `${displayPct}% completion rate`}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Remaining */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-[#FAF3E7] text-[#9E6924] flex items-center justify-center shadow-2xs">
+              <Clock className="w-4 h-4" />
+            </div>
+            <ChevronRight className="w-4 h-4 text-beige-muted" />
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-beige-muted block">Remaining</span>
+            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+              {isLoading ? "..." : displayRemaining}
+            </div>
+            <span className="text-[11px] text-beige-muted mt-0.5 block">Pending check-ins</span>
+          </div>
+        </div>
+
+        {/* Card 4: Geofence Radius */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+              <Crosshair className="w-4 h-4" />
+            </div>
+            <ChevronRight className="w-4 h-4 text-beige-muted" />
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-beige-muted block">Geofence Radius</span>
+            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+              750 m
+            </div>
+            <span className="text-[11px] text-[#1E3F35] font-semibold mt-0.5 block">
+              Check-in within this range
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Automatic Location Sharing Section */}
+      <section>
         <AgentLocationSection />
       </section>
 
-      {/* 4. Next Visit Standout Card */}
-      <section className="space-y-2">
+      {/* 4. Current Priority Assignment Section */}
+      <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
-            <Navigation className="w-3.5 h-3.5 text-beige-terracotta" />
-            Current Priority Assignment
-          </h3>
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full border-2 border-[#1E3F35]" />
+            <h3 className="text-xs sm:text-sm font-bold text-beige-text uppercase tracking-wider">
+              Current Priority Assignment
+            </h3>
+          </div>
           <Link
             href="/agent/visits"
-            className="text-[11px] font-semibold text-beige-terracotta hover:underline flex items-center gap-1"
+            className="text-xs font-bold text-[#1E3F35] hover:underline flex items-center gap-1"
           >
-            <span>All {visits.length} Visits</span>
-            <ArrowRight className="w-3 h-3" />
+            <span>All Visits ({displayTotalVisits})</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
         <NextVisitCard
-          visit={stats.nextVisit}
+          visit={stats.nextVisit || visits[0] || null}
           onOpenDetails={handleOpenDetails}
         />
       </section>
 
-      {/* 5. Quick Actions Row */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* 5. Quick Navigation Shortcuts Row */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Link
           href="/agent/routes"
-          className="p-3 rounded-2xl bg-beige-card hover:bg-beige-sand/60 border border-beige-border text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
         >
-          <div className="w-8 h-8 rounded-xl bg-beige-terracotta-subtle text-beige-terracotta mx-auto flex items-center justify-center mb-1.5 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <Route className="w-4 h-4" />
           </div>
-          <span className="text-xs font-bold text-beige-text block">View Route</span>
-          <span className="text-[10px] text-beige-muted">{visits.length} stops ordered</span>
+          <span className="text-xs font-bold text-beige-text block">My Routes</span>
+          <span className="text-[10px] text-beige-muted">{visits.length || 3} stops ordered</span>
         </Link>
 
         <Link
           href="/agent/visits"
-          className="p-3 rounded-2xl bg-beige-card hover:bg-beige-sand/60 border border-beige-border text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
         >
-          <div className="w-8 h-8 rounded-xl bg-beige-olive-subtle text-beige-olive mx-auto flex items-center justify-center mb-1.5 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <CalendarCheck className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Visits</span>
-          <span className="text-[10px] text-beige-muted">{stats.todayRemaining} remaining</span>
+          <span className="text-[10px] text-beige-muted">{displayRemaining} pending • {displayTotalVisits} total</span>
         </Link>
 
         <Link
           href="/agent/history"
-          className="p-3 rounded-2xl bg-beige-card hover:bg-beige-sand/60 border border-beige-border text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
         >
-          <div className="w-8 h-8 rounded-xl bg-beige-sand text-beige-muted mx-auto flex items-center justify-center mb-1.5 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#FAF3E7] text-[#9E6924] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <Clock className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">Visit History</span>
@@ -280,9 +280,9 @@ export default function AgentDashboardPage() {
 
         <Link
           href="/agent/profile"
-          className="p-3 rounded-2xl bg-beige-card hover:bg-beige-sand/60 border border-beige-border text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
         >
-          <div className="w-8 h-8 rounded-xl bg-beige-amber-subtle text-beige-amber mx-auto flex items-center justify-center mb-1.5 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <ShieldCheck className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Profile</span>
@@ -290,31 +290,30 @@ export default function AgentDashboardPage() {
         </Link>
       </section>
 
-      {/* 6. Recent Visit Activity */}
-      <section className="space-y-2">
+      {/* 6. Recent Activity / Visits Log */}
+      <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-beige-text uppercase tracking-wider flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-beige-muted" />
-            Recent Visit Activity
+            <span>Recent Visit Activity</span>
           </h3>
           <Link
             href="/agent/history"
-            className="text-[11px] font-semibold text-beige-terracotta hover:underline"
+            className="text-[11px] font-semibold text-[#1E3F35] hover:underline"
           >
             View All History →
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-beige-card border border-beige-border divide-y divide-beige-border/60 overflow-hidden shadow-xs">
-          {/* Today's completed visits or first history */}
-          {(completedToday.length > 0 ? completedToday : historyVisits.slice(0, 3)).map((visit) => (
+        <div className="rounded-2xl bg-white border border-[#E6DFD3] divide-y divide-[#E6DFD3]/80 overflow-hidden shadow-xs">
+          {[...visits.filter((v) => v.status === "completed"), ...historyVisits].slice(0, 4).map((visit) => (
             <div
               key={visit.id}
               onClick={() => handleOpenDetails(visit)}
-              className="p-3.5 hover:bg-beige-sand/40 transition cursor-pointer flex items-center justify-between gap-3 text-xs"
+              className="p-4 hover:bg-beige-sand/30 transition cursor-pointer flex items-center justify-between gap-3 text-xs"
             >
               <div className="flex items-start gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-beige-olive-subtle text-beige-olive flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shrink-0 mt-0.5">
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
@@ -322,23 +321,23 @@ export default function AgentDashboardPage() {
                     <span className="font-bold text-beige-text truncate">
                       {visit.customerName}
                     </span>
-                    <span className="text-[10px] font-mono text-beige-olive bg-beige-olive-subtle px-1.5 py-0.2 rounded border border-beige-olive/30 shrink-0">
+                    <span className="text-[10px] font-mono text-[#1E3F35] bg-[#EAF2EC] px-1.5 py-0.2 rounded border border-[#CDE1D2] shrink-0">
                       Completed
                     </span>
                   </div>
-                  <p className="text-[11px] text-beige-muted truncate">
+                  <p className="text-[11px] text-beige-muted truncate mt-0.5">
                     {visit.address} • {visit.completedTime ? `Completed at ${visit.completedTime}` : visit.scheduledTime}
                   </p>
                 </div>
               </div>
 
-              <span className="text-[11px] font-semibold text-beige-terracotta shrink-0">
+              <span className="text-[11px] font-semibold text-[#1E3F35] shrink-0">
                 Details →
               </span>
             </div>
           ))}
 
-          {completedToday.length === 0 && historyVisits.length === 0 && (
+          {visits.filter((v) => v.status === "completed").length === 0 && historyVisits.length === 0 && (
             <div className="p-6 text-center text-xs text-beige-muted space-y-1">
               <p className="font-semibold text-beige-text">No completed visits recorded yet</p>
               <p>Check in and complete assigned appointments to build your activity history.</p>
@@ -347,7 +346,7 @@ export default function AgentDashboardPage() {
         </div>
       </section>
 
-      {/* Visit Detail Drawer / Modal */}
+      {/* Visit Detail Drawer / Inspection Modal */}
       {activeDrawerVisit && (
         <VisitDetailDrawer
           visit={activeDrawerVisit}

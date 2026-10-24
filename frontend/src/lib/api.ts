@@ -175,7 +175,7 @@ async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {},
   token?: string | null,
-  timeoutMs: number = 15000
+  timeoutMs: number = 3000
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -397,11 +397,29 @@ export interface AgentRouteData {
   completed: VisitApiResponse[];
 }
 
+export interface RouteStep {
+  distance: number;
+  duration: number;
+  name?: string;
+  maneuver?: {
+    type?: string;
+    modifier?: string;
+    location?: [number, number];
+    instruction?: string;
+  };
+}
+
+export interface RouteLeg {
+  distance: number;
+  duration: number;
+  steps?: RouteStep[];
+}
+
 export interface RoadRouteData {
   geometry: { type: "LineString"; coordinates: [number, number][] } | null;
   distance_meters: number;
   duration_seconds: number;
-  legs: Array<{ distance: number; duration: number }>;
+  legs: RouteLeg[];
 }
 
 export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<AgentRouteData> {
@@ -416,9 +434,46 @@ export async function optimizeAgentTodayRoute(token?: string | null, asOfDate?: 
   return await apiFetch(`/agent/routes/optimize${query}`, { method: "POST" }, token);
 }
 
-export async function fetchAgentRouteGeometry(visitIds: string[], token?: string | null): Promise<RoadRouteData> {
-  const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
-  return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
+export async function fetchOsrmRoadRoute(coordinates: [number, number][]): Promise<RoadRouteData> {
+  const coordPath = coordinates.map(([lon, lat]) => `${lon},${lat}`).join(";");
+  const res = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${coordPath}?overview=full&geometries=geojson&steps=true`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!res.ok) {
+    throw new Error(`OSRM road route request failed: ${res.statusText}`);
+  }
+  const data = await res.json();
+  if (data.code !== "Ok" || !data.routes || !data.routes[0]) {
+    throw new Error("No road route available between locations");
+  }
+  const route = data.routes[0];
+  return {
+    geometry: route.geometry,
+    distance_meters: route.distance,
+    duration_seconds: route.duration,
+    legs: route.legs || [],
+  };
+}
+
+export async function fetchAgentRouteGeometry(
+  visitIds: string[],
+  token?: string | null,
+  fallbackCoords?: [number, number][]
+): Promise<RoadRouteData> {
+  try {
+    const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
+    return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
+  } catch (err) {
+    if (fallbackCoords && fallbackCoords.length >= 2) {
+      try {
+        return await fetchOsrmRoadRoute(fallbackCoords);
+      } catch (osrmErr) {
+        console.warn("Direct OSRM fallback notice:", osrmErr);
+      }
+    }
+    throw err;
+  }
 }
 
 export interface VisitListApiResponse {

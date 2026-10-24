@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
   fetchAgents,
@@ -73,6 +74,9 @@ function formatMeters(meters: number): string {
 
 export default function AgentTrackingPage() {
   const { session, isAuthenticated } = useAuth();
+  const searchParams = useSearchParams();
+  const queryAgentId = searchParams?.get("agentId") || null;
+
   const [agents, setAgents] = useState<AgentApiItem[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [scheduledDate, setScheduledDate] = useState<string>(localDateString);
@@ -97,8 +101,10 @@ export default function AgentTrackingPage() {
       const res = await fetchAgents(session?.access_token, { limit: 100 });
       if (res.items && res.items.length > 0) {
         setAgents(res.items);
-        // Prioritize Rishabh or maintain current selection
         setSelectedAgentId((current) => {
+          if (queryAgentId && res.items.some((a) => a.id === queryAgentId)) {
+            return queryAgentId;
+          }
           if (current && res.items.some((a) => a.id === current)) return current;
           const rishabh = res.items.find((a) =>
             a.name.toLowerCase().includes("rishabh")
@@ -106,7 +112,6 @@ export default function AgentTrackingPage() {
           return rishabh ? rishabh.id : res.items[0].id;
         });
       } else {
-        // Fallback to mock agents converted to AgentApiItem shape
         fallbackToMockAgents();
       }
     } catch (err: any) {
@@ -115,7 +120,7 @@ export default function AgentTrackingPage() {
     } finally {
       setIsLoadingAgents(false);
     }
-  }, [session?.access_token]);
+  }, [session?.access_token, queryAgentId]);
 
   const fallbackToMockAgents = () => {
     const converted: AgentApiItem[] = mockAgents.map((m) => ({
@@ -128,8 +133,8 @@ export default function AgentTrackingPage() {
       territory: m.territory,
       address: "Field Operations Center",
       location_source: "gps",
-      current_latitude: m.coordinates?.lat ?? 28.6139,
-      current_longitude: m.coordinates?.lng ?? 77.209,
+      current_latitude: m.coordinates?.lat ?? 19.21899,
+      current_longitude: m.coordinates?.lng ?? 73.14006,
       battery_level: m.batteryLevel ?? 88,
       last_location_update: new Date().toISOString(),
       assigned_tasks: m.assignedTasks,
@@ -138,6 +143,9 @@ export default function AgentTrackingPage() {
     }));
     setAgents(converted);
     setSelectedAgentId((current) => {
+      if (queryAgentId && converted.some((a) => a.id === queryAgentId)) {
+        return queryAgentId;
+      }
       if (current && converted.some((a) => a.id === current)) return current;
       const rishabh = converted.find((a) =>
         a.name.toLowerCase().includes("rishabh")
@@ -230,7 +238,7 @@ export default function AgentTrackingPage() {
       customer_longitude: baseLng + (idx + 1) * 0.0065,
       scheduled_date: scheduledDate,
       scheduled_time_window: item.scheduledTime,
-      status: item.status === "active" ? "in_progress" : item.status,
+      status: item.status === "active" ? "in_progress" : item.status === "assigned" ? "pending" : item.status,
       geofence_verified: item.status === "completed",
       order_index: idx + 1,
       estimated_duration_minutes: item.estimatedDurationMinutes,
@@ -319,6 +327,15 @@ export default function AgentTrackingPage() {
   // Filtered visits
   const filteredVisits = useMemo(() => {
     if (statusFilter === "all") return visits;
+    if (statusFilter === "pending") {
+      return visits.filter((v) => v.status === "pending" || v.status === "assigned");
+    }
+    if (statusFilter === "in_progress") {
+      return visits.filter((v) => v.status === "in_progress" || v.status === "active");
+    }
+    if (statusFilter === "completed") {
+      return visits.filter((v) => v.status === "completed");
+    }
     return visits.filter((v) => v.status === statusFilter);
   }, [visits, statusFilter]);
 
@@ -335,7 +352,7 @@ export default function AgentTrackingPage() {
   }, [agents, searchAgent]);
 
   const completedCount = visits.filter((v) => v.status === "completed").length;
-  const inProgressCount = visits.filter((v) => v.status === "in_progress").length;
+  const inProgressCount = visits.filter((v) => v.status === "in_progress" || v.status === "active").length;
   const pendingCount = visits.filter((v) => v.status === "pending" || v.status === "assigned").length;
 
   return (

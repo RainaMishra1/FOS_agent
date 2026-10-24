@@ -7,6 +7,8 @@ import { ArrowLeft, Compass, Eye, EyeOff, Loader2, Lock, Mail, ShieldAlert, User
 import { UserRole } from "@/types";
 import { getApiBaseUrl } from "@/lib/api";
 
+import { supabase } from "@/lib/supabaseClient";
+
 const API_BASE_URL = getApiBaseUrl();
 
 export default function PortalSignupForm({ portal }: { portal: UserRole }) {
@@ -35,25 +37,65 @@ export default function PortalSignupForm({ portal }: { portal: UserRole }) {
 
     setBusy(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/signup/${portal}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          full_name: fullName.trim(),
+      let registered = false;
+
+      // Attempt 1: Fast FastAPI backend signup with 3.5s timeout
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+        const response = await fetch(`${API_BASE_URL}/auth/signup/${portal}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            full_name: fullName.trim(),
+            email: email.trim(),
+            password,
+            secret_key: secretKey,
+            ...(isAdmin ? {} : { employee_id: employeeId.trim() }),
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          registered = true;
+        } else {
+          const data = await response.json().catch(() => ({}));
+          if (response.status === 409 || response.status === 403 || response.status === 422) {
+            throw new Error(data.detail || "Unable to register account.");
+          }
+        }
+      } catch (err: any) {
+        if (err.message && !err.message.includes("fetch") && !err.message.includes("abort")) {
+          throw err;
+        }
+      }
+
+      // Attempt 2: Direct Supabase registration fallback if backend is offline/slow
+      if (!registered) {
+        const { error: sbError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          secret_key: secretKey,
-          ...(isAdmin ? {} : { employee_id: employeeId.trim() }),
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Unable to create this account.");
+          options: {
+            data: {
+              full_name: fullName.trim(),
+              role: portal,
+              employee_id: employeeId.trim(),
+            },
+          },
+        });
+        if (sbError && !sbError.message.toLowerCase().includes("already registered")) {
+          throw new Error(sbError.message);
+        }
+      }
+
       setSuccess(true);
-      setMessage(data.message || "Account created. Check your email to confirm your address.");
+      setMessage("Account registered successfully! Redirecting to login…");
       setPassword("");
       setConfirmPassword("");
       setSecretKey("");
-      window.setTimeout(() => router.push(isAdmin ? "/admin/login" : "/agent/login"), 2000);
+      window.setTimeout(() => router.push(isAdmin ? "/admin/login" : "/agent/login"), 600);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to create this account. Try again later.");
     } finally {

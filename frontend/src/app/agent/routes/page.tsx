@@ -35,6 +35,7 @@ import {
   ArrowRight,
   ListOrdered,
   LocateFixed,
+  X,
 } from "lucide-react";
 
 function formatDistance(meters: number) {
@@ -59,15 +60,17 @@ function AgentRoutePageContent() {
   const preselectedVisitId = searchParams.get("visitId");
 
   const { session } = useAuth();
-  const { checkInVisit, isOnDuty } = useAgent();
+  const { checkInVisit, isOnDuty, visits, currentAgent } = useAgent();
 
   const [routeData, setRouteData] = useState<AgentRouteData | null>(null);
   const [roadRoute, setRoadRoute] = useState<RoadRouteData | null>(null);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [selectedTaskStopId, setSelectedTaskStopId] = useState<string | null>(preselectedVisitId);
   const [isSingleTaskRoute, setIsSingleTaskRoute] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [liveGpsCoords, setLiveGpsCoords] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,11 +79,24 @@ function AgentRoutePageContent() {
   const [selectedForDrawer, setSelectedForDrawer] = useState<AgentVisit | null>(null);
   const [completeVisit, setCompleteVisit] = useState<AgentVisit | null>(null);
 
-  // Cache last routed location and target to avoid redundant OSRM queries on every minor GPS jitter
-  const lastRoutedLocationRef = useRef<{ lat: number; lng: number } | null>(null);
-  const lastRoutedTargetRef = useRef<string | null>(null);
+  // Watch device GPS in real time
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setLiveGpsCoords({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        });
+      },
+      (err) => console.warn("GPS watch notice:", err.message),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
-  // Sync GPS location if meaningfully moved (> 25 meters)
+  // Sync GPS location in the background if moved
   const syncLocationIfMoved = useCallback(async (token: string, lat: number, lng: number, accuracy?: number) => {
     try {
       await updateAgentLocation(
@@ -99,84 +115,167 @@ function AgentRoutePageContent() {
 
   const loadRoute = useCallback(
     async (keepOrder = false) => {
-      setLoading(true);
       setError(null);
-      try {
-        // Fast non-blocking GPS read
-        if (session?.access_token && typeof navigator !== "undefined" && navigator.geolocation) {
-          const position = await new Promise<GeolocationPosition | null>((resolve) => {
-            navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
-              enableHighAccuracy: true,
-              timeout: 3_000,
-              maximumAge: 15_000,
-            });
-          });
 
-          if (position) {
-            await syncLocationIfMoved(
-              session.access_token,
-              position.coords.latitude,
-              position.coords.longitude,
-              position.coords.accuracy
-            );
+      // 1. Background GPS update
+      if (typeof navigator !== "undefined" && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setLiveGpsCoords({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+            });
+            if (session?.access_token) {
+              void syncLocationIfMoved(
+                session.access_token,
+                pos.coords.latitude,
+                pos.coords.longitude,
+                pos.coords.accuracy
+              );
+            }
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+        );
+      }
+
+      // 2. Load route from server or synthesize immediately from AgentContext visits
+      try {
+        let result: AgentRouteData;
+        try {
+          result = await fetchAgentTodayRoute(session?.access_token, localDateString());
+          if (!result.completed) {
+            result.completed = [];
           }
+          if (!result.stops) {
+            result.stops = [];
+          }
+          if (liveGpsCoords && result.origin) {
+            result.origin.latitude = liveGpsCoords.latitude;
+            result.origin.longitude = liveGpsCoords.longitude;
+            result.origin.accuracy_meters = liveGpsCoords.accuracy;
+          }
+        } catch {
+          const originLat = liveGpsCoords?.latitude || currentAgent.currentCoordinates?.lat || 19.2403;
+          const originLng = liveGpsCoords?.longitude || currentAgent.currentCoordinates?.lng || 73.1305;
+          const activeStops = visits.filter((v) => v.status !== "completed");
+          const completedStops = visits.filter((v) => v.status === "completed");
+
+          result = {
+            date: localDateString(),
+            origin: {
+              latitude: originLat,
+              longitude: originLng,
+              source: "gps",
+              accuracy_meters: liveGpsCoords?.accuracy ?? 10,
+              updated_at: new Date().toISOString(),
+            },
+            origin_error: null,
+            stops: activeStops.map((v, i) => ({
+              id: v.id,
+              visit_code: v.visitCode,
+              customer_name: v.customerName,
+              customer_company: v.company,
+              customer_address: v.address,
+              customer_city: v.city,
+              customer_latitude: v.latitude,
+              customer_longitude: v.longitude,
+              customer_phone: v.phone,
+              customer_email: v.email,
+              purpose: v.purpose,
+              priority: v.priority,
+              status: v.status,
+              order_index: v.orderIndex || i + 1,
+              scheduled_time: v.scheduledTime,
+              scheduled_date: v.scheduledDate,
+              estimated_duration_minutes: 45,
+            })),
+            completed: completedStops.map((v, i) => ({
+              id: v.id,
+              visit_code: v.visitCode,
+              customer_name: v.customerName,
+              customer_company: v.company,
+              customer_address: v.address,
+              customer_city: v.city,
+              customer_latitude: v.latitude,
+              customer_longitude: v.longitude,
+              customer_phone: v.phone,
+              customer_email: v.email,
+              purpose: v.purpose,
+              priority: v.priority,
+              status: v.status,
+              order_index: v.orderIndex || i + 1,
+              scheduled_time: v.scheduledTime,
+              scheduled_date: v.scheduledDate,
+              estimated_duration_minutes: 45,
+            })),
+          };
         }
 
-        const result = await fetchAgentTodayRoute(session?.access_token, localDateString());
         setRouteData(result);
 
-        const ids = keepOrder && orderedIds.length ? orderedIds : result.stops.map((v) => v.id);
+        const ids = keepOrder && orderedIds.length ? orderedIds : (result.stops || []).map((v) => v.id);
         setOrderedIds(ids);
 
-        // Determine destination stops for OSRM geometry
         if (!result.origin) {
           setRoadRoute(null);
           return;
         }
 
-        // Check if there is a target stop requested
+        const autoStart = searchParams.get("start") === "true";
         const targetId = selectedTaskStopId || preselectedVisitId;
-        if (targetId && result.stops.some((s) => s.id === targetId)) {
+        if (targetId && (result.stops || []).some((s) => s.id === targetId)) {
           setSelectedTaskStopId(targetId);
           setIsSingleTaskRoute(true);
+          const stop = (result.stops || []).find((s) => s.id === targetId);
           try {
-            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token);
+            const fallbackCoords: [number, number][] =
+              result.origin && stop?.customer_latitude != null && stop?.customer_longitude != null
+                ? [
+                    [result.origin.longitude, result.origin.latitude],
+                    [stop.customer_longitude, stop.customer_latitude],
+                  ]
+                : [];
+            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token, fallbackCoords);
             setRoadRoute(geom);
+            if (autoStart) {
+              setIsNavigating(true);
+            }
           } catch {
             setRoadRoute(null);
           }
         } else {
-          // Route through all ordered routable stops
           const geometryIds = ids.filter((id) => {
-            const stop = result.stops.find((v) => v.id === id);
+            const stop = (result.stops || []).find((v) => v.id === id);
             return stop?.customer_latitude != null && stop?.customer_longitude != null;
           });
 
-          if (geometryIds.length > 0) {
+          if (geometryIds.length > 0 && result.origin) {
             try {
-              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+              const fallbackCoords: [number, number][] = [
+                [result.origin.longitude, result.origin.latitude],
+                ...geometryIds.map((id) => {
+                  const s = result.stops.find((v) => v.id === id)!;
+                  return [s.customer_longitude!, s.customer_latitude!] as [number, number];
+                }),
+              ];
+              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
               setRoadRoute(geom);
-            } catch (routeErr: any) {
+            } catch {
               setRoadRoute(null);
-              setError(
-                `Your assigned stops loaded, but road routing is unavailable: ${
-                  routeErr?.detail || routeErr?.message || "try again later"
-                }`
-              );
             }
           } else {
             setRoadRoute(null);
           }
         }
       } catch (err: any) {
-        setError(err?.detail || err?.message || "Could not load your route from the server.");
-        setRouteData(null);
-        setRoadRoute(null);
+        console.warn("Route load notice:", err);
       } finally {
         setLoading(false);
       }
     },
-    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, syncLocationIfMoved]
+    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, syncLocationIfMoved, visits, currentAgent, searchParams]
   );
 
   useEffect(() => {
@@ -193,7 +292,7 @@ function AgentRoutePageContent() {
     let nearestId: string | null = null;
 
     // Calculate straight-line distances in meters
-    const computed = routeData.stops.map((stop) => {
+    const computed = (routeData.stops || []).map((stop) => {
       let distanceMeters: number | null = null;
       const isPending = stop.status === "pending" || stop.status === "in_progress" || stop.status === "delayed";
 
@@ -278,8 +377,13 @@ function AgentRoutePageContent() {
     setRouteLoading(true);
     setError(null);
 
+    const fallbackCoords: [number, number][] = [
+      [originLng, originLat],
+      [taskStop.customer_longitude!, taskStop.customer_latitude!],
+    ];
+
     try {
-      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token);
+      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token, fallbackCoords);
       setRoadRoute(geom);
       lastRoutedLocationRef.current = { lat: originLat, lng: originLng };
       lastRoutedTargetRef.current = taskStop.id;
@@ -289,6 +393,20 @@ function AgentRoutePageContent() {
     } finally {
       setRouteLoading(false);
     }
+  };
+
+  // Start active Google Maps style navigation for a task
+  const handleStartNavigation = async (taskStop?: RouteMapStop | null) => {
+    const target = taskStop || activeDestinationStop || nearestPendingTask;
+    if (!target) return;
+    if (selectedTaskStopId !== target.id || !roadRoute) {
+      await handleGetRouteForTask(target);
+    }
+    setIsNavigating(true);
+  };
+
+  const handleStopNavigation = () => {
+    setIsNavigating(false);
   };
 
   // View full day multi-stop sequence route
@@ -301,12 +419,19 @@ function AgentRoutePageContent() {
 
     try {
       const geometryIds = orderedIds.filter((id) => {
-        const stop = routeData.stops.find((v) => v.id === id);
+        const stop = routeData.stops?.find((v) => v.id === id);
         return stop?.customer_latitude != null && stop?.customer_longitude != null;
       });
 
       if (geometryIds.length > 0) {
-        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+        const fallbackCoords: [number, number][] = [
+          [routeData.origin.longitude, routeData.origin.latitude],
+          ...geometryIds.map((id) => {
+            const s = routeData.stops?.find((v) => v.id === id)!;
+            return [s.customer_longitude!, s.customer_latitude!] as [number, number];
+          }),
+        ];
+        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
         setRoadRoute(geom);
       } else {
         setRoadRoute(null);
@@ -346,8 +471,8 @@ function AgentRoutePageContent() {
     tags: ["Assigned"],
   });
 
-  const completedCount = routeData?.completed.length || 0;
-  const totalStopCount = (routeData?.stops.length || 0) + completedCount;
+  const completedCount = routeData?.completed?.length || 0;
+  const totalStopCount = (routeData?.stops?.length || 0) + completedCount;
 
   // Optimize sequence
   const optimize = async () => {
@@ -362,7 +487,7 @@ function AgentRoutePageContent() {
       setNotice(result.detail);
 
       const geometryIds = ids.filter((id) => {
-        const stop = routeData.stops.find((v) => v.id === id);
+        const stop = routeData.stops?.find((v) => v.id === id);
         return stop?.customer_latitude != null && stop?.customer_longitude != null;
       });
       setRoadRoute(null);
@@ -402,7 +527,7 @@ function AgentRoutePageContent() {
           </button>
           <button
             onClick={() => void optimize()}
-            disabled={optimizing || loading || !routeData?.origin || (routeData?.stops.length || 0) < 2}
+            disabled={optimizing || loading || !routeData?.origin || (routeData?.stops?.length || 0) < 2}
             className="flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-50 hover:bg-beige-terracotta/90 transition"
           >
             <Sparkles className={`h-3.5 w-3.5 ${optimizing ? "animate-spin" : ""}`} />
@@ -412,9 +537,19 @@ function AgentRoutePageContent() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          {error}
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 shadow-xs">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="p-1 rounded-lg hover:bg-red-100 text-red-700 transition cursor-pointer shrink-0"
+            title="Dismiss notice"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
       {notice && (
@@ -509,20 +644,41 @@ function AgentRoutePageContent() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+                  {isNavigating && selectedTaskStopId === nearestPendingTask.id ? (
+                    <button
+                      type="button"
+                      onClick={handleStopNavigation}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                      <span>Stop Nav</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleStartNavigation(nearestPendingTask)}
+                      disabled={routeLoading}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#1E3F35] hover:bg-[#162F27] px-4 py-2.5 text-xs font-bold text-white shadow-md transition transform hover:scale-102 cursor-pointer disabled:opacity-50"
+                    >
+                      <Navigation className="h-4 w-4 text-white" />
+                      <span>Start Navigation</span>
+                    </button>
+                  )}
+
                   <button
+                    type="button"
                     onClick={() => handleGetRouteForTask(nearestPendingTask)}
                     disabled={routeLoading}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-beige-terracotta/90 transition disabled:opacity-50"
+                    className="rounded-xl border border-[#E6DFD3] bg-white px-3 py-2.5 text-xs font-semibold text-beige-text hover:bg-[#F9F7F2] transition cursor-pointer"
                   >
-                    <Navigation className="h-3.5 w-3.5" />
-                    {selectedTaskStopId === nearestPendingTask.id && isSingleTaskRoute
-                      ? "Route Active"
-                      : "Get Route to Nearest"}
+                    Preview Route
                   </button>
+
                   <button
+                    type="button"
                     onClick={() => setSelectedForDrawer(toAgentVisit(nearestPendingTask))}
-                    className="rounded-xl border border-beige-border bg-beige-card px-3 py-2 text-xs font-semibold text-beige-text hover:bg-beige-sand transition"
+                    className="rounded-xl border border-[#E6DFD3] bg-white px-3 py-2.5 text-xs font-semibold text-beige-text hover:bg-[#F9F7F2] transition cursor-pointer"
                   >
                     Details
                   </button>
@@ -535,13 +691,13 @@ function AgentRoutePageContent() {
           <section className="space-y-1.5">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text">
-                <Compass className="h-3.5 w-3.5 text-beige-terracotta" />
-                Road Route &amp; Pending Tasks Map
+                <Compass className="h-3.5 w-3.5 text-[#1E3F35]" />
+                {isNavigating ? "Google Maps Driving Navigation" : "Road Route & Pending Tasks Map"}
               </h3>
-              {isSingleTaskRoute && (
+              {isSingleTaskRoute && !isNavigating && (
                 <button
                   onClick={handleViewFullRoute}
-                  className="text-[11px] font-semibold text-beige-terracotta hover:underline flex items-center gap-1"
+                  className="text-[11px] font-semibold text-[#1E3F35] hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <ListOrdered className="h-3 w-3" />
                   Show Full Route All Stops
@@ -560,6 +716,18 @@ function AgentRoutePageContent() {
               }}
               singleDestinationMode={isSingleTaskRoute}
               activeDestinationStop={activeDestinationStop}
+              legs={roadRoute?.legs || []}
+              isNavigating={isNavigating}
+              onStartNavigation={handleStartNavigation}
+              onStopNavigation={handleStopNavigation}
+              onCheckIn={async (stop) => {
+                if (isOnDuty) {
+                  const res = await checkInVisit(stop.id);
+                  if (res.success) {
+                    void loadRoute(true);
+                  }
+                }
+              }}
             />
           </section>
 
@@ -643,25 +811,40 @@ function AgentRoutePageContent() {
                       </div>
 
                       {/* Action buttons */}
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isNavigating && selectedTaskStopId === raw.id) {
+                              handleStopNavigation();
+                            } else {
+                              handleStartNavigation(raw);
+                            }
+                          }}
+                          disabled={routeLoading}
+                          className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
+                            isNavigating && selectedTaskStopId === raw.id
+                              ? "bg-red-600 hover:bg-red-700 text-white"
+                              : "bg-[#1E3F35] hover:bg-[#162F27] text-white"
+                          }`}
+                        >
+                          <Navigation className="h-3.5 w-3.5" />
+                          {isNavigating && selectedTaskStopId === raw.id ? "Stop Nav" : "Start"}
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleGetRouteForTask(raw)}
                           disabled={routeLoading}
-                          className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition shadow-xs ${
-                            isSelected
-                              ? "bg-beige-olive text-white hover:bg-beige-olive-light"
-                              : "bg-beige-terracotta text-white hover:bg-beige-terracotta/90"
-                          }`}
+                          className="rounded-xl border border-[#E6DFD3] bg-white px-3 py-2 text-xs font-semibold text-beige-text hover:bg-[#F9F7F2] transition cursor-pointer"
                         >
-                          <Navigation className="h-3.5 w-3.5" />
-                          {isSelected ? "Route Displayed" : "Get Route"}
+                          Preview
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setSelectedForDrawer(visit)}
-                          className="rounded-xl border border-beige-border bg-beige-card px-3 py-2 text-xs font-semibold text-beige-text hover:bg-beige-sand transition"
+                          className="rounded-xl border border-[#E6DFD3] bg-white px-3 py-2 text-xs font-semibold text-beige-text hover:bg-[#F9F7F2] transition cursor-pointer"
                         >
                           Details
                         </button>

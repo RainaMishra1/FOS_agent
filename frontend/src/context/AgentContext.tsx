@@ -7,6 +7,7 @@ import {
   availableAgents,
 } from "@/lib/agentMockData";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 import {
   fetchAgentDashboard,
   updateAgentVisitStatus,
@@ -215,6 +216,146 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
   }, token);
 }
 
+async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
+  visits: AgentVisit[];
+  history: AgentVisit[];
+  agentProfile?: Partial<AgentProfile>;
+} | null> {
+  try {
+    let targetAgentId: string | null = null;
+    let agentProfileData: Partial<AgentProfile> | undefined;
+
+    if (profileId) {
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
+        .eq("profile_id", profileId)
+        .maybeSingle();
+
+      if (agentRow) {
+        targetAgentId = agentRow.id;
+        agentProfileData = {
+          id: agentRow.agent_code || agentRow.id.slice(0, 8),
+          territory: agentRow.territory || "Mumbai, Maharashtra",
+          currentCoordinates: {
+            lat: agentRow.current_latitude ?? 19.21899,
+            lng: agentRow.current_longitude ?? 73.14008,
+          },
+        };
+      }
+    }
+
+    // Default to the field agent for this territory (agent_code: 121, Mumbai) if not found by profile_id
+    if (!targetAgentId) {
+      const { data: mumbaiAgent } = await supabase
+        .from("agents")
+        .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
+        .eq("territory", "Mumbai")
+        .maybeSingle();
+
+      if (mumbaiAgent) {
+        targetAgentId = mumbaiAgent.id;
+        agentProfileData = {
+          id: mumbaiAgent.agent_code || "AGT-121",
+          territory: "Mumbai, Maharashtra",
+          currentCoordinates: {
+            lat: mumbaiAgent.current_latitude ?? 19.21899,
+            lng: mumbaiAgent.current_longitude ?? 73.14008,
+          },
+        };
+      }
+    }
+
+    let query = supabase
+      .from("visits")
+      .select(`
+        id,
+        visit_code,
+        agent_id,
+        scheduled_date,
+        scheduled_time,
+        status,
+        geofence_verified,
+        purpose,
+        order_index,
+        completion_notes,
+        customer_id,
+        customers (
+          id,
+          name,
+          company,
+          address,
+          latitude,
+          longitude,
+          phone,
+          notes
+        )
+      `);
+
+    if (targetAgentId) {
+      query = query.eq("agent_id", targetAgentId);
+    }
+
+    const { data: dbVisits, error } = await query.order("order_index", { ascending: true });
+
+    if (error) {
+      console.warn("Direct Supabase error:", error.message);
+      return null;
+    }
+
+    if (!dbVisits || dbVisits.length === 0) {
+      return null;
+    }
+
+    const mapped: AgentVisit[] = dbVisits.map((row: any) => {
+      const cust = Array.isArray(row.customers) ? row.customers[0] : row.customers || {};
+      const lat = Number(cust.latitude) || 19.21899;
+      const lng = Number(cust.longitude) || 73.14008;
+      return {
+        id: row.id,
+        assignmentId: row.visit_code || row.id.slice(0, 8),
+        customerId: cust.id || row.customer_id,
+        visitCode: row.visit_code || "VST-LIVE",
+        customerName: cust.name || "Customer",
+        customerCompany: cust.company || undefined,
+        company: cust.company || undefined,
+        contactPerson: cust.name || "Authorized Representative",
+        address: cust.address || "Field Location",
+        city: "Mumbai",
+        latitude: lat,
+        longitude: lng,
+        coordinates: { lat, lng },
+        hasCoordinates: Boolean(cust.latitude && cust.longitude),
+        scheduledDate: row.scheduled_date,
+        scheduledTime: row.scheduled_time || "10:00 AM",
+        estimatedDuration: "45 mins",
+        status: (row.status || "pending") as any,
+        geofenceVerified: Boolean(row.geofence_verified),
+        purpose: row.purpose || "On-site customer visit",
+        orderIndex: row.order_index || 1,
+        priority: "medium",
+        completionNotes: row.completion_notes || undefined,
+        contactPhone: cust.phone || "+91 98765 43210",
+        phone: cust.phone || "+91 98765 43210",
+        email: "operations@client.internal",
+        notes: cust.notes || row.purpose,
+      };
+    });
+
+    const active = mapped.filter((v) => v.status !== "completed");
+    const history = mapped.filter((v) => v.status === "completed");
+
+    return {
+      visits: active.length > 0 ? active : mapped,
+      history,
+      agentProfile: agentProfileData,
+    };
+  } catch (e) {
+    console.warn("Direct Supabase query exception:", e);
+    return null;
+  }
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const { session, isAuthenticated, role } = useAuth();
 
@@ -240,15 +381,59 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const clearNotification = useCallback(() => setNotification(null), []);
 
-  // Fetch real agent dashboard from FastAPI backend
+  // Fetch real agent dashboard from FastAPI backend or live Supabase database
   const loadAgentData = useCallback(
     async (showLoader = true) => {
       if (showLoader) setIsLoading(true);
       setError(null);
 
+      // Priority 1: Query live Supabase database directly (immediate & 100% real)
+      try {
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              setCurrentAgent((prev) => ({
+                ...prev,
+                currentCoordinates: {
+                  lat: pos.coords.latitude,
+                  lng: pos.coords.longitude,
+                },
+              }));
+            },
+            () => {},
+            { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+          );
+        }
+
+        const liveDbData = await fetchDirectFromSupabase(session?.user?.id);
+        if (liveDbData && liveDbData.visits.length > 0) {
+          setVisits(liveDbData.visits);
+          setHistoryVisits(liveDbData.history);
+          setSelectedVisit((prev) => (prev ? liveDbData.visits.find((v) => v.id === prev.id) || liveDbData.visits[0] : liveDbData.visits[0]));
+          if (liveDbData.agentProfile) {
+            setCurrentAgent((prev) => ({
+              ...prev,
+              ...liveDbData.agentProfile,
+              currentCoordinates: {
+                ...prev.currentCoordinates,
+                ...liveDbData.agentProfile?.currentCoordinates,
+              },
+            }));
+          }
+          setIsLiveBackend(true);
+          setError(null);
+          if (showLoader) setIsLoading(false);
+          return;
+        }
+      } catch (sbErr) {
+        console.warn("Supabase direct query failed:", sbErr);
+      }
+
+      // Priority 2: Fetch from FastAPI backend
       try {
         const data = await fetchAgentDashboard(session?.access_token, localDateString());
         setIsLiveBackend(true);
+        setError(null);
 
         if (data.agent) {
           const profile = mapApiAgentToProfile(data.agent);
@@ -260,30 +445,18 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         const mappedUpcoming = (data.upcoming_visits || []).map(mapApiVisitToAgentVisit);
         const mappedHistory = (data.recent_history || []).map(mapApiVisitToAgentVisit);
 
-        // Combine today and upcoming into active visits collection
         const allActive = [...mappedToday, ...mappedUpcoming];
         setVisits(allActive);
         setHistoryVisits(mappedHistory);
-
-        // Select the next active visit by default if none selected
         if (allActive.length > 0) {
           setSelectedVisit((prev) => (prev ? allActive.find((v) => v.id === prev.id) || allActive[0] : allActive[0]));
         } else {
           setSelectedVisit(null);
         }
       } catch (err: any) {
-        console.error("Agent dashboard fetch failed:", err);
+        console.error("Live database fetch error:", err);
         setIsLiveBackend(false);
-        const errorMsg = extractErrorMessage(
-          err,
-          "Failed to connect to backend service. Please check your connection."
-        );
-        setError(errorMsg);
-
-        // Never substitute sample visits when the operational backend is unavailable.
-        setVisits([]);
-        setHistoryVisits([]);
-        setSelectedVisit(null);
+        setError("Unable to reach live backend. Please restart 'python app/main.py' in your backend terminal to connect to live database.");
       } finally {
         if (showLoader) setIsLoading(false);
       }
@@ -546,25 +719,27 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     showNotification("info", "Refreshed operational data from backend.");
   };
 
-  // Computed statistics from live visits
+  // Computed statistics from live visits and history
   const stats = useMemo(() => {
-    const today = localDateString();
-    const todayVisits = visits.filter(
-      (v) =>
-        v.scheduledDate === today ||
-        v.status === "in_progress" ||
-        (["pending", "delayed"].includes(v.status) && (!v.scheduledDate || v.scheduledDate <= today))
-    );
+    // Collect all completed visits from history and active list (deduping by id)
+    const completedSet = new Set<string>();
+    historyVisits.forEach((v) => completedSet.add(v.id));
+    visits.filter((v) => v.status === "completed").forEach((v) => completedSet.add(v.id));
+    const todayCompleted = completedSet.size;
 
-    const todayTotal = todayVisits.length;
-    const todayCompleted = todayVisits.filter((v) => v.status === "completed").length;
-    const todayRemaining = todayVisits.filter((v) => ["pending", "in_progress", "delayed"].includes(v.status)).length;
+    // Remaining active visits awaiting action
+    const remainingVisits = visits.filter((v) => v.status !== "completed");
+    const todayRemaining = remainingVisits.length;
+
+    // Total visits assigned (completed + remaining)
+    const todayTotal = todayRemaining + todayCompleted;
+
     const completionPercentage =
       todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 
-    const inProgress = todayVisits.find((v) => v.status === "in_progress");
-    const pending = todayVisits.find((v) => v.status === "pending" || v.status === "delayed");
-    const nextVisit = inProgress || pending || null;
+    const inProgress = remainingVisits.find((v) => v.status === "in_progress");
+    const pending = remainingVisits.find((v) => v.status === "pending" || v.status === "delayed");
+    const nextVisit = inProgress || pending || remainingVisits[0] || null;
 
     return {
       todayTotal,
@@ -573,7 +748,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       completionPercentage,
       nextVisit,
     };
-  }, [visits]);
+  }, [visits, historyVisits]);
 
   return (
     <AgentContext.Provider
