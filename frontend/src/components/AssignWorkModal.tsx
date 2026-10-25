@@ -177,15 +177,22 @@ export default function AssignWorkModal({
         console.warn("[AssignWorkModal] FastAPI fetchAgents error:", apiErr);
       }
 
-      // 2. Query Supabase direct agents table with profile join
+      // 2. Query Supabase direct agents and profiles tables independently
       try {
-        const { data: dbAgents } = await supabase
-          .from("agents")
-          .select("*, profile:profiles(id, full_name, email, phone)");
+        const { data: dbAgents } = await supabase.from("agents").select("*");
+        const { data: dbProfiles } = await supabase.from("profiles").select("*");
+
+        const profileMap = new Map<string, any>();
+        if (dbProfiles) {
+          for (const p of dbProfiles) {
+            profileMap.set(p.id, p);
+            if (p.auth_user_id) profileMap.set(p.auth_user_id, p);
+          }
+        }
 
         if (dbAgents && dbAgents.length > 0) {
           for (const a of dbAgents) {
-            const prof = a.profile || {};
+            const prof = (a.profile_id ? profileMap.get(a.profile_id) : null) || {};
             const name = prof.full_name || a.name || `Agent ${a.agent_code || a.id.slice(0, 4)}`;
             registerAgent({
               id: a.id,
@@ -203,15 +210,6 @@ export default function AssignWorkModal({
             });
           }
         }
-      } catch (dbErr) {
-        console.warn("[AssignWorkModal] Supabase agents table error:", dbErr);
-      }
-
-      // 3. Query Supabase direct profiles table for all registered agent accounts
-      try {
-        const { data: dbProfiles } = await supabase
-          .from("profiles")
-          .select("*");
 
         if (dbProfiles && dbProfiles.length > 0) {
           for (const p of dbProfiles) {
@@ -219,28 +217,29 @@ export default function AssignWorkModal({
             const email = (p.email || "").toLowerCase();
             if (role === "agent" || (!role && !email.includes("admin"))) {
               const name = p.full_name || email.split("@")[0] || "Field Agent";
+              const linkedAg = dbAgents?.find((a) => a.profile_id === p.id);
               registerAgent({
-                id: p.agent_id || p.id,
-                agent_code: p.agent_code || "AGT-" + p.id.slice(0, 4).toUpperCase(),
+                id: linkedAg?.id || p.agent_id || p.id,
+                agent_code: linkedAg?.agent_code || p.agent_code || "AGT-" + p.id.slice(0, 4).toUpperCase(),
                 name,
                 email: p.email,
                 phone: p.phone,
-                status: p.agent_status || "active",
-                territory: p.territory || "Mumbai Zone",
+                status: linkedAg?.status || p.agent_status || "active",
+                territory: linkedAg?.territory || p.territory || "Mumbai Zone",
                 created_at: p.created_at,
               });
             }
           }
         }
-      } catch (profErr) {
-        console.warn("[AssignWorkModal] Supabase profiles table error:", profErr);
+      } catch (dbErr) {
+        console.warn("[AssignWorkModal] Supabase agents/profiles table error:", dbErr);
       }
 
       // 4. Always register core operational agents including Malavya Mankar and Raina Mishra
       const operationalRoster: (Partial<AgentApiItem> & { name: string; id: string })[] = [
         {
           id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
-          agent_code: "AGT-122",
+          agent_code: "10051",
           name: "Malavya Mankar",
           email: "malavya@fos.internal",
           phone: "+91 98450 54321",
@@ -551,48 +550,67 @@ export default function AssignWorkModal({
       try {
         const { data: dbAgent } = await supabase
           .from("agents")
-          .select("id")
+          .select("id, profile_id")
           .eq("id", selectedAgentId)
           .maybeSingle();
 
         if (dbAgent) {
           validAgentId = dbAgent.id;
         } else {
-          // Check by agent_code
-          const { data: dbAgByCode } = await supabase
-            .from("agents")
-            .select("id")
-            .eq("agent_code", selectedAgentObj?.agent_code || "AGT-122")
+          // Look up matching profile by name or email
+          const agentNameClean = (selectedAgentObj?.name || "").trim();
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .ilike("full_name", agentNameClean)
             .maybeSingle();
 
-          if (dbAgByCode) {
-            validAgentId = dbAgByCode.id;
-          } else {
-            // Find or create profile
-            const { data: prof } = await supabase
-              .from("profiles")
-              .select("id")
-              .ilike("full_name", selectedAgentObj?.name || "")
-              .maybeSingle();
-
-            const { data: newAg } = await supabase
+          let existingAgForProf: any = null;
+          if (prof) {
+            const { data: agRow } = await supabase
               .from("agents")
-              .upsert({
-                id: selectedAgentId,
-                profile_id: prof?.id || null,
-                agent_code: selectedAgentObj?.agent_code || "AGT-122",
-                status: "active",
-                territory: selectedAgentObj?.territory || "Mumbai Zone",
-                address: selectedAgentObj?.address || "Mumbai Central Hub",
-                location_source: "gps",
-                current_latitude: selectedAgentObj?.current_latitude || 19.21899,
-                current_longitude: selectedAgentObj?.current_longitude || 73.14008,
-              })
+              .select("id, profile_id")
+              .eq("profile_id", prof.id)
+              .maybeSingle();
+            existingAgForProf = agRow;
+          }
+
+          if (existingAgForProf) {
+            validAgentId = existingAgForProf.id;
+          } else {
+            // Check by agent_code
+            const { data: dbAgByCode } = await supabase
+              .from("agents")
               .select("id")
+              .in("agent_code", [selectedAgentObj?.agent_code || "", "10051", "AGT-122", "121", "AGT-121"])
               .maybeSingle();
 
-            if (newAg) {
-              validAgentId = newAg.id;
+            if (dbAgByCode) {
+              validAgentId = dbAgByCode.id;
+            } else {
+              const fallbackEmpCode = agentNameClean.toLowerCase().includes("malavya")
+                ? "10051"
+                : selectedAgentObj?.agent_code || "AGT-" + selectedAgentId.slice(0, 4).toUpperCase();
+
+              const { data: newAg } = await supabase
+                .from("agents")
+                .upsert({
+                  id: selectedAgentId,
+                  profile_id: prof?.id || null,
+                  agent_code: fallbackEmpCode,
+                  status: "active",
+                  territory: selectedAgentObj?.territory || "Mumbai Zone",
+                  address: selectedAgentObj?.address || "Mumbai Central Hub",
+                  location_source: "gps",
+                  current_latitude: selectedAgentObj?.current_latitude || 19.21899,
+                  current_longitude: selectedAgentObj?.current_longitude || 73.14008,
+                })
+                .select("id")
+                .maybeSingle();
+
+              if (newAg) {
+                validAgentId = newAg.id;
+              }
             }
           }
         }
