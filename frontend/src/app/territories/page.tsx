@@ -96,14 +96,16 @@ export default function TerritoriesPage() {
 
     if (editTerritory.id) {
       // Edit existing
-      setTerritories((prev) =>
-        prev.map((t) => (t.id === editTerritory.id ? ({ ...t, ...editTerritory } as Territory) : t))
-      );
+      setCustomTerritories((prev) => {
+        const base = prev.length > 0 ? prev : liveTerritories;
+        return base.map((t) => (t.id === editTerritory.id ? ({ ...t, ...editTerritory } as Territory) : t));
+      });
       setNotification(`Territory "${editTerritory.name}" updated successfully.`);
     } else {
       // Create new
+      const base = customTerritories.length > 0 ? customTerritories : liveTerritories;
       const newT: Territory = {
-        id: `TER-${String(territories.length + 1).padStart(2, "0")}`,
+        id: `TER-${String(base.length + 1).padStart(2, "0")}`,
         name: editTerritory.name,
         region: editTerritory.region || "Metro Central",
         assignedAgents: ["Marcus Vance"],
@@ -112,7 +114,10 @@ export default function TerritoriesPage() {
         color: editTerritory.color || "#687653",
         center: { lat: 12.97, lng: 77.6 },
       };
-      setTerritories((prev) => [...prev, newT]);
+      setCustomTerritories((prev) => {
+        const current = prev.length > 0 ? prev : liveTerritories;
+        return [...current, newT];
+      });
       setNotification(`New Territory "${newT.name}" created.`);
     }
 
