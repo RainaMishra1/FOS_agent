@@ -46,14 +46,7 @@ export default function VisitDetailDrawer({
       initialVisit
     : null;
 
-  // Auto-close and vanish the drawer as soon as the visit is completed
-  useEffect(() => {
-    if (visit && visit.status === "completed") {
-      onClose();
-    }
-  }, [visit?.status, onClose]);
-
-  if (!visit || visit.status === "completed") return null;
+  if (!visit) return null;
 
   const handleCall = () => {
     setPhoneDialed(true);
