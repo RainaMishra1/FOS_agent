@@ -106,7 +106,7 @@ export default function AgentTrackingPage() {
             return queryAgentId;
           }
           if (current && res.items.some((a) => a.id === current)) return current;
-          return res.items[0]?.id || null;
+          return res.items[0]?.id || "";
         });
       } else {
         void fallbackToLiveAgents();
