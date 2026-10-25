@@ -377,6 +377,7 @@ export interface VisitApiResponse {
   customer_longitude?: number | null;
   scheduled_date: string;
   scheduled_time: string;
+  scheduled_time_window?: string | null;
   status: string;
   geofence_verified: boolean;
   check_in_time?: string | null;

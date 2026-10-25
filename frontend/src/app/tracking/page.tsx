@@ -829,7 +829,7 @@ export default function AgentTrackingPage() {
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-beige-muted" />
                             <span>
-                              {visit.scheduled_time_window || "Flexible window"} (
+                              {visit.scheduled_time || visit.scheduled_time_window || "Flexible window"} (
                               {visit.estimated_duration_minutes || 45} mins)
                             </span>
                           </div>
