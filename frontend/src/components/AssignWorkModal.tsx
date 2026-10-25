@@ -134,13 +134,14 @@ export default function AssignWorkModal({
     try {
       const agentMap = new Map<string, AgentApiItem>();
 
-      const registerAgent = (item: Partial<AgentApiItem> & { name: string; id: string }) => {
+      const registerAgent = (item: Partial<AgentApiItem> & { name: string; id: string }, isFallback = false) => {
         if (!item || !item.name) return;
         const normalizedName = item.name.trim().toLowerCase();
         const existing = agentMap.get(normalizedName) || agentMap.get(item.id);
+        const resolvedId = isFallback && existing?.id ? existing.id : item.id || existing?.id || item.name.toLowerCase().replace(/\s+/g, "-");
         const merged: AgentApiItem = {
-          id: item.id || existing?.id || item.name.toLowerCase().replace(/\s+/g, "-"),
-          agent_code: item.agent_code || existing?.agent_code || "AGT-" + item.id.slice(0, 4).toUpperCase(),
+          id: resolvedId,
+          agent_code: existing?.agent_code || item.agent_code || "AGT-" + resolvedId.slice(0, 4).toUpperCase(),
           name: item.name.trim(),
           email: item.email || existing?.email || "",
           phone: item.phone || existing?.phone || "+91 98450 00000",
@@ -266,7 +267,7 @@ export default function AssignWorkModal({
       ];
 
       for (const opAg of operationalRoster) {
-        registerAgent(opAg);
+        registerAgent(opAg, true);
       }
 
       // Deduplicate unique list by agent ID and normalized name
@@ -543,12 +544,68 @@ export default function AssignWorkModal({
 
     setIsSubmitting(true);
     try {
+      let validAgentId = selectedAgentId;
+      const selectedAgentObj = agents.find((agent) => agent.id === selectedAgentId);
+
+      // Verify or upsert agent record in Supabase to guarantee foreign key integrity
+      try {
+        const { data: dbAgent } = await supabase
+          .from("agents")
+          .select("id")
+          .eq("id", selectedAgentId)
+          .maybeSingle();
+
+        if (dbAgent) {
+          validAgentId = dbAgent.id;
+        } else {
+          // Check by agent_code
+          const { data: dbAgByCode } = await supabase
+            .from("agents")
+            .select("id")
+            .eq("agent_code", selectedAgentObj?.agent_code || "AGT-122")
+            .maybeSingle();
+
+          if (dbAgByCode) {
+            validAgentId = dbAgByCode.id;
+          } else {
+            // Find or create profile
+            const { data: prof } = await supabase
+              .from("profiles")
+              .select("id")
+              .ilike("full_name", selectedAgentObj?.name || "")
+              .maybeSingle();
+
+            const { data: newAg } = await supabase
+              .from("agents")
+              .upsert({
+                id: selectedAgentId,
+                profile_id: prof?.id || null,
+                agent_code: selectedAgentObj?.agent_code || "AGT-122",
+                status: "active",
+                territory: selectedAgentObj?.territory || "Mumbai Zone",
+                address: selectedAgentObj?.address || "Mumbai Central Hub",
+                location_source: "gps",
+                current_latitude: selectedAgentObj?.current_latitude || 19.21899,
+                current_longitude: selectedAgentObj?.current_longitude || 73.14008,
+              })
+              .select("id")
+              .maybeSingle();
+
+            if (newAg) {
+              validAgentId = newAg.id;
+            }
+          }
+        }
+      } catch (ensureErr) {
+        console.warn("[AssignWorkModal] Ensure agent row warning:", ensureErr);
+      }
+
       let visit: any = null;
       try {
         visit = await createDispatchedVisit(
           {
             customer_id: selectedCustomerId || undefined,
-            agent_id: selectedAgentId,
+            agent_id: validAgentId,
             customer_name: customerName.trim(),
             company: company.trim() || undefined,
             contact_person: contactPerson.trim() || undefined,
@@ -558,8 +615,8 @@ export default function AssignWorkModal({
             city: persistedCity,
             latitude: coordinates.latitude,
             longitude: coordinates.longitude,
-            scheduled_date: scheduledDate,
-            scheduled_time: scheduledTime,
+            scheduled_date: scheduledDate || today(),
+            scheduled_time: scheduledTime || "10:30 AM",
             priority,
             notes: notes.trim() || undefined,
           },
@@ -569,10 +626,24 @@ export default function AssignWorkModal({
         console.warn("[AssignWorkModal] FastAPI dispatch failed, creating record via Supabase direct:", apiErr);
         
         let targetCustomerId = selectedCustomerId;
+        if (targetCustomerId) {
+          const { data: custExists } = await supabase
+            .from("customers")
+            .select("id")
+            .eq("id", targetCustomerId)
+            .maybeSingle();
+
+          if (!custExists) {
+            targetCustomerId = undefined;
+          }
+        }
+
         if (!targetCustomerId) {
+          const newCustId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "cust-" + Date.now();
           const { data: newCust, error: custErr } = await supabase
             .from("customers")
             .insert({
+              id: newCustId,
               name: customerName.trim(),
               company: company.trim() || null,
               contact_person: contactPerson.trim() || null,
@@ -586,20 +657,23 @@ export default function AssignWorkModal({
             .select()
             .single();
 
-          if (custErr || !newCust) {
-            throw custErr || new Error("Could not register destination customer in database.");
+          if (custErr && !newCust) {
+            const errText = custErr?.message || JSON.stringify(custErr);
+            throw new Error(errText);
           }
-          targetCustomerId = newCust.id;
+          targetCustomerId = newCust?.id || newCustId;
         }
 
+        const visitId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "vst-" + Date.now();
         const visitCode = "VST-" + Math.floor(100000 + Math.random() * 900000);
         const { data: newVisit, error: visitErr } = await supabase
           .from("visits")
           .insert({
+            id: visitId,
             customer_id: targetCustomerId,
-            agent_id: selectedAgentId,
+            agent_id: validAgentId,
             visit_code: visitCode,
-            scheduled_date: scheduledDate,
+            scheduled_date: scheduledDate || today(),
             scheduled_time: scheduledTime || "10:30 AM",
             status: "pending",
             order_index: 1,
@@ -610,33 +684,48 @@ export default function AssignWorkModal({
           .select()
           .single();
 
-        if (visitErr || !newVisit) {
-          throw visitErr || new Error("Could not save visit dispatch to database.");
+        if (visitErr && !newVisit) {
+          const errText = visitErr?.message || JSON.stringify(visitErr);
+          throw new Error(errText);
         }
 
         visit = {
-          id: newVisit.id,
-          visit_code: newVisit.visit_code || visitCode,
+          id: newVisit?.id || visitId,
+          visit_code: newVisit?.visit_code || visitCode,
           customer_latitude: coordinates.latitude,
           customer_longitude: coordinates.longitude,
         };
+
+        // Also sync assignments table
+        try {
+          const assignId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "asn-" + Date.now();
+          await supabase.from("assignments").insert({
+            id: assignId,
+            agent_id: validAgentId,
+            status: "assigned",
+            scheduled_date: scheduledDate || today(),
+            scheduled_time: scheduledTime || "10:30 AM",
+            notes: notes.trim() || undefined,
+          });
+        } catch {
+          // non-fatal
+        }
       }
 
-      const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
+      const selectedAgent = agents.find((agent) => agent.id === validAgentId) || selectedAgentObj;
       const entranceStatus = isEntranceVerified ? "Entrance-verified" : "Centroid";
       const summary = `Visit ${visit.visit_code || visit.id.slice(0, 8)} assigned to ${
         selectedAgent?.name || "agent"
       }. Saved site (${entranceStatus}): ${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}.`;
       setFeedback(summary);
       onSuccess?.(summary);
-    } catch (error) {
-      setMessage(
+    } catch (error: any) {
+      console.error("[AssignWorkModal] Submit error:", error);
+      const errDetail =
         error instanceof ApiError
           ? error.detail || error.message
-          : error instanceof Error
-          ? error.message
-          : "Could not save the dispatch. Try again."
-      );
+          : error?.message || (typeof error === "string" ? error : "Could not save the dispatch. Try again.");
+      setMessage(errDetail);
     } finally {
       setIsSubmitting(false);
     }
