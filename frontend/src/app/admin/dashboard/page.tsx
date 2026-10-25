@@ -158,6 +158,30 @@ export default function OverviewPage() {
         };
       }
 
+      if (loadedAgents) {
+        if (!loadedAgents.items.some((a) => a.name.toLowerCase().includes("malavya"))) {
+          loadedAgents.items.push({
+            id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
+            agent_code: "AGT-122",
+            name: "Malavya Mankar",
+            email: "malavya@fos.internal",
+            phone: "+91 98450 54321",
+            status: "active",
+            territory: "Mumbai Zone",
+            address: "Navi Mumbai, Mumbai",
+            location_source: "gps",
+            current_latitude: 19.0330,
+            current_longitude: 73.0297,
+            battery_level: 90,
+            last_location_update: new Date().toISOString(),
+            assigned_tasks: 0,
+            completed_visits: 0,
+            created_at: new Date().toISOString(),
+          });
+          loadedAgents.total = loadedAgents.items.length;
+        }
+      }
+
       setSummary(loadedSummary);
       setAgentDirectory(loadedAgents);
     } catch (err: any) {

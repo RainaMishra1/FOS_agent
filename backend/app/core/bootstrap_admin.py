@@ -261,3 +261,5 @@ async def bootstrap_initial_admins():
     await ensure_admin_account("rishabhmishra075@gmail.com", "Rishabh@2007", "Rishabh Mishra")
     # Primary agent account:
     await ensure_agent_account("rainamishra00023@gmail.com", "Raina@23", "Raina Mishra", "121", "Mumbai")
+    # Malavya Mankar agent account:
+    await ensure_agent_account("malavya@fos.internal", "Malavya@123", "Malavya Mankar", "AGT-122", "Mumbai Zone")

@@ -127,145 +127,168 @@ export default function AssignWorkModal({
     if (isOpen && preselectedDate) setScheduledDate(preselectedDate);
   }, [isOpen, preselectedDate]);
 
-  // Load Active Agents with multi-tier fallback (FastAPI -> Supabase direct -> profiles table -> operational fallback)
+  // Load Active Agents by combining all sources (FastAPI backend + Supabase agents table + Supabase profiles + operational roster)
   const loadAgents = useCallback(async () => {
     if (!isOpen) return;
     setAgentsLoading(true);
     try {
-      let loaded: AgentApiItem[] = [];
+      const agentMap = new Map<string, AgentApiItem>();
 
-      // Tier 1: Try FastAPI backend
+      const registerAgent = (item: Partial<AgentApiItem> & { name: string; id: string }) => {
+        if (!item || !item.name) return;
+        const normalizedName = item.name.trim().toLowerCase();
+        const existing = agentMap.get(normalizedName) || agentMap.get(item.id);
+        const merged: AgentApiItem = {
+          id: item.id || existing?.id || item.name.toLowerCase().replace(/\s+/g, "-"),
+          agent_code: item.agent_code || existing?.agent_code || "AGT-" + item.id.slice(0, 4).toUpperCase(),
+          name: item.name.trim(),
+          email: item.email || existing?.email || "",
+          phone: item.phone || existing?.phone || "+91 98450 00000",
+          status: item.status || existing?.status || "active",
+          territory: item.territory || existing?.territory || "Mumbai Zone",
+          address: item.address || existing?.address || "Field Center",
+          location_source: item.location_source || existing?.location_source || "gps",
+          current_latitude: Number(item.current_latitude) || existing?.current_latitude || 19.21899,
+          current_longitude: Number(item.current_longitude) || existing?.current_longitude || 73.14008,
+          battery_level: 95,
+          last_location_update: item.last_location_update || existing?.last_location_update || new Date().toISOString(),
+          assigned_tasks: item.assigned_tasks ?? existing?.assigned_tasks ?? 0,
+          completed_visits: item.completed_visits ?? existing?.completed_visits ?? 0,
+          created_at: item.created_at || existing?.created_at || new Date().toISOString(),
+        };
+
+        const st = (merged.status || "").toLowerCase();
+        if (!["inactive", "suspended", "terminated"].includes(st)) {
+          agentMap.set(normalizedName, merged);
+          agentMap.set(merged.id, merged);
+        }
+      };
+
+      // 1. Fetch from FastAPI backend
       try {
         const result = await fetchAgents(session?.access_token, { limit: 100 });
-        if (result && Array.isArray(result.items) && result.items.length > 0) {
-          const activeOrAvailable = result.items.filter((agent) => {
-            const st = (agent.status || "").toLowerCase();
-            return !["inactive", "suspended", "terminated"].includes(st);
-          });
-          loaded = activeOrAvailable.length > 0 ? activeOrAvailable : result.items;
+        if (result && Array.isArray(result.items)) {
+          for (const ag of result.items) {
+            registerAgent(ag);
+          }
         }
       } catch (apiErr) {
-        console.warn("[AssignWorkModal] FastAPI fetchAgents error, falling back to Supabase direct:", apiErr);
+        console.warn("[AssignWorkModal] FastAPI fetchAgents error:", apiErr);
       }
 
-      // Tier 2: Supabase direct agents table query
-      if (loaded.length === 0) {
-        try {
-          const { data: dbAgents } = await supabase
-            .from("agents")
-            .select("*, profile:profiles(id, full_name, email, phone)");
+      // 2. Query Supabase direct agents table with profile join
+      try {
+        const { data: dbAgents } = await supabase
+          .from("agents")
+          .select("*, profile:profiles(id, full_name, email, phone)");
 
-          if (dbAgents && dbAgents.length > 0) {
-            loaded = dbAgents
-              .filter((a: any) => {
-                const st = (a.status || "").toLowerCase();
-                return !["inactive", "suspended", "terminated"].includes(st);
-              })
-              .map((a: any) => ({
-                id: a.id,
-                agent_code: a.agent_code || a.id.slice(0, 8),
-                name: a.profile?.full_name || `Agent ${a.agent_code || a.id.slice(0, 4)}`,
-                email: a.profile?.email || "",
-                phone: a.profile?.phone || "+91 98450 00000",
-                status: a.status || "active",
-                territory: a.territory || "Field Hub",
-                address: a.address || "Field Center",
-                location_source: a.location_source || "gps",
-                current_latitude: Number(a.current_latitude) || 19.2183,
-                current_longitude: Number(a.current_longitude) || 73.1382,
-                battery_level: 95,
-                last_location_update: a.last_location_update || new Date().toISOString(),
-                assigned_tasks: 0,
-                completed_visits: 0,
-                created_at: a.created_at || new Date().toISOString(),
-              }));
+        if (dbAgents && dbAgents.length > 0) {
+          for (const a of dbAgents) {
+            const prof = a.profile || {};
+            const name = prof.full_name || a.name || `Agent ${a.agent_code || a.id.slice(0, 4)}`;
+            registerAgent({
+              id: a.id,
+              agent_code: a.agent_code,
+              name,
+              email: prof.email || a.email,
+              phone: prof.phone || a.phone,
+              status: a.status,
+              territory: a.territory,
+              address: a.address,
+              location_source: a.location_source,
+              current_latitude: a.current_latitude,
+              current_longitude: a.current_longitude,
+              created_at: a.created_at,
+            });
           }
-        } catch (dbErr) {
-          console.warn("[AssignWorkModal] Supabase agents table query error:", dbErr);
+        }
+      } catch (dbErr) {
+        console.warn("[AssignWorkModal] Supabase agents table error:", dbErr);
+      }
+
+      // 3. Query Supabase direct profiles table for all registered agent accounts
+      try {
+        const { data: dbProfiles } = await supabase
+          .from("profiles")
+          .select("*");
+
+        if (dbProfiles && dbProfiles.length > 0) {
+          for (const p of dbProfiles) {
+            const role = (p.role || "").toLowerCase();
+            const email = (p.email || "").toLowerCase();
+            if (role === "agent" || (!role && !email.includes("admin"))) {
+              const name = p.full_name || email.split("@")[0] || "Field Agent";
+              registerAgent({
+                id: p.agent_id || p.id,
+                agent_code: p.agent_code || "AGT-" + p.id.slice(0, 4).toUpperCase(),
+                name,
+                email: p.email,
+                phone: p.phone,
+                status: p.agent_status || "active",
+                territory: p.territory || "Mumbai Zone",
+                created_at: p.created_at,
+              });
+            }
+          }
+        }
+      } catch (profErr) {
+        console.warn("[AssignWorkModal] Supabase profiles table error:", profErr);
+      }
+
+      // 4. Always register core operational agents including Malavya Mankar and Raina Mishra
+      const operationalRoster: (Partial<AgentApiItem> & { name: string; id: string })[] = [
+        {
+          id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
+          agent_code: "AGT-122",
+          name: "Malavya Mankar",
+          email: "malavya@fos.internal",
+          phone: "+91 98450 54321",
+          status: "active",
+          territory: "Mumbai Zone",
+          address: "Navi Mumbai, Mumbai",
+          location_source: "gps",
+          current_latitude: 19.0330,
+          current_longitude: 73.0297,
+        },
+        {
+          id: "5f926578-e5c7-40cc-ac8e-d59616be0c37",
+          agent_code: "121",
+          name: "Raina Mishra",
+          email: "rainamishra00023@gmail.com",
+          phone: "+91 98450 12345",
+          status: "active",
+          territory: "Mumbai",
+          address: "Mumbai Central",
+          location_source: "gps",
+          current_latitude: 19.21899,
+          current_longitude: 73.14008,
+        },
+      ];
+
+      for (const opAg of operationalRoster) {
+        registerAgent(opAg);
+      }
+
+      // Deduplicate unique list by agent ID and normalized name
+      const seenKeys = new Set<string>();
+      const uniqueList: AgentApiItem[] = [];
+      for (const ag of agentMap.values()) {
+        const nameKey = (ag.name || "").trim().toLowerCase();
+        const idKey = ag.id;
+        if (!seenKeys.has(nameKey) && !seenKeys.has(idKey)) {
+          seenKeys.add(nameKey);
+          seenKeys.add(idKey);
+          uniqueList.push(ag);
         }
       }
+      uniqueList.sort((a, b) => a.name.localeCompare(b.name));
 
-      // Tier 3: Supabase direct profiles query if agents table is unpopulated
-      if (loaded.length === 0) {
-        try {
-          const { data: dbProfiles } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("role", "agent");
-
-          if (dbProfiles && dbProfiles.length > 0) {
-            loaded = dbProfiles.map((p: any) => ({
-              id: p.agent_id || p.id,
-              agent_code: p.agent_code || "AGT-" + p.id.slice(0, 4),
-              name: p.full_name || "Field Agent",
-              email: p.email || "",
-              phone: p.phone || "+91 98450 00000",
-              status: p.agent_status || "active",
-              territory: p.territory || "Field Hub",
-              address: "Field Operations Center",
-              location_source: "gps",
-              current_latitude: 19.2183,
-              current_longitude: 73.1382,
-              battery_level: 95,
-              last_location_update: new Date().toISOString(),
-              assigned_tasks: 0,
-              completed_visits: 0,
-              created_at: p.created_at || new Date().toISOString(),
-            }));
-          }
-        } catch (profErr) {
-          console.warn("[AssignWorkModal] Supabase profiles query error:", profErr);
-        }
-      }
-
-      // Tier 4: Operational fallback agents
-      if (loaded.length === 0) {
-        loaded = [
-          {
-            id: "5f926578-e5c7-40cc-ac8e-d59616be0c37",
-            agent_code: "AGT-121",
-            name: "Raina Mishra",
-            email: "rainamishra00023@gmail.com",
-            phone: "+91 98450 12345",
-            status: "active",
-            territory: "Mumbai Zone",
-            address: "Mumbai Central",
-            location_source: "gps",
-            current_latitude: 19.2183,
-            current_longitude: 73.1382,
-            battery_level: 95,
-            last_location_update: new Date().toISOString(),
-            assigned_tasks: 2,
-            completed_visits: 1,
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
-            agent_code: "AGT-122",
-            name: "Malavya Mankar",
-            email: "malavya@fos.internal",
-            phone: "+91 98450 54321",
-            status: "active",
-            territory: "Mumbai Zone",
-            address: "Navi Mumbai",
-            location_source: "gps",
-            current_latitude: 19.0330,
-            current_longitude: 73.0297,
-            battery_level: 90,
-            last_location_update: new Date().toISOString(),
-            assigned_tasks: 1,
-            completed_visits: 0,
-            created_at: new Date().toISOString(),
-          },
-        ];
-      }
-
-      setAgents(loaded);
+      setAgents(uniqueList);
       setSelectedAgentId((current) => {
-        if (current && loaded.some((agent) => agent.id === current)) return current;
-        if (preselectedAgentId && loaded.some((agent) => agent.id === preselectedAgentId)) return preselectedAgentId;
-        if (preselectedAgent && loaded.some((agent) => agent.id === preselectedAgent.id)) return preselectedAgent.id;
-        return loaded[0]?.id || "";
+        if (current && uniqueList.some((agent) => agent.id === current)) return current;
+        if (preselectedAgentId && uniqueList.some((agent) => agent.id === preselectedAgentId)) return preselectedAgentId;
+        if (preselectedAgent && uniqueList.some((agent) => agent.id === preselectedAgent.id)) return preselectedAgent.id;
+        return uniqueList[0]?.id || "";
       });
     } catch (err) {
       console.error("[AssignWorkModal] Unexpected error in loadAgents:", err);

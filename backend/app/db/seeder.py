@@ -119,6 +119,19 @@ SEED_AGENTS = [
         "battery_level": 71,
         "location_source": "gps",
     },
+    {
+        "agent_code": "AGT-122",
+        "name": "Malavya Mankar",
+        "email": "malavya@fos.internal",
+        "phone": "+91 98450 54321",
+        "status": "active",
+        "territory": "Mumbai Zone",
+        "address": "Navi Mumbai, Mumbai",
+        "latitude": 19.0330,
+        "longitude": 73.0297,
+        "battery_level": 90,
+        "location_source": "gps",
+    },
 ]
 
 SEED_CUSTOMERS = [
