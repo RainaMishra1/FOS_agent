@@ -79,8 +79,9 @@ function AgentRoutePageContent() {
   const [selectedForDrawer, setSelectedForDrawer] = useState<AgentVisit | null>(null);
   const [completeVisit, setCompleteVisit] = useState<AgentVisit | null>(null);
 
-  // Watch device GPS in real time
+  // Watch device GPS in real time only if on duty
   useEffect(() => {
+    if (!isOnDuty) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -91,13 +92,14 @@ function AgentRoutePageContent() {
         });
       },
       (err) => console.warn("GPS watch notice:", err.message),
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+      { enableHighAccuracy: false, maximumAge: 30000, timeout: 15000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+  }, [isOnDuty]);
 
   // Sync GPS location in the background if moved
   const syncLocationIfMoved = useCallback(async (token: string, lat: number, lng: number, accuracy?: number) => {
+    if (!isOnDuty) return;
     try {
       await updateAgentLocation(
         {
@@ -111,14 +113,14 @@ function AgentRoutePageContent() {
     } catch {
       // Ignore background sync errors
     }
-  }, []);
+  }, [isOnDuty]);
 
   const loadRoute = useCallback(
     async (keepOrder = false) => {
       setError(null);
 
-      // 1. Background GPS update
-      if (typeof navigator !== "undefined" && navigator.geolocation) {
+      // 1. Background GPS update (only if on duty)
+      if (typeof navigator !== "undefined" && navigator.geolocation && isOnDuty) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             setLiveGpsCoords({
@@ -136,7 +138,7 @@ function AgentRoutePageContent() {
             }
           },
           () => {},
-          { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
         );
       }
 

@@ -497,7 +497,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
       // Priority 1: Query live Supabase database directly (immediate & 100% real)
       try {
-        if (typeof navigator !== "undefined" && navigator.geolocation) {
+        if (typeof navigator !== "undefined" && navigator.geolocation && isOnDuty) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               setCurrentAgent((prev) => ({
@@ -509,7 +509,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
               }));
             },
             () => {},
-            { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
           );
         }
 

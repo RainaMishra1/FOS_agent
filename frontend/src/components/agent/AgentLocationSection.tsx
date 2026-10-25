@@ -5,36 +5,43 @@ import { useAuth } from "@/context/AuthContext";
 import { useAgent } from "@/context/AgentContext";
 import { supabase } from "@/lib/supabaseClient";
 import { updateAgentLocation } from "@/lib/api";
-import { AlertCircle, CheckCircle2, Compass, Loader2, MapPin, ShieldCheck } from "lucide-react";
-
-type PermissionState = "checking" | "prompt" | "granted" | "denied" | "unsupported";
-const LOCATION_INTERVAL_MS = 60_000;
+import { Compass, Loader2, Navigation, Radio } from "lucide-react";
 
 export default function AgentLocationSection() {
   const { session } = useAuth();
-  const { currentAgent } = useAgent();
-  const [permission, setPermission] = useState<PermissionState>("checking");
+  const { currentAgent, isOnDuty } = useAgent();
   const [tracking, setTracking] = useState(false);
-  const [requesting, setRequesting] = useState(false);
-  const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [message, setMessage] = useState("");
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const requestInFlightRef = useRef(false);
-  const autoStartRef = useRef(false);
+  const [liveCoords, setLiveCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(() => {
+    if (currentAgent?.currentCoordinates?.lat && currentAgent?.currentCoordinates?.lng) {
+      return {
+        lat: currentAgent.currentCoordinates.lat,
+        lng: currentAgent.currentCoordinates.lng,
+      };
+    }
+    return null;
+  });
+
+  const watchIdRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const sessionTokenRef = useRef(session?.access_token);
   const currentAgentRef = useRef(currentAgent);
+  const isOnDutyRef = useRef(isOnDuty);
 
   useEffect(() => { sessionTokenRef.current = session?.access_token; }, [session?.access_token]);
   useEffect(() => { currentAgentRef.current = currentAgent; }, [currentAgent]);
+  useEffect(() => { isOnDutyRef.current = isOnDuty; }, [isOnDuty]);
 
-  const stopTracking = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-    if (mountedRef.current) setTracking(false);
-  }, []);
+  // Sync coordinates directly to Supabase and backend
+  const syncLocation = useCallback(async (lat: number, lng: number, accuracy?: number) => {
+    if (!isOnDutyRef.current) return;
 
-  const syncToDirectSupabase = async (lat: number, lng: number) => {
+    // 1. Update component live state
+    if (mountedRef.current) {
+      setLiveCoords({ lat, lng, accuracy });
+      setTracking(true);
+    }
+
+    // 2. Sync to Supabase agents table
     try {
       const code = currentAgentRef.current?.id || "121";
       await supabase
@@ -48,246 +55,160 @@ export default function AgentLocationSection() {
     } catch {
       // ignore
     }
-  };
 
-  const requestAndSyncLocation = useCallback(() => {
-    if (!navigator.geolocation || requestInFlightRef.current) return;
-    requestInFlightRef.current = true;
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const token = sessionTokenRef.current;
-          if (token) {
-            try {
-              await updateAgentLocation({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                gps_accuracy: position.coords.accuracy,
-                location_source: "gps",
-              }, token);
-            } catch {
-              await syncToDirectSupabase(position.coords.latitude, position.coords.longitude);
-            }
-          } else {
-            await syncToDirectSupabase(position.coords.latitude, position.coords.longitude);
-          }
-          if (mountedRef.current) {
-            setPermission("granted");
-            setLastSync(new Date());
-            setMessage("");
-          }
-        } catch {
-          if (mountedRef.current) {
-            setLastSync(new Date());
-            setMessage("");
-          }
-        } finally {
-          requestInFlightRef.current = false;
-        }
-      },
-      (error) => {
-        requestInFlightRef.current = false;
-        if (!mountedRef.current) return;
-        if (error.code === error.PERMISSION_DENIED) {
-          stopTracking();
-          setPermission("denied");
-          setMessage("Location access is blocked. Allow location for this site in your browser settings, then refresh the dashboard.");
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          setMessage("Your device could not determine a location. Tracking will retry in one minute.");
-        } else if (error.code === error.TIMEOUT) {
-          setMessage("Location request timed out. Tracking will retry in one minute.");
-        } else {
-          setMessage("Location is temporarily unavailable. Tracking will retry in one minute.");
-        }
-      },
-      { enableHighAccuracy: true, timeout: 5_000, maximumAge: 15_000 }
-    );
-  }, [stopTracking]);
+    // 3. Sync to FastAPI backend if available
+    const token = sessionTokenRef.current;
+    if (token) {
+      try {
+        await updateAgentLocation({
+          latitude: lat,
+          longitude: lng,
+          gps_accuracy: accuracy,
+          location_source: "gps",
+        }, token);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
 
-  const startTracking = useCallback(() => {
-    if (!navigator.geolocation) {
-      setPermission("unsupported");
-      setMessage("This browser does not support location access. You can continue using the dashboard without location tracking.");
+  const stopWatching = useCallback(() => {
+    if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (mountedRef.current) setTracking(false);
+  }, []);
+
+  const startWatching = useCallback(() => {
+    if (!isOnDutyRef.current) {
+      stopWatching();
       return;
     }
-    if (requesting || tracking) return;
-    setRequesting(true);
-    setMessage("");
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
+    // Immediately fetch initial fix
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const token = sessionTokenRef.current;
-          if (token) {
-            try {
-              await updateAgentLocation({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                gps_accuracy: position.coords.accuracy,
-                location_source: "gps",
-              }, token);
-            } catch {
-              await syncToDirectSupabase(position.coords.latitude, position.coords.longitude);
-            }
-          } else {
-            await syncToDirectSupabase(position.coords.latitude, position.coords.longitude);
-          }
-          if (!mountedRef.current) return;
-          setPermission("granted");
-          setLastSync(new Date());
-          setTracking(true);
-          setRequesting(false);
-          setMessage("");
-          timerRef.current = setInterval(requestAndSyncLocation, LOCATION_INTERVAL_MS);
-        } catch {
-          if (mountedRef.current) {
-            setPermission("granted");
-            setLastSync(new Date());
-            setTracking(true);
-            setRequesting(false);
-            setMessage("");
-            timerRef.current = setInterval(requestAndSyncLocation, LOCATION_INTERVAL_MS);
-          }
-        }
+      (pos) => {
+        if (!isOnDutyRef.current) return;
+        void syncLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
-      (error) => {
-        if (!mountedRef.current) return;
-        setRequesting(false);
-        if (error.code === error.PERMISSION_DENIED) {
-          setPermission("denied");
-          setMessage("Location permission was denied. Allow location for this site in your browser settings, then refresh. Location is optional; you can still use the dashboard.");
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          setPermission("prompt");
-          setMessage("Your device could not determine a location. Check that device location services are on, then try again.");
-        } else if (error.code === error.TIMEOUT) {
-          setPermission("prompt");
-          setMessage("The first location request timed out. You can try enabling location again.");
-        } else {
-          setPermission("prompt");
-          setMessage("Location could not be enabled. You can continue using the dashboard without location tracking.");
-        }
-      },
-      { enableHighAccuracy: true, timeout: 5_000, maximumAge: 15_000 }
+      () => {},
+      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 60_000 }
     );
-  }, [requestAndSyncLocation, requesting, tracking]);
+
+    // Watch live location continuously
+    if (watchIdRef.current === null) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!isOnDutyRef.current) return;
+          void syncLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+        },
+        () => {},
+        { enableHighAccuracy: false, timeout: 20_000, maximumAge: 30_000 }
+      );
+    }
+  }, [stopWatching, syncLocation]);
+
+  // When duty status changes: start watching if on duty, stop immediately if off duty
+  useEffect(() => {
+    if (!isOnDuty) {
+      stopWatching();
+    } else {
+      startWatching();
+    }
+  }, [isOnDuty, stopWatching, startWatching]);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (!navigator.geolocation) {
-      setPermission("unsupported");
-      setMessage("This browser does not support location access. You can continue using the dashboard without location tracking.");
-    } else if (navigator.permissions?.query) {
-      navigator.permissions.query({ name: "geolocation" }).then((status) => {
-        if (!mountedRef.current) return;
-        if (status.state === "granted") {
-          setPermission("granted");
-          if (!autoStartRef.current) {
-            autoStartRef.current = true;
-            setTracking(true);
-            requestAndSyncLocation();
-            timerRef.current = setInterval(requestAndSyncLocation, LOCATION_INTERVAL_MS);
-          }
-        } else if (status.state === "denied") {
-          setPermission("denied");
-          setMessage("Allow location for this site in your browser settings, then refresh. Location is optional; you can still use the dashboard.");
-        } else {
-          setPermission("prompt");
-        }
-      }).catch(() => {
-        if (mountedRef.current) setPermission("prompt");
-      });
-    } else {
-      setPermission("prompt");
+    if (isOnDutyRef.current) {
+      startWatching();
     }
 
     return () => {
       mountedRef.current = false;
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
+      stopWatching();
     };
-  }, [requestAndSyncLocation]);
-
-  const canEnable = permission === "prompt" || permission === "checking";
-
-  const formattedSyncTime = lastSync
-    ? lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "Just now";
+  }, [startWatching, stopWatching]);
 
   return (
     <section className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 shadow-xs">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3.5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2EC] text-[#1E3F35] shadow-2xs">
-            <ShieldCheck className="h-5 w-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Left: Icon and Real-Time Lat/Long */}
+        <div className="flex items-center gap-3.5">
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2EC] text-[#1E3F35] shadow-2xs">
+            <Navigation className="h-5 w-5 text-[#1E3F35]" />
+            {isOnDuty && tracking && (
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+            )}
           </div>
+
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-beige-text">Location Sharing</h3>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                  tracking
-                    ? "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2]"
-                    : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0]"
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${tracking ? "bg-[#1E3F35]" : "bg-[#9E6924]"}`} />
-                <span>{tracking ? "Active" : "Paused"}</span>
-              </span>
+              <h3 className="text-sm font-bold text-beige-text">Live GPS Location</h3>
+              {isOnDuty && tracking ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>LIVE</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#9E6924]" />
+                  <span>{!isOnDuty ? "Paused • Off Duty" : "Locating"}</span>
+                </span>
+              )}
             </div>
-            <p className="mt-1 text-xs text-beige-muted max-w-2xl leading-relaxed">
-              Your live location is being shared while the app is open. FOS saves your GPS location once per minute to help with tracking and verification.
-            </p>
-            <div className="mt-2 flex items-center gap-2 text-[11px] text-beige-muted">
-              <span>🕒 Last synced: {lastSync ? `${lastSync.toLocaleDateString()}, ${formattedSyncTime}` : "Oct 25, 2026, 12:31 PM"}</span>
-              <span>•</span>
-              <span>Updates every 1 minute</span>
+
+            {/* Live Coordinates Display */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+              {isOnDuty ? (
+                liveCoords ? (
+                  <>
+                    <span className="font-mono font-semibold text-[#1E3F35] bg-[#EAF2EC] px-2.5 py-1 rounded-lg border border-[#CDE1D2]">
+                      Lat: {liveCoords.lat.toFixed(5)}°
+                    </span>
+                    <span className="font-mono font-semibold text-[#1E3F35] bg-[#EAF2EC] px-2.5 py-1 rounded-lg border border-[#CDE1D2]">
+                      Long: {liveCoords.lng.toFixed(5)}°
+                    </span>
+                    {liveCoords.accuracy ? (
+                      <span className="text-[11px] text-beige-muted">
+                        ±{Math.round(liveCoords.accuracy)}m accuracy
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-xs text-beige-muted flex items-center gap-1.5 py-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1E3F35]" />
+                    Acquiring live coordinates…
+                  </span>
+                )
+              ) : (
+                <span className="text-xs text-[#9E6924] py-0.5">
+                  Location tracking is paused while you are off duty.
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Right Action Button */}
-        <div className="shrink-0">
-          {tracking ? (
-            <button
-              type="button"
-              onClick={requestAndSyncLocation}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-4 py-2.5 text-xs font-bold text-[#1E3F35] shadow-2xs hover:bg-[#DFEDE2] transition cursor-pointer"
-            >
-              <Compass className="h-4 w-4 text-[#1E3F35]" />
-              <span>Location Sharing On</span>
-            </button>
-          ) : canEnable ? (
-            <button
-              type="button"
-              onClick={startTracking}
-              disabled={requesting || permission === "checking"}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E3F35] hover:bg-[#162F27] px-4 py-2.5 text-xs font-bold text-white shadow-xs transition disabled:opacity-50 cursor-pointer"
-            >
-              {requesting || permission === "checking" ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Checking GPS…</span>
-                </>
-              ) : (
-                <>
-                  <Compass className="h-4 w-4" />
-                  <span>Enable Location Sharing</span>
-                </>
-              )}
-            </button>
+        {/* Right Status Badge */}
+        <div className="shrink-0 flex items-center">
+          {isOnDuty ? (
+            <span className="inline-flex items-center gap-2 rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-4 py-2.5 text-xs font-bold text-[#1E3F35] shadow-2xs">
+              <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
+              <span>Live Tracking Active</span>
+            </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD3] bg-beige-sand px-3 py-2 text-xs font-semibold text-beige-muted">
-              <AlertCircle className="h-4 w-4" />
-              <span>{permission === "denied" ? "Location Denied" : "GPS Unavailable"}</span>
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#F0E4D0] bg-[#FAF3E7] px-3.5 py-2 text-xs font-semibold text-[#9E6924]">
+              <Compass className="h-4 w-4 text-[#9E6924]" />
+              <span>Off Duty (Paused)</span>
             </span>
           )}
         </div>
       </div>
-
-      {message && (
-        <p role="status" className="mt-3 rounded-xl border border-[#E6DFD3] bg-[#FAF3E7]/50 p-2.5 text-xs text-[#9E6924]">
-          {message}
-        </p>
-      )}
     </section>
   );
 }

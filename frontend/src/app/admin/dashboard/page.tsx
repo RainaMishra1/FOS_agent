@@ -95,7 +95,7 @@ export default function OverviewPage() {
             completed_visits: 1,
             created_at: a.created_at || new Date().toISOString(),
           }));
-          loadedAgents = { total: items.length, items };
+          loadedAgents = { total: items.length, skip: 0, limit: items.length, items };
         }
 
         const visitsData = dbVstRes.status === "fulfilled" ? dbVstRes.value.data || [] : [];
