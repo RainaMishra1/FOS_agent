@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastProfileErrorRef.current = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 800);
 
       const resp = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: {

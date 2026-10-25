@@ -291,7 +291,7 @@ function AgentRoutePageContent() {
   useEffect(() => {
     void loadRoute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token]);
+  }, [session?.access_token, currentAgent.id, currentAgent.dbId, visits]);
 
   // Compute straight-line distances from agent origin to each pending stop and locate the nearest pending task
   const stopsWithDistances = useMemo(() => {
@@ -413,6 +413,14 @@ function AgentRoutePageContent() {
       await handleGetRouteForTask(target);
     }
     setIsNavigating(true);
+
+    // Smooth scroll up to navigation map so the user immediately sees the driving guidance
+    setTimeout(() => {
+      const mapEl = document.getElementById("agent-navigation-map-section");
+      if (mapEl) {
+        mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 60);
   };
 
   const handleStopNavigation = () => {
@@ -698,7 +706,7 @@ function AgentRoutePageContent() {
           )}
 
           {/* Interactive Road Route Map */}
-          <section className="space-y-1.5">
+          <section id="agent-navigation-map-section" className="space-y-1.5 scroll-mt-20">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text">
                 <Compass className="h-3.5 w-3.5 text-[#1E3F35]" />

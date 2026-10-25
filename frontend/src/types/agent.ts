@@ -33,6 +33,8 @@ export interface AgentVisit {
 
 export interface AgentProfile {
   id: string;
+  dbId?: string;
+  agentCode?: string;
   name: string;
   initials: string;
   role: string;

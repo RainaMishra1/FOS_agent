@@ -175,7 +175,7 @@ async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {},
   token?: string | null,
-  timeoutMs: number = 15000
+  timeoutMs: number = 2000
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);

@@ -35,7 +35,8 @@ import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 interface AgentContextType {
   currentAgent: AgentProfile;
   availableAgents: AgentProfile[];
-  switchAgent: (agentId: string) => void;
+  switchAgent: (agentId: string) => void | Promise<void>;
+  loadAgentData: (showLoader?: boolean, overrideAgentId?: string) => Promise<void>;
   isOnDuty: boolean;
   toggleDuty: () => Promise<void>;
   setIsOnDuty: (onDuty: boolean) => void;
@@ -239,40 +240,86 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
     let agentProfileData: Partial<AgentProfile> | undefined;
 
     if (identifier) {
-      const { data: agentRow } = await supabase
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+      let agentRowQuery = supabase
         .from("agents")
-        .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
-        .or(`id.eq.${identifier},profile_id.eq.${identifier},agent_code.eq.${identifier}`)
-        .maybeSingle();
+        .select(`
+          id,
+          agent_code,
+          territory,
+          status,
+          current_latitude,
+          current_longitude,
+          battery_level,
+          profiles (
+            full_name,
+            email,
+            phone
+          )
+        `);
+
+      if (isUuid) {
+        agentRowQuery = agentRowQuery.or(`id.eq.${identifier},profile_id.eq.${identifier}`);
+      } else {
+        agentRowQuery = agentRowQuery.eq("agent_code", identifier);
+      }
+
+      const { data: agentRow } = await agentRowQuery.maybeSingle();
 
       if (agentRow) {
         targetAgentId = agentRow.id;
+        const prof = (agentRow as any).profiles || {};
         agentProfileData = {
-          id: agentRow.agent_code || agentRow.id.slice(0, 8),
+          id: agentRow.id,
+          dbId: agentRow.id,
+          agentCode: agentRow.agent_code || agentRow.id.slice(0, 8),
+          name: prof.full_name || `Agent ${agentRow.agent_code || agentRow.id.slice(0, 4)}`,
+          status: agentRow.status || "active",
+          email: prof.email || "agent@fos.internal",
+          phone: prof.phone || "+91 98800 12345",
           territory: agentRow.territory || "Mumbai, Maharashtra",
+          batteryLevel: agentRow.battery_level ?? 90,
           currentCoordinates: {
-            lat: agentRow.current_latitude ?? 19.21899,
-            lng: agentRow.current_longitude ?? 73.14008,
+            lat: Number(agentRow.current_latitude) || 19.21899,
+            lng: Number(agentRow.current_longitude) || 73.14008,
           },
         };
       }
     }
 
-    if (!targetAgentId) {
+    if (!targetAgentId && !identifier) {
       const { data: anyAgent } = await supabase
         .from("agents")
-        .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
+        .select(`
+          id,
+          agent_code,
+          territory,
+          status,
+          current_latitude,
+          current_longitude,
+          battery_level,
+          profiles (
+            full_name,
+            email,
+            phone
+          )
+        `)
         .limit(1)
         .maybeSingle();
 
       if (anyAgent) {
         targetAgentId = anyAgent.id;
+        const prof = (anyAgent as any).profiles || {};
         agentProfileData = {
-          id: anyAgent.agent_code || "AGT-121",
+          id: anyAgent.id,
+          dbId: anyAgent.id,
+          agentCode: anyAgent.agent_code || "AGT-121",
+          name: prof.full_name || `Agent ${anyAgent.agent_code || "121"}`,
+          status: anyAgent.status || "active",
           territory: anyAgent.territory || "Mumbai, Maharashtra",
           currentCoordinates: {
-            lat: anyAgent.current_latitude ?? 19.21899,
-            lng: anyAgent.current_longitude ?? 73.14008,
+            lat: Number(anyAgent.current_latitude) || 19.21899,
+            lng: Number(anyAgent.current_longitude) || 73.14008,
           },
         };
       }
@@ -308,10 +355,10 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
       query = query.eq("agent_id", targetAgentId);
     }
 
-    let { data: dbVisits, error } = await query.order("order_index", { ascending: true });
+    let { data: dbVisits } = await query.order("order_index", { ascending: true });
 
-    // If no visits specific to this agent, query all visits from Supabase
-    if (!dbVisits || dbVisits.length === 0) {
+    // Only if no target agent was identified at all do we query generic visits
+    if (!targetAgentId && (!dbVisits || dbVisits.length === 0)) {
       const allQuery = await supabase
         .from("visits")
         .select(`
@@ -342,8 +389,12 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
       dbVisits = allQuery.data;
     }
 
-    if (!dbVisits || dbVisits.length === 0) {
-      return null;
+    if (!dbVisits) {
+      return {
+        visits: [],
+        history: [],
+        agentProfile: agentProfileData,
+      };
     }
 
     const mapped: AgentVisit[] = dbVisits.map((row: any) => {
@@ -464,7 +515,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             const parts = name.trim().split(" ");
             const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.slice(0, 2).toUpperCase();
             return {
-              id: ag.agent_code || ag.id.slice(0, 8),
+              id: ag.id,
+              dbId: ag.id,
+              agentCode: ag.agent_code || ag.id.slice(0, 8),
               name,
               initials,
               role: "Field Specialist",
@@ -475,8 +528,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
               batteryLevel: ag.battery_level ?? 90,
               shiftHours: "09:00 - 18:00 IST",
               currentCoordinates: {
-                lat: ag.current_latitude ?? 19.21899,
-                lng: ag.current_longitude ?? 73.14008,
+                lat: Number(ag.current_latitude) || 19.21899,
+                lng: Number(ag.current_longitude) || 73.14008,
               },
             };
           });
@@ -489,11 +542,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     loadAgents();
   }, []);
 
-  // Fetch real agent dashboard from FastAPI backend or live Supabase database
+  // Fetch real agent dashboard from live Supabase database or FastAPI backend
   const loadAgentData = useCallback(
-    async (showLoader = true) => {
+    async (showLoader = true, overrideAgentId?: string) => {
       if (showLoader) setIsLoading(true);
       setError(null);
+
+      const targetIdentifier = overrideAgentId || currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || session?.user?.id;
 
       // Priority 1: Query live Supabase database directly (immediate & 100% real)
       try {
@@ -513,11 +568,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           );
         }
 
-        const liveDbData = await fetchDirectFromSupabase(profile?.agent_id || profile?.id || session?.user?.id);
-        if (liveDbData && liveDbData.visits.length > 0) {
+        const liveDbData = await fetchDirectFromSupabase(targetIdentifier);
+        if (liveDbData) {
           setVisits(liveDbData.visits);
           setHistoryVisits(liveDbData.history);
-          setSelectedVisit((prev) => (prev ? liveDbData.visits.find((v) => v.id === prev.id) || liveDbData.visits[0] : liveDbData.visits[0]));
+          setSelectedVisit(liveDbData.visits[0] || null);
           if (liveDbData.agentProfile) {
             setCurrentAgent((prev) => ({
               ...prev,
@@ -527,6 +582,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
                 ...liveDbData.agentProfile?.currentCoordinates,
               },
             }));
+            if (liveDbData.agentProfile.status) {
+              setIsOnDuty(liveDbData.agentProfile.status === "active");
+            }
           }
           setIsLiveBackend(true);
           setError(null);
@@ -563,11 +621,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err: any) {
         console.warn("FastAPI unreachable, loading direct from Supabase:", err);
-        const liveDbData = await fetchDirectFromSupabase(profile?.agent_id || profile?.id || session?.user?.id);
-        if (liveDbData && liveDbData.visits.length > 0) {
+        const liveDbData = await fetchDirectFromSupabase(targetIdentifier);
+        if (liveDbData) {
           setVisits(liveDbData.visits);
           setHistoryVisits(liveDbData.history);
-          setSelectedVisit((prev) => (prev ? liveDbData.visits.find((v) => v.id === prev.id) || liveDbData.visits[0] : liveDbData.visits[0]));
+          setSelectedVisit(liveDbData.visits[0] || null);
           if (liveDbData.agentProfile) {
             setCurrentAgent((prev) => ({
               ...prev,
@@ -584,7 +642,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         if (showLoader) setIsLoading(false);
       }
     },
-    [session?.access_token, profile]
+    [session?.access_token, profile, isOnDuty, currentAgent?.dbId, currentAgent?.id]
   );
 
   // Sync data whenever authenticated session is established
@@ -598,27 +656,42 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const toggleDuty = async () => {
     const nextStatus = isOnDuty ? "off_duty" : "active";
+    // 1. Instant optimistic state update with 0ms UI delay
+    setIsOnDuty(!isOnDuty);
+    setCurrentAgent((prev) => ({ ...prev, status: nextStatus }));
+    showNotification(
+      !isOnDuty ? "success" : "info",
+      !isOnDuty
+        ? "You are now ON DUTY. Field tracking active."
+        : "You are now OFF DUTY. Location updates paused."
+    );
+
+    // 2. Non-blocking direct Supabase background sync
     try {
-      await updateAgentDutyStatus(nextStatus, session?.access_token);
-      setIsOnDuty(!isOnDuty);
-      setCurrentAgent((prev) => ({ ...prev, status: nextStatus }));
-      showNotification(
-        !isOnDuty ? "success" : "info",
-        !isOnDuty
-          ? "You are now ON DUTY. Field tracking active."
-          : "You are now OFF DUTY. Location updates paused."
-      );
-    } catch (err: any) {
-      const msg = extractErrorMessage(err, "Failed to update duty status on server.");
-      showNotification("error", msg);
+      const code = currentAgent?.id || "121";
+      await supabase
+        .from("agents")
+        .update({ status: nextStatus })
+        .or(`agent_code.eq.${code},id.eq.${code}`);
+    } catch {
+      // ignore
+    }
+
+    // 3. Non-blocking FastAPI sync
+    if (session?.access_token) {
+      updateAgentDutyStatus(nextStatus, session.access_token).catch(() => {});
     }
   };
 
-  const switchAgent = (agentId: string) => {
-    const found = availableAgentsList.find((a) => a.id === agentId);
+  const switchAgent = async (agentId: string) => {
+    const found = availableAgentsList.find(
+      (a) => a.id === agentId || a.dbId === agentId || a.agentCode === agentId
+    );
     if (found) {
       setCurrentAgent(found);
+      setIsOnDuty(found.status === "active");
       showNotification("info", `Switched agent profile to ${found.name}`);
+      await loadAgentData(true, found.dbId || found.id);
     }
   };
 

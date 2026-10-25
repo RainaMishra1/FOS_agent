@@ -137,40 +137,30 @@ export default function AgentProfilePage() {
           </div>
         </div>
 
-        {/* Identity & Session Info */}
-        {isLiveBackend ? (
-          <div className="p-3 rounded-xl bg-beige-olive/10 border border-beige-olive/30 text-xs space-y-1">
-            <div className="flex items-center justify-between text-beige-olive font-bold text-[11px]">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Verified Field Agent Identity (Server Enforced)
-              </span>
-              <span>Role: Agent</span>
-            </div>
-            <p className="text-[11px] text-beige-muted">
-              Authenticated via verified token. All visit schedules, customer records, and GPS logs are strictly scoped to Agent ID <code className="font-mono text-beige-text">{currentAgent.id}</code> on the backend.
-            </p>
-          </div>
-        ) : (
-          /* Agent Switcher Dropdown (Demo Mode Only) */
-          <div className="p-3 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1.5">
-            <label className="text-xs font-bold text-beige-text flex items-center justify-between">
-              <span>Switch Agent Profile (Demo Mode)</span>
-              <span className="text-[10px] text-beige-muted font-normal">Multi-agent testing</span>
-            </label>
-            <select
-              value={currentAgent.id}
-              onChange={(e) => switchAgent(e.target.value)}
-              className="w-full text-xs p-2.5 rounded-xl bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40"
-            >
-              {availableAgents.map((ag) => (
-                <option key={ag.id} value={ag.id}>
-                  {ag.name} ({ag.id}) — {ag.territory}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        {/* Active Field Agent Switcher */}
+        <div className="p-3.5 rounded-xl bg-beige-sand/30 border border-beige-border space-y-2">
+          <label className="text-xs font-bold text-beige-text flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
+              Switch Active Field Agent
+            </span>
+            <span className="text-[10px] text-beige-muted font-normal">{availableAgents.length} live agents in database</span>
+          </label>
+          <select
+            value={currentAgent.dbId || currentAgent.id}
+            onChange={(e) => switchAgent(e.target.value)}
+            className="w-full text-xs p-2.5 rounded-xl bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40 font-medium"
+          >
+            {availableAgents.map((ag) => (
+              <option key={ag.dbId || ag.id} value={ag.dbId || ag.id}>
+                {ag.name} ({ag.agentCode || ag.id.slice(0, 4)}) — {ag.territory} [{ag.status || "active"}]
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-beige-muted">
+            Active Agent UUID: <code className="font-mono text-beige-text">{currentAgent.dbId || currentAgent.id}</code>. Selecting an agent loads their real-time scheduled stops, route geometry, and duty status.
+          </p>
+        </div>
       </div>
 
       {/* Field Diagnostics & Device Stats */}
