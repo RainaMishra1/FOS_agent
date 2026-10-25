@@ -34,7 +34,7 @@ interface AgentLayoutProps {
 export default function AgentLayout({ children }: AgentLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentAgent, availableAgents, switchAgent, isOnDuty, toggleDuty, stats, notification, clearNotification } = useAgent();
+  const { currentAgent, isOnDuty, toggleDuty, stats, notification, clearNotification } = useAgent();
   const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
   const isAgentAuthPage = pathname === "/agent/login" || pathname === "/agent/signup";
 
@@ -190,26 +190,6 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               </button>
               <span className="text-xs text-beige-muted font-medium">Field Agent</span>
             </div>
-
-            {/* Agent Switcher in Sidebar */}
-            {availableAgents && availableAgents.length > 0 && (
-              <div className="pt-2 border-t border-[#E6DFD3]/60">
-                <label className="text-[10px] uppercase font-bold text-beige-muted block mb-1">
-                  Active Agent
-                </label>
-                <select
-                  value={currentAgent.dbId || currentAgent.id}
-                  onChange={(e) => switchAgent(e.target.value)}
-                  className="w-full text-xs p-1.5 rounded-lg bg-[#F5F2EB] border border-[#E6DFD3] font-semibold text-beige-text focus:outline-none cursor-pointer"
-                >
-                  {availableAgents.map((ag) => (
-                    <option key={ag.dbId || ag.id} value={ag.dbId || ag.id}>
-                      {ag.name} ({ag.agentCode || ag.id.slice(0, 4)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Navigation Links */}
@@ -303,26 +283,15 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             </div>
           </div>
 
-          {/* Right Header: Agent Selector + Date + Duty Toggle + Logout */}
+          {/* Right Header: Verified Agent Badge + Date + Duty Toggle + Logout */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Agent Profile Selector Dropdown */}
-            {availableAgents && availableAgents.length > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-semibold text-beige-text shadow-2xs">
-                <User className="w-3.5 h-3.5 text-[#1E3F35] shrink-0" />
-                <select
-                  value={currentAgent.dbId || currentAgent.id}
-                  onChange={(e) => switchAgent(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-beige-text focus:outline-none cursor-pointer max-w-[110px] sm:max-w-[170px] truncate"
-                  title="Switch Field Agent"
-                >
-                  {availableAgents.map((ag) => (
-                    <option key={ag.dbId || ag.id} value={ag.dbId || ag.id}>
-                      {ag.name} ({ag.agentCode || ag.id.slice(0, 4)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Logged-in Agent Badge */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-semibold text-beige-text shadow-2xs">
+              <User className="w-3.5 h-3.5 text-[#1E3F35] shrink-0" />
+              <span className="font-bold text-xs text-beige-text truncate max-w-[130px] sm:max-w-none">
+                {agentName} ({profile?.agent_code || currentAgent.agentCode || "121"})
+              </span>
+            </div>
 
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-medium text-beige-text shadow-2xs">
               <CalendarCheck className="w-3.5 h-3.5 text-beige-muted" />

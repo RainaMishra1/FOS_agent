@@ -4,6 +4,7 @@ export type VisitStatus = "pending" | "in_progress" | "completed" | "delayed";
 export interface AgentVisit {
   id: string;
   assignmentId: string;
+  visitCode?: string;
   customerId: string;
   customerName: string;
   company?: string;

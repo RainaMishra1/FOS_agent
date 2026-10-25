@@ -968,6 +968,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         error,
         isLiveBackend,
+        loadAgentData,
         refreshAgentData: loadAgentData,
       }}
     >

@@ -384,10 +384,10 @@ export default function MapView({
   // Auto-pan & zoom when selectedAgentId changes
   useEffect(() => {
     if (!selectedAgentId || !mapInstanceRef.current) return;
-    const target = agents.find((a) => a.id === selectedAgentId);
+    const target = agents.find((a) => a.id === selectedAgentId || a.agent_code === selectedAgentId);
     if (target && target.current_latitude !== null && target.current_longitude !== null) {
       setSelectedAgent(target);
-      mapInstanceRef.current.setView([target.current_latitude, target.current_longitude], 14, {
+      mapInstanceRef.current.setView([target.current_latitude, target.current_longitude], 15, {
         animate: true,
       });
       const marker = markerMapRef.current.get(target.id);

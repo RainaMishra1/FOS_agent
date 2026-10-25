@@ -29,8 +29,6 @@ import {
 export default function AgentProfilePage() {
   const {
     currentAgent,
-    availableAgents,
-    switchAgent,
     isOnDuty,
     toggleDuty,
     resetDemoData,
@@ -137,28 +135,17 @@ export default function AgentProfilePage() {
           </div>
         </div>
 
-        {/* Active Field Agent Switcher */}
-        <div className="p-3.5 rounded-xl bg-beige-sand/30 border border-beige-border space-y-2">
-          <label className="text-xs font-bold text-beige-text flex items-center justify-between">
+        {/* Verified Field Agent Session Info */}
+        <div className="p-3.5 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1.5">
+          <div className="flex items-center justify-between text-[#1E3F35] font-bold text-xs">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-beige-olive" />
-              Switch Active Field Agent
+              <ShieldCheck className="w-3.5 h-3.5 text-[#1E3F35]" />
+              Verified Field Agent Session
             </span>
-            <span className="text-[10px] text-beige-muted font-normal">{availableAgents.length} live agents in database</span>
-          </label>
-          <select
-            value={currentAgent.dbId || currentAgent.id}
-            onChange={(e) => switchAgent(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-xl bg-beige-card border border-beige-border text-beige-text focus:outline-hidden focus:ring-2 focus:ring-beige-terracotta/40 font-medium"
-          >
-            {availableAgents.map((ag) => (
-              <option key={ag.dbId || ag.id} value={ag.dbId || ag.id}>
-                {ag.name} ({ag.agentCode || ag.id.slice(0, 4)}) — {ag.territory} [{ag.status || "active"}]
-              </option>
-            ))}
-          </select>
-          <p className="text-[10px] text-beige-muted">
-            Active Agent UUID: <code className="font-mono text-beige-text">{currentAgent.dbId || currentAgent.id}</code>. Selecting an agent loads their real-time scheduled stops, route geometry, and duty status.
+            <span className="text-[10px] font-semibold text-beige-muted">Role: Field Agent</span>
+          </div>
+          <p className="text-[11px] text-beige-muted">
+            Authenticated as <strong className="text-beige-text">{currentAgent.name}</strong> (Agent ID: <code className="font-mono text-beige-text">{currentAgent.agentCode || "121"}</code>). All assigned customer visits, road route geometry, and GPS check-ins are strictly scoped to your verified login credentials.
           </p>
         </div>
       </div>

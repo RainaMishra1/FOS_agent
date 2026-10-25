@@ -15,8 +15,6 @@ import {
   LocateFixed,
   ExternalLink,
   X,
-  Play,
-  Pause,
   ListOrdered,
   ShieldCheck,
   Zap,
@@ -97,11 +95,6 @@ export default function AgentRoadRouteMap({
   const [ready, setReady] = useState(false);
   const [showStepsDrawer, setShowStepsDrawer] = useState(false);
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
-  const [isSimulating, setIsSimulating] = useState(true);
-
-  // Active navigation progress state
-  const [simIndex, setSimIndex] = useState(0);
-  const [currentBearing, setCurrentBearing] = useState(0);
   const [userPannedAway, setUserPannedAway] = useState(false);
 
   // Load Leaflet dynamically
@@ -141,16 +134,20 @@ export default function AgentRoadRouteMap({
     return geometry.map(([lon, lat]) => [lat, lon]);
   }, [geometry]);
 
-  // Current active navigation position
+  // Current active navigation position (stays at agent's real GPS position)
   const currentPos = useMemo<[number, number]>(() => {
-    if (isNavigating && routeLatLngs.length > 0) {
-      const idx = Math.min(simIndex, routeLatLngs.length - 1);
-      return routeLatLngs[idx];
-    }
     if (origin) return [origin.latitude, origin.longitude];
     if (routeLatLngs.length > 0) return routeLatLngs[0];
     return [19.2403, 73.1305]; // Kalyan default
-  }, [isNavigating, routeLatLngs, simIndex, origin]);
+  }, [origin, routeLatLngs]);
+
+  // Bearing towards next road segment
+  const currentBearing = useMemo(() => {
+    if (routeLatLngs.length >= 2) {
+      return calculateBearing(routeLatLngs[0][0], routeLatLngs[0][1], routeLatLngs[1][0], routeLatLngs[1][1]);
+    }
+    return 0;
+  }, [routeLatLngs]);
 
   // Derived turn-by-turn steps from OSRM or synthesized from route coordinates
   const navigationSteps = useMemo(() => {
@@ -211,35 +208,34 @@ export default function AgentRoadRouteMap({
     return [];
   }, [legs, activeDestinationStop]);
 
-  // Current maneuver based on simulation progress
+  // Current maneuver based on active route
   const currentStep = useMemo(() => {
     if (!navigationSteps.length) return null;
-    const progressPct = routeLatLngs.length > 1 ? simIndex / (routeLatLngs.length - 1) : 0;
-    const stepIdx = Math.min(Math.floor(progressPct * navigationSteps.length), navigationSteps.length - 1);
-    return navigationSteps[stepIdx];
-  }, [navigationSteps, simIndex, routeLatLngs.length]);
+    return navigationSteps[0];
+  }, [navigationSteps]);
 
   const nextStep = useMemo(() => {
-    if (!navigationSteps.length) return null;
-    const progressPct = routeLatLngs.length > 1 ? simIndex / (routeLatLngs.length - 1) : 0;
-    const stepIdx = Math.min(Math.floor(progressPct * navigationSteps.length) + 1, navigationSteps.length - 1);
-    return navigationSteps[stepIdx] || null;
-  }, [navigationSteps, simIndex, routeLatLngs.length]);
+    if (navigationSteps.length < 2) return null;
+    return navigationSteps[1];
+  }, [navigationSteps]);
 
-  // Calculate remaining distance and ETA
+  // Calculate remaining distance and ETA to destination
   const remainingDistanceMeters = useMemo(() => {
+    if (legs && legs.length > 0 && legs[0].distance) {
+      return legs[0].distance;
+    }
     if (routeLatLngs.length > 1) {
       let dist = 0;
-      for (let i = simIndex; i < routeLatLngs.length - 1; i++) {
+      for (let i = 0; i < routeLatLngs.length - 1; i++) {
         dist += distanceMeters(routeLatLngs[i][0], routeLatLngs[i][1], routeLatLngs[i + 1][0], routeLatLngs[i + 1][1]);
       }
-      return Math.max(dist, 20);
+      return dist;
     }
     if (activeDestinationStop?.distance_meters) {
       return activeDestinationStop.distance_meters;
     }
     return 0;
-  }, [routeLatLngs, simIndex, activeDestinationStop]);
+  }, [legs, routeLatLngs, activeDestinationStop]);
 
   const remainingSeconds = useMemo(() => {
     if (remainingDistanceMeters <= 0) return 0;
@@ -252,37 +248,37 @@ export default function AgentRoadRouteMap({
     return etaDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }, [remainingSeconds]);
 
-  // Reset simulation when starting navigation
+  // Invalidate map size when toggling navigation mode or container size changes
   useEffect(() => {
-    if (isNavigating) {
-      setSimIndex(0);
-      setUserPannedAway(false);
-    }
+    if (!instanceRef.current) return;
+    instanceRef.current.invalidateSize();
+    const t1 = setTimeout(() => instanceRef.current?.invalidateSize(), 60);
+    const t2 = setTimeout(() => instanceRef.current?.invalidateSize(), 350);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [isNavigating]);
 
-  // Navigation driving simulation interval
+  // Dedicated effect for vehicle position update when GPS changes (NO auto-moving)
   useEffect(() => {
-    if (!isNavigating || !isSimulating || routeLatLngs.length < 2) return;
+    if (!ready || !vehicleMarkerRef.current) return;
+    vehicleMarkerRef.current.setLatLng(currentPos);
+  }, [ready, currentPos]);
 
-    const timer = setInterval(() => {
-      setSimIndex((prev) => {
-        if (prev >= routeLatLngs.length - 1) {
-          return prev; // Reached end of destination
-        }
-        const next = prev + 1;
-        // Calculate bearing between current and next coordinate
-        const p1 = routeLatLngs[prev];
-        const p2 = routeLatLngs[next];
-        const b = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
-        setCurrentBearing(b);
-        return next;
-      });
-    }, 1400);
+  // Dedicated effect for vehicle arrow bearing rotation
+  useEffect(() => {
+    if (!vehicleMarkerRef.current) return;
+    const el = vehicleMarkerRef.current.getElement();
+    if (el) {
+      const arrow = el.querySelector(".vehicle-arrow") as HTMLElement | null;
+      if (arrow) {
+        arrow.style.transform = `rotate(${currentBearing}deg)`;
+      }
+    }
+  }, [currentBearing]);
 
-    return () => clearInterval(timer);
-  }, [isNavigating, isSimulating, routeLatLngs]);
-
-  // Initialize and update Leaflet Map
+  // Initialize and update static map layers (stops, routes, camera bounds)
   useEffect(() => {
     const L = (window as any).L;
     if (!ready || !L || !mapRef.current) return;
@@ -315,14 +311,16 @@ export default function AgentRoadRouteMap({
       if (stop.customer_latitude == null || stop.customer_longitude == null) return;
       const pos: [number, number] = [stop.customer_latitude, stop.customer_longitude];
       const isSelected = selectedStopId === stop.id;
+      const isDestination = isNavigating && activeDestinationStop?.id === stop.id;
       const isNearest = Boolean(stop.is_nearest);
       const isDone = stop.status === "completed";
       const isInProgress = stop.status === "in_progress";
 
-      const bg = isSelected ? "#1E3F35" : isNearest ? "#2D6A4F" : isDone ? "#40916C" : isInProgress ? "#1E3F35" : "#6B7280";
-      const border = isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #EAF2EC" : "2px solid #ffffff";
+      const bg = isDestination ? "#1E3F35" : isSelected ? "#1E3F35" : isNearest ? "#2D6A4F" : isDone ? "#40916C" : isInProgress ? "#1E3F35" : "#6B7280";
+      const border = isDestination ? "3px solid #F59E0B" : isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #EAF2EC" : "2px solid #ffffff";
       const stopBadge = stop.order_index ?? index + 1;
-      const labelText = isNearest ? `★ ${stopBadge}` : `${stopBadge}`;
+      const labelText = isDestination ? "🎯" : isNearest ? `★ ${stopBadge}` : `${stopBadge}`;
+      const opacityStyle = isNavigating && !isDestination ? "opacity: 0.5; transform: scale(0.85);" : "";
 
       const customIcon = L.divIcon({
         className: "custom-task-marker",
@@ -330,33 +328,38 @@ export default function AgentRoadRouteMap({
           <div style="
             background: ${bg};
             color: #ffffff;
-            width: 32px;
-            height: 32px;
+            width: ${isDestination ? "38px" : "32px"};
+            height: ${isDestination ? "38px" : "32px"};
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 11px;
+            font-size: ${isDestination ? "14px" : "11px"};
             font-weight: 700;
             border: ${border};
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
             transition: all 0.2s ease;
+            ${opacityStyle}
           ">
             ${labelText}
           </div>
         `,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
+        iconSize: isDestination ? [38, 38] : [32, 32],
+        iconAnchor: isDestination ? [19, 19] : [16, 16],
       });
 
-      const marker = L.marker(pos, { icon: customIcon, zIndexOffset: isSelected ? 1000 : 500 });
+      const marker = L.marker(pos, { icon: customIcon, zIndexOffset: isDestination ? 1500 : isSelected ? 1000 : 500 });
       marker.bindTooltip(
         `<div style="font-size: 11px; font-weight: 600;">${stop.customer_name || "Customer Site"}<br/><span style="color: #666; font-weight: normal;">${stop.customer_address || ""}</span></div>`,
         { direction: "top" }
       );
       marker.on("click", () => onSelectStop?.(stop));
       marker.addTo(layer);
-      bounds.push(pos);
+
+      // In navigation mode, only add destination to camera bounds
+      if (!isNavigating) {
+        bounds.push(pos);
+      }
     });
 
     // 2. Draw Polyline Route
@@ -365,14 +368,14 @@ export default function AgentRoadRouteMap({
       L.polyline(routeLatLngs, {
         color: "#1E3F35",
         weight: isNavigating ? 8 : 6,
-        opacity: isNavigating ? 0.3 : 0.2,
+        opacity: isNavigating ? 0.35 : 0.2,
         lineCap: "round",
         lineJoin: "round",
       }).addTo(layer);
 
       // Main active navigation polyline
       L.polyline(routeLatLngs, {
-        color: "#2D6A4F",
+        color: isNavigating ? "#10B981" : "#2D6A4F",
         weight: isNavigating ? 6 : 4,
         opacity: 0.95,
         lineCap: "round",
@@ -385,7 +388,7 @@ export default function AgentRoadRouteMap({
       ? `
         <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;">
           <div style="position: absolute; inset: 0; background: rgba(30, 63, 53, 0.25); border-radius: 50%; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-          <div style="
+          <div class="vehicle-arrow" style="
             background: #1E3F35;
             color: #ffffff;
             width: 36px;
@@ -397,7 +400,7 @@ export default function AgentRoadRouteMap({
             border: 3px solid #ffffff;
             box-shadow: 0 4px 14px rgba(0,0,0,0.4);
             transform: rotate(${currentBearing}deg);
-            transition: transform 0.4s ease;
+            transition: transform 0.3s ease;
           ">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="#ffffff" stroke="#ffffff" stroke-width="1">
               <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
@@ -437,18 +440,33 @@ export default function AgentRoadRouteMap({
       title: "Your GPS Vehicle Position",
     }).addTo(layer);
 
-    bounds.push(currentPos);
-
-    // Camera Framing
+    // Camera bounds framing
     if (isNavigating) {
+      const navBounds: [number, number][] = [currentPos];
+      if (activeDestinationStop?.customer_latitude != null && activeDestinationStop?.customer_longitude != null) {
+        navBounds.push([activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude]);
+      }
+      if (routeLatLngs.length > 0) {
+        const start = Math.max(0, simIndex);
+        const end = Math.min(routeLatLngs.length, simIndex + 12);
+        for (let i = start; i < end; i++) {
+          navBounds.push(routeLatLngs[i]);
+        }
+      }
+
       if (!userPannedAway) {
-        if (bounds.length > 1) {
-          map.fitBounds(L.latLngBounds(bounds), { padding: [60, 60], maxZoom: 16 });
+        if (navBounds.length > 1) {
+          map.fitBounds(L.latLngBounds(navBounds), {
+            paddingTopLeft: [70, 30],
+            paddingBottomRight: [120, 30],
+            maxZoom: 16,
+          });
         } else {
           map.setView(currentPos, 16, { animate: true });
         }
       }
     } else {
+      bounds.push(currentPos);
       if (bounds.length > 1) {
         map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 15 });
       } else if (bounds.length === 1) {
@@ -457,7 +475,7 @@ export default function AgentRoadRouteMap({
     }
 
     setTimeout(() => map.invalidateSize(), 150);
-  }, [ready, stops, routeLatLngs, isNavigating, currentPos, currentBearing, selectedStopId, userPannedAway]);
+  }, [ready, stops, routeLatLngs, isNavigating, selectedStopId, activeDestinationStop?.id]);
 
   const handleRecenter = () => {
     setUserPannedAway(false);
@@ -549,16 +567,6 @@ export default function AgentRoadRouteMap({
               <ListOrdered className="w-5 h-5 text-[#1E3F35]" />
             </button>
 
-            {/* Simulation Pause/Play Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsSimulating(!isSimulating)}
-              className="w-10 h-10 rounded-xl bg-white border border-[#E6DFD3] text-[#1E3F35] shadow-lg flex items-center justify-center hover:bg-[#F9F7F2] transition cursor-pointer"
-              title={isSimulating ? "Pause driving simulation" : "Resume driving simulation"}
-            >
-              {isSimulating ? <Pause className="w-4 h-4 text-[#1E3F35]" /> : <Play className="w-4 h-4 text-[#1E3F35]" />}
-            </button>
-
             {/* Open directly in Google Maps Mobile / Web */}
             <a
               href={googleMapsUrl}
@@ -616,14 +624,15 @@ export default function AgentRoadRouteMap({
                 </div>
               </div>
 
-              {/* Progress bar along route */}
-              <div className="mt-3 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-[#1E3F35] h-1.5 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${routeLatLngs.length > 1 ? Math.min(100, Math.round((simIndex / (routeLatLngs.length - 1)) * 100)) : 0}%`,
-                  }}
-                />
+              {/* Route status bar */}
+              <div className="mt-2.5 pt-2 border-t border-[#E6DFD3]/60 flex items-center justify-between text-[11px] text-beige-muted">
+                <span className="flex items-center gap-1.5 font-medium text-[#1E3F35]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#1E3F35] animate-pulse" />
+                  Live GPS Route
+                </span>
+                <span className="truncate max-w-[200px]">
+                  {activeDestinationStop?.customer_address || "En route"}
+                </span>
               </div>
             </div>
           </div>

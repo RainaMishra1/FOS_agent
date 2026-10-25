@@ -79,6 +79,9 @@ function AgentRoutePageContent() {
   const [selectedForDrawer, setSelectedForDrawer] = useState<AgentVisit | null>(null);
   const [completeVisit, setCompleteVisit] = useState<AgentVisit | null>(null);
 
+  const lastRoutedLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastRoutedTargetRef = useRef<string | null>(null);
+
   // Watch device GPS in real time only if on duty
   useEffect(() => {
     if (!isOnDuty) return;
@@ -465,6 +468,7 @@ function AgentRoutePageContent() {
   const toAgentVisit = (v: AgentRouteData["stops"][number]): AgentVisit => ({
     id: v.id,
     assignmentId: v.visit_code || v.id.slice(0, 8),
+    visitCode: v.visit_code || v.id.slice(0, 8),
     customerId: v.customer_id,
     customerName: v.customer_name || "Customer Site",
     company: v.customer_company || undefined,
