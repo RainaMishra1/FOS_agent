@@ -8,7 +8,6 @@ import { useAuth } from "@/context/AuthContext";
 import {
   User,
   Power,
-  Battery,
   ShieldCheck,
   Phone,
   Mail,
@@ -145,7 +144,7 @@ export default function AgentProfilePage() {
             <span className="text-[10px] font-semibold text-beige-muted">Role: Field Agent</span>
           </div>
           <p className="text-[11px] text-beige-muted">
-            Authenticated as <strong className="text-beige-text">{currentAgent.name}</strong> (Agent ID: <code className="font-mono text-beige-text">{currentAgent.agentCode || "121"}</code>). All assigned customer visits, road route geometry, and GPS check-ins are strictly scoped to your verified login credentials.
+            Authenticated as <strong className="text-beige-text">{currentAgent.name}</strong> (Agent ID: <code className="font-mono text-beige-text">{currentAgent.agentCode || (currentAgent.id ? currentAgent.id.slice(0, 8) : "Active")}</code>). All assigned customer visits, road route geometry, and GPS check-ins are strictly scoped to your verified login credentials.
           </p>
         </div>
       </div>
@@ -160,13 +159,13 @@ export default function AgentProfilePage() {
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="p-3 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1">
             <div className="flex items-center justify-between text-beige-muted">
-              <span className="text-[10px]">Battery Health</span>
-              <Battery className="w-3.5 h-3.5 text-beige-olive" />
+              <span className="text-[10px]">GPS Telemetry</span>
+              <Compass className="w-3.5 h-3.5 text-beige-olive" />
             </div>
             <strong className="text-sm font-bold text-beige-text">
-              {currentAgent.batteryLevel}% Charged
+              Live Satellite Fix
             </strong>
-            <p className="text-[10px] text-beige-muted">Normal power mode</p>
+            <p className="text-[10px] text-beige-olive font-medium">Real-time GPS Active</p>
           </div>
 
           <div className="p-3 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1">

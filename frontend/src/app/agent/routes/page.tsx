@@ -182,7 +182,7 @@ function AgentRoutePageContent() {
               return {
                 id: v.id,
                 customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.id || "121",
+                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
                 visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
                 customer_name: v.customerName,
                 customer_company: v.company,
@@ -208,7 +208,7 @@ function AgentRoutePageContent() {
               return {
                 id: v.id,
                 customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.id || "121",
+                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
                 visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
                 customer_name: v.customerName,
                 customer_company: v.company,

@@ -20,7 +20,6 @@ import {
   Phone,
   Mail,
   Clock,
-  Battery,
   RefreshCw,
   AlertTriangle,
   Radio,
@@ -665,22 +664,12 @@ export default function MapView({
             </p>
           </div>
 
-          {/* Metadata Grid */}
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="p-2 rounded-xl bg-beige-bg border border-beige-border/60">
-              <span className="text-[10px] text-beige-muted block">Battery</span>
-              <div className="flex items-center gap-1 text-beige-text font-mono font-semibold mt-0.5">
-                <Battery className="w-3 h-3 text-emerald-600" />
-                <span>{selectedAgent.battery_level == null ? "Unknown" : `${selectedAgent.battery_level}%`}</span>
-              </div>
-            </div>
-
-            <div className="p-2 rounded-xl bg-beige-bg border border-beige-border/60">
-              <span className="text-[10px] text-beige-muted block">Tasks / Visits</span>
-              <span className="text-beige-text font-mono font-semibold mt-0.5 block">
-                {selectedAgent.completed_visits} / {selectedAgent.assigned_tasks}
-              </span>
-            </div>
+          {/* Metadata */}
+          <div className="p-2 rounded-xl bg-beige-bg border border-beige-border/60 flex items-center justify-between text-[11px]">
+            <span className="text-[10px] text-beige-muted block">Tasks / Visits</span>
+            <span className="text-beige-text font-mono font-semibold block">
+              {selectedAgent.completed_visits} / {selectedAgent.assigned_tasks}
+            </span>
           </div>
 
           {/* Contact Details */}

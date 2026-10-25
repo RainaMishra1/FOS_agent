@@ -43,15 +43,17 @@ export default function AgentLocationSection() {
 
     // 2. Sync to Supabase agents table
     try {
-      const code = currentAgentRef.current?.id || "121";
-      await supabase
-        .from("agents")
-        .update({
-          current_latitude: lat,
-          current_longitude: lng,
-          last_location_update: new Date().toISOString(),
-        })
-        .or(`agent_code.eq.${code},id.eq.${code}`);
+      const code = currentAgentRef.current?.dbId || currentAgentRef.current?.id || currentAgentRef.current?.agentCode;
+      if (code) {
+        await supabase
+          .from("agents")
+          .update({
+            current_latitude: lat,
+            current_longitude: lng,
+            last_location_update: new Date().toISOString(),
+          })
+          .or(`agent_code.eq.${code},id.eq.${code}`);
+      }
     } catch {
       // ignore
     }

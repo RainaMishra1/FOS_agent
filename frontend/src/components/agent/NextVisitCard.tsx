@@ -204,9 +204,9 @@ export default function NextVisitCard({
         <div className="w-12 h-12 rounded-full bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center shadow-2xs">
           <CheckCircle2 className="w-6 h-6" />
         </div>
-        <h4 className="text-base font-bold text-beige-text">All Scheduled Visits Completed!</h4>
+        <h4 className="text-base font-bold text-beige-text">No Pending Visits Scheduled</h4>
         <p className="text-xs text-beige-muted max-w-md mx-auto">
-          You have completed all assigned visits for today. Great job! Check back later for new route dispatches.
+          You currently have no pending tasks assigned for today. When new visits are dispatched to you by operations, they will appear here.
         </p>
       </div>
     );

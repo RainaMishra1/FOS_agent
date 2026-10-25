@@ -4,15 +4,15 @@ import React, { createContext, useContext, useState, useMemo, useEffect, useCall
 import { AgentProfile, AgentVisit } from "@/types/agent";
 
 const defaultAgentProfile: AgentProfile = {
-  id: "AGT-121",
-  name: "Raina Mishra",
-  initials: "RM",
+  id: "",
+  name: "Field Agent",
+  initials: "FA",
   role: "Field Operations Specialist",
   status: "active",
-  email: "rainamishra00023@gmail.com",
-  phone: "+91 98800 12345",
+  email: "",
+  phone: "",
   territory: "Mumbai Zone",
-  batteryLevel: 92,
+  batteryLevel: 90,
   shiftHours: "09:00 - 18:00 IST",
   currentCoordinates: {
     lat: 19.21899,
@@ -241,30 +241,91 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
 
     if (identifier) {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
-      let agentRowQuery = supabase
-        .from("agents")
-        .select(`
-          id,
-          agent_code,
-          territory,
-          status,
-          current_latitude,
-          current_longitude,
-          battery_level,
-          profiles (
-            full_name,
-            email,
-            phone
-          )
-        `);
+      let agentRow: any = null;
 
       if (isUuid) {
-        agentRowQuery = agentRowQuery.or(`id.eq.${identifier},profile_id.eq.${identifier}`);
+        const { data } = await supabase
+          .from("agents")
+          .select(`
+            id,
+            agent_code,
+            territory,
+            status,
+            current_latitude,
+            current_longitude,
+            profiles (
+              id,
+              full_name,
+              email,
+              phone
+            )
+          `)
+          .or(`id.eq.${identifier},profile_id.eq.${identifier}`)
+          .maybeSingle();
+        agentRow = data;
       } else {
-        agentRowQuery = agentRowQuery.eq("agent_code", identifier);
+        const { data } = await supabase
+          .from("agents")
+          .select(`
+            id,
+            agent_code,
+            territory,
+            status,
+            current_latitude,
+            current_longitude,
+            profiles (
+              id,
+              full_name,
+              email,
+              phone
+            )
+          `)
+          .eq("agent_code", identifier)
+          .maybeSingle();
+        agentRow = data;
       }
 
-      const { data: agentRow } = await agentRowQuery.maybeSingle();
+      // If not resolved directly, lookup profiles by auth_user_id or id or email
+      if (!agentRow && (isUuid || identifier.includes("@"))) {
+        let profQuery = supabase
+          .from("profiles")
+          .select(`
+            id,
+            full_name,
+            email,
+            phone,
+            agents (
+              id,
+              agent_code,
+              status,
+              territory,
+              current_latitude,
+              current_longitude
+            )
+          `);
+
+        if (isUuid) {
+          profQuery = profQuery.or(`id.eq.${identifier},auth_user_id.eq.${identifier}`);
+        } else {
+          profQuery = profQuery.eq("email", identifier.toLowerCase());
+        }
+
+        const { data: profData } = await profQuery.maybeSingle();
+        if (profData) {
+          const linkedAgent = Array.isArray(profData.agents) ? profData.agents[0] : profData.agents;
+          if (linkedAgent) {
+            agentRow = {
+              ...linkedAgent,
+              profiles: {
+                id: profData.id,
+                full_name: profData.full_name,
+                email: profData.email,
+                phone: profData.phone,
+              },
+            };
+          }
+        }
+      }
 
       if (agentRow) {
         targetAgentId = agentRow.id;
@@ -278,7 +339,6 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
           email: prof.email || "agent@fos.internal",
           phone: prof.phone || "+91 98800 12345",
           territory: agentRow.territory || "Mumbai, Maharashtra",
-          batteryLevel: agentRow.battery_level ?? 90,
           currentCoordinates: {
             lat: Number(agentRow.current_latitude) || 19.21899,
             lng: Number(agentRow.current_longitude) || 73.14008,
@@ -287,45 +347,16 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
       }
     }
 
-    if (!targetAgentId && !identifier) {
-      const { data: anyAgent } = await supabase
-        .from("agents")
-        .select(`
-          id,
-          agent_code,
-          territory,
-          status,
-          current_latitude,
-          current_longitude,
-          battery_level,
-          profiles (
-            full_name,
-            email,
-            phone
-          )
-        `)
-        .limit(1)
-        .maybeSingle();
-
-      if (anyAgent) {
-        targetAgentId = anyAgent.id;
-        const prof = (anyAgent as any).profiles || {};
-        agentProfileData = {
-          id: anyAgent.id,
-          dbId: anyAgent.id,
-          agentCode: anyAgent.agent_code || "AGT-121",
-          name: prof.full_name || `Agent ${anyAgent.agent_code || "121"}`,
-          status: anyAgent.status || "active",
-          territory: anyAgent.territory || "Mumbai, Maharashtra",
-          currentCoordinates: {
-            lat: Number(anyAgent.current_latitude) || 19.21899,
-            lng: Number(anyAgent.current_longitude) || 73.14008,
-          },
-        };
-      }
+    // Strictly scope visits: If no agent is matched, return empty visits (never expose other agents' visits)
+    if (!targetAgentId) {
+      return {
+        visits: [],
+        history: [],
+        agentProfile: agentProfileData,
+      };
     }
 
-    let query = supabase
+    const { data: dbVisits } = await supabase
       .from("visits")
       .select(`
         id,
@@ -349,45 +380,9 @@ async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
           phone,
           notes
         )
-      `);
-
-    if (targetAgentId) {
-      query = query.eq("agent_id", targetAgentId);
-    }
-
-    let { data: dbVisits } = await query.order("order_index", { ascending: true });
-
-    // Only if no target agent was identified at all do we query generic visits
-    if (!targetAgentId && (!dbVisits || dbVisits.length === 0)) {
-      const allQuery = await supabase
-        .from("visits")
-        .select(`
-          id,
-          visit_code,
-          agent_id,
-          scheduled_date,
-          scheduled_time,
-          status,
-          geofence_verified,
-          purpose,
-          order_index,
-          completion_notes,
-          customer_id,
-          customers (
-            id,
-            name,
-            company,
-            address,
-            latitude,
-            longitude,
-            phone,
-            notes
-          )
-        `)
-        .order("order_index", { ascending: true })
-        .limit(10);
-      dbVisits = allQuery.data;
-    }
+      `)
+      .eq("agent_id", targetAgentId)
+      .order("order_index", { ascending: true });
 
     if (!dbVisits) {
       return {
@@ -474,15 +469,19 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   // Sync profile details from authenticated user
   useEffect(() => {
-    if (profile?.full_name || profile?.email) {
+    if (profile) {
       const name = profile.full_name || "Field Agent";
       const parts = name.trim().split(" ");
       const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.slice(0, 2).toUpperCase();
       setCurrentAgent((prev) => ({
         ...prev,
+        id: profile.agent_id || profile.id || prev.id,
+        dbId: profile.agent_id,
+        agentCode: profile.agent_code,
         name,
         email: profile.email || prev.email,
         initials,
+        territory: profile.territory || prev.territory,
       }));
     }
   }, [profile]);
@@ -548,7 +547,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       if (showLoader) setIsLoading(true);
       setError(null);
 
-      const targetIdentifier = overrideAgentId || currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || session?.user?.id;
+      const targetIdentifier =
+        overrideAgentId ||
+        profile?.agent_id ||
+        profile?.id ||
+        session?.user?.id ||
+        currentAgent?.dbId ||
+        (currentAgent?.id && currentAgent.id !== "AGT-121" ? currentAgent.id : undefined);
 
       // Priority 1: Query live Supabase database directly (immediate & 100% real)
       try {
@@ -668,11 +673,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Non-blocking direct Supabase background sync
     try {
-      const code = currentAgent?.id || "121";
-      await supabase
-        .from("agents")
-        .update({ status: nextStatus })
-        .or(`agent_code.eq.${code},id.eq.${code}`);
+      const code = currentAgent?.dbId || currentAgent?.id || currentAgent?.agentCode;
+      if (code) {
+        await supabase
+          .from("agents")
+          .update({ status: nextStatus })
+          .or(`agent_code.eq.${code},id.eq.${code}`);
+      }
     } catch {
       // ignore
     }

@@ -253,7 +253,7 @@ export default function AgentDashboardPage() {
             <Route className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Routes</span>
-          <span className="text-[10px] text-beige-muted">{visits.length || 3} stops ordered</span>
+          <span className="text-[10px] text-beige-muted">{visits.length} stops ordered</span>
         </Link>
 
         <Link
@@ -286,7 +286,7 @@ export default function AgentDashboardPage() {
             <ShieldCheck className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Profile</span>
-          <span className="text-[10px] text-beige-muted">Battery &amp; stats</span>
+          <span className="text-[10px] text-beige-muted">Settings &amp; stats</span>
         </Link>
       </section>
 

@@ -13,7 +13,6 @@ import {
   History,
   User,
   Power,
-  Battery,
   ShieldCheck,
   ChevronRight,
   ExternalLink,
@@ -85,7 +84,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
 
   const navItems = [
     { name: "Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
-    { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 3 },
+    { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 0 },
     { name: "My Routes", href: "/agent/routes", icon: Route },
     { name: "Visit History", href: "/agent/history", icon: History },
     { name: "My Profile", href: "/agent/profile", icon: User },
@@ -168,7 +167,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                     {agentName}
                   </span>
                   <span className="text-[10px] text-beige-muted block">
-                    Agent ID: {profile?.agent_code || currentAgent.id}
+                    Agent ID: {profile?.agent_code || currentAgent.agentCode || (profile?.id ? profile.id.slice(0, 8) : "Active")}
                   </span>
                 </div>
               </div>
@@ -238,20 +237,6 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
 
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 text-beige-muted">
-                <Battery className="w-4 h-4 text-beige-muted" />
-                <span className="text-[11px]">Battery</span>
-                <span className="font-bold text-beige-text text-xs">{currentAgent.batteryLevel || 100}%</span>
-              </div>
-              <div className="w-14 h-2 bg-[#E6DFD3] rounded-full overflow-hidden">
-                <div
-                  className="bg-[#1E3F35] h-full rounded-full transition-all"
-                  style={{ width: `${currentAgent.batteryLevel || 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs pt-1 border-t border-[#E6DFD3]/60">
-              <div className="flex items-center gap-2 text-beige-muted">
                 <ShieldCheck className="w-4 h-4 text-beige-muted" />
                 <span className="text-[11px]">Geofence Status</span>
               </div>
@@ -289,7 +274,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-semibold text-beige-text shadow-2xs">
               <User className="w-3.5 h-3.5 text-[#1E3F35] shrink-0" />
               <span className="font-bold text-xs text-beige-text truncate max-w-[130px] sm:max-w-none">
-                {agentName} ({profile?.agent_code || currentAgent.agentCode || "121"})
+                {agentName} ({profile?.agent_code || currentAgent.agentCode || (profile?.id ? profile.id.slice(0, 8) : "Active")})
               </span>
             </div>
 

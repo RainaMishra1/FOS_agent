@@ -104,15 +104,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (dbProfile) {
         const agentData = Array.isArray(dbProfile.agent) ? dbProfile.agent[0] : dbProfile.agent;
         const resolvedRole: UserRole = dbProfile.role === "admin" ? "admin" : "agent";
+        
+        let agentId = agentData?.id;
+        let agentCode = agentData?.agent_code;
+        let agentStatus = agentData?.status;
+        let agentTerritory = agentData?.territory;
+
+        if (!agentId && resolvedRole === "agent") {
+          const { data: agRow } = await supabase
+            .from("agents")
+            .select("id, agent_code, status, territory")
+            .eq("profile_id", dbProfile.id)
+            .maybeSingle();
+
+          if (agRow) {
+            agentId = agRow.id;
+            agentCode = agRow.agent_code;
+            agentStatus = agRow.status;
+            agentTerritory = agRow.territory;
+          } else {
+            const empCode = currentSession.user.user_metadata?.employee_id || `AGT-${(dbProfile.email || "AG").split("@")[0].slice(0, 4).toUpperCase()}`;
+            const { data: newAg } = await supabase
+              .from("agents")
+              .insert({
+                profile_id: dbProfile.id,
+                agent_code: empCode,
+                territory: "Mumbai Zone",
+                status: "active",
+                current_latitude: 19.21899,
+                current_longitude: 73.14008,
+              })
+              .select("id, agent_code, status, territory")
+              .maybeSingle();
+
+            if (newAg) {
+              agentId = newAg.id;
+              agentCode = newAg.agent_code;
+              agentStatus = newAg.status;
+              agentTerritory = newAg.territory;
+            }
+          }
+        }
+
         const loadedProfile: UserProfile = {
           id: dbProfile.id,
           email: dbProfile.email || email,
           full_name: dbProfile.full_name || currentSession.user.user_metadata?.full_name || email.split("@")[0] || (resolvedRole === "admin" ? "Operations Admin" : "Field Agent"),
           role: resolvedRole,
-          agent_id: agentData?.id,
-          agent_code: agentData?.agent_code,
-          agent_status: agentData?.status,
-          territory: agentData?.territory,
+          agent_id: agentId,
+          agent_code: agentCode,
+          agent_status: agentStatus,
+          territory: agentTerritory,
         };
         setProfile(loadedProfile);
         setRole(resolvedRole);
@@ -124,19 +166,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 3. Resilient profile fallback so valid user is never discarded
     const metaRole = currentSession.user.user_metadata?.role;
-    const isExplicitAdmin = metaRole === "admin" || email === "rishabmishra075@gmail.com" || email === "rishabhmishra075@gmail.com" || email.includes("admin");
-    const isExplicitAgent = metaRole === "agent" || email === "rainamishra00023@gmail.com" || email.includes("agent") || email.includes("rainamishra");
+    const isExplicitAdmin = metaRole === "admin" || email.includes("admin") || email === "rishabmishra075@gmail.com";
+    const isExplicitAgent = metaRole === "agent" || !isExplicitAdmin;
     const fallbackRole: UserRole = metaRole ? (metaRole === "admin" ? "admin" : "agent") : (isExplicitAgent ? "agent" : "admin");
     const userName = currentSession.user.user_metadata?.full_name || email.split("@")[0] || (fallbackRole === "admin" ? "Operations Admin" : "Field Agent");
+    const userEmpCode = currentSession.user.user_metadata?.employee_id || (fallbackRole === "agent" ? `AGT-${email.split("@")[0].slice(0, 4).toUpperCase()}` : undefined);
+
+    let createdAgentId: string | undefined;
+    let createdAgentCode: string | undefined = userEmpCode;
+
+    if (fallbackRole === "agent") {
+      try {
+        const { data: newAg } = await supabase
+          .from("agents")
+          .insert({
+            profile_id: currentSession.user.id,
+            agent_code: userEmpCode || "AGT-FIELD",
+            territory: "Mumbai Zone",
+            status: "active",
+            current_latitude: 19.21899,
+            current_longitude: 73.14008,
+          })
+          .select("id, agent_code")
+          .maybeSingle();
+
+        if (newAg) {
+          createdAgentId = newAg.id;
+          createdAgentCode = newAg.agent_code;
+        }
+      } catch (agErr) {
+        console.warn("Could not auto-provision agent row:", agErr);
+      }
+    }
+
     const fallbackProfile: UserProfile = {
       id: currentSession.user.id,
       email: currentSession.user.email || email,
       full_name: userName,
       role: fallbackRole,
-      agent_id: fallbackRole === "agent" ? "5f926578-e5c7-40cc-ac8e-d59616be0c37" : undefined,
-      agent_code: fallbackRole === "agent" ? "121" : undefined,
+      agent_id: createdAgentId,
+      agent_code: createdAgentCode,
       agent_status: fallbackRole === "agent" ? "active" : undefined,
-      territory: fallbackRole === "agent" ? "Mumbai" : undefined,
+      territory: fallbackRole === "agent" ? "Mumbai Zone" : undefined,
     };
 
     setProfile(fallbackProfile);
@@ -257,12 +328,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // If user account is not registered in Supabase yet, attempt quick registration
         if (authError && (authError.message?.toLowerCase().includes("invalid login credentials") || authError.status === 400)) {
+          const derivedName = normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent");
           const signUpRes = await supabase.auth.signUp({
             email: normalizedEmail,
             password,
             options: {
               data: {
-                full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra",
+                full_name: derivedName,
                 role: targetRole,
               },
             },
@@ -282,12 +354,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Resilient demo/client authentication session
+    const derivedName = normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent");
     const localUser = {
       id: targetRole === "agent" ? "c53f6da2-2c6f-4d61-9388-7ca727f0dbcc" : "ac6c9f34-becc-4c84-a2d1-d99e7fa90159",
       email: normalizedEmail,
       app_metadata: { provider: "email" },
       user_metadata: { 
-        full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra", 
+        full_name: derivedName, 
         role: targetRole 
       },
       aud: "authenticated",
@@ -302,14 +375,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } as unknown as Session;
 
     const localProfile: UserProfile = {
-      id: targetRole === "agent" ? "858cbb87-4d00-4410-90c6-4aa75ad9d840" : "c142be77-b642-41a4-a184-461fd59cce04",
+      id: localUser.id,
       email: normalizedEmail,
-      full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra",
+      full_name: derivedName,
       role: targetRole,
-      agent_id: targetRole === "agent" ? "5f926578-e5c7-40cc-ac8e-d59616be0c37" : undefined,
-      agent_code: targetRole === "agent" ? "121" : undefined,
+      agent_id: targetRole === "agent" ? localUser.id : undefined,
+      agent_code: targetRole === "agent" ? `AGT-${normalizedEmail.split("@")[0].slice(0, 4).toUpperCase()}` : undefined,
       agent_status: targetRole === "agent" ? "active" : undefined,
-      territory: targetRole === "agent" ? "Mumbai" : undefined,
+      territory: targetRole === "agent" ? "Mumbai Zone" : undefined,
     };
 
     try {

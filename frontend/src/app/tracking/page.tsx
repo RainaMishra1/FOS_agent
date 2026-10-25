@@ -19,7 +19,6 @@ import {
   Navigation,
   MapPin,
   Clock,
-  Battery,
   Phone,
   Mail,
   CheckCircle2,
@@ -562,18 +561,18 @@ export default function AgentTrackingPage() {
               )}
             </div>
 
-            {/* Device & Battery Health */}
+            {/* Device & Location Source */}
             <div className="p-2.5 rounded-xl bg-beige-bg border border-beige-border/80">
               <span className="text-[10px] font-bold text-beige-muted uppercase tracking-wider block mb-1">
-                Device Telemetry
+                Location Source
               </span>
               <div className="flex items-center justify-between text-xs text-beige-text font-medium">
-                <span className="flex items-center gap-1.5">
-                  <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>{selectedAgent.battery_level ?? 90}% Battery</span>
+                <span className="flex items-center gap-1.5 text-emerald-800">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  <span>{selectedAgent.location_source === "admin_provided" ? "Admin Anchor" : "Live GPS Fix"}</span>
                 </span>
                 <span className="text-[10px] text-beige-muted">
-                  Fix: {selectedAgent.location_source === "admin_provided" ? "Admin Anchor" : "GPS Satellite"}
+                  {selectedAgent.last_location_update ? new Date(selectedAgent.last_location_update).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Active"}
                 </span>
               </div>
             </div>

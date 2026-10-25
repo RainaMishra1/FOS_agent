@@ -17,7 +17,6 @@ import {
   Mail,
   MapPin,
   Clock,
-  Battery,
   Shield,
   X,
   ExternalLink,
@@ -370,7 +369,6 @@ export default function AgentsPage() {
                 <th className="py-3 px-4">Representative</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Territory</th>
-                <th className="py-3 px-4">Battery</th>
                 <th className="py-3 px-4">Visits Progress</th>
                 <th className="py-3 px-4">Location &amp; Coordinates</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -379,14 +377,14 @@ export default function AgentsPage() {
             <tbody className="divide-y divide-beige-border/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-beige-muted">
+                  <td colSpan={6} className="py-12 text-center text-beige-muted">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-beige-terracotta" />
                     <span>Loading agents from FastAPI database...</span>
                   </td>
                 </tr>
               ) : agents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-beige-muted">
+                  <td colSpan={6} className="py-16 text-center text-beige-muted">
                     <Users className="w-8 h-8 mx-auto mb-2 text-beige-muted/40" />
                     <span className="font-semibold block text-sm text-beige-text">No Agents Found</span>
                     <span className="text-xs text-beige-muted mt-1 block">
@@ -435,17 +433,7 @@ export default function AgentsPage() {
                       </span>
                     </td>
 
-                    {/* Battery */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5 font-mono text-[11px] text-beige-muted">
-                        <Battery
-                          className={`w-3.5 h-3.5 ${
-                            (agent.batteryLevel || 0) < 25 ? "text-beige-terracotta" : "text-beige-olive"
-                          }`}
-                        />
-                        <span>{agent.batteryLevel == null ? "—" : `${agent.batteryLevel}%`}</span>
-                      </div>
-                    </td>
+
 
                     {/* Task Progress */}
                     <td className="py-3.5 px-4">
@@ -612,13 +600,9 @@ export default function AgentsPage() {
                   <Mail className="w-3.5 h-3.5 text-beige-muted" />
                   <span className="truncate">{selectedAgent.email}</span>
                 </div>
-                <div className="flex items-center gap-2 text-beige-text">
+                <div className="flex items-center gap-2 text-beige-text col-span-2">
                   <Clock className="w-3.5 h-3.5 text-beige-muted" />
                   <span>Last update: {selectedAgent.lastLocationUpdate ? new Date(selectedAgent.lastLocationUpdate).toLocaleString() : "Not recorded"}</span>
-                </div>
-                <div className="flex items-center gap-2 text-beige-text">
-                  <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Battery: {selectedAgent.batteryLevel == null ? "Unknown" : `${selectedAgent.batteryLevel}%`}</span>
                 </div>
               </div>
 

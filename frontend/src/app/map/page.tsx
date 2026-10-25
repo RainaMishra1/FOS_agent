@@ -13,7 +13,6 @@ import {
   Radio,
   MapPin,
   Clock,
-  Battery,
   Shield,
   Users,
 } from "lucide-react";
