@@ -18,6 +18,8 @@ export interface AgentVisit {
     lng: number;
   };
   hasCoordinates?: boolean;
+  latitude?: number;
+  longitude?: number;
   scheduledTime: string;
   scheduledDate: string;
   estimatedDuration: string;

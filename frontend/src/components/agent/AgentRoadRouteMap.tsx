@@ -447,9 +447,8 @@ export default function AgentRoadRouteMap({
         navBounds.push([activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude]);
       }
       if (routeLatLngs.length > 0) {
-        const start = Math.max(0, simIndex);
-        const end = Math.min(routeLatLngs.length, simIndex + 12);
-        for (let i = start; i < end; i++) {
+        const end = Math.min(routeLatLngs.length, 15);
+        for (let i = 0; i < end; i++) {
           navBounds.push(routeLatLngs[i]);
         }
       }
