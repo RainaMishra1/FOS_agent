@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastProfileErrorRef.current = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const resp = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: {
@@ -91,19 +91,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return backendProfile;
     }
 
-    // 2. Resilient profile fallback so valid user is never discarded
     const email = (currentSession.user.email || "").trim().toLowerCase();
-    const isAgent = email.includes("rainamishra") || email.includes("agent") || !email.includes("admin");
-    const fallbackRole: UserRole = isAgent ? "agent" : "admin";
+
+    // 2. Direct Supabase database lookup for real profile and agent details
+    try {
+      const { data: dbProfile } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role, phone, avatar_url, agent:agents(id, agent_code, status, territory)")
+        .or(`auth_user_id.eq.${currentSession.user.id},email.eq.${email}`)
+        .maybeSingle();
+
+      if (dbProfile) {
+        const agentData = Array.isArray(dbProfile.agent) ? dbProfile.agent[0] : dbProfile.agent;
+        const resolvedRole: UserRole = dbProfile.role === "admin" ? "admin" : "agent";
+        const loadedProfile: UserProfile = {
+          id: dbProfile.id,
+          email: dbProfile.email || email,
+          full_name: dbProfile.full_name || currentSession.user.user_metadata?.full_name || email.split("@")[0] || (resolvedRole === "admin" ? "Operations Admin" : "Field Agent"),
+          role: resolvedRole,
+          agent_id: agentData?.id,
+          agent_code: agentData?.agent_code,
+          agent_status: agentData?.status,
+          territory: agentData?.territory,
+        };
+        setProfile(loadedProfile);
+        setRole(resolvedRole);
+        return loadedProfile;
+      }
+    } catch (dbErr) {
+      console.warn("Direct Supabase profile lookup exception:", dbErr);
+    }
+
+    // 3. Resilient profile fallback so valid user is never discarded
+    const metaRole = currentSession.user.user_metadata?.role;
+    const isExplicitAdmin = metaRole === "admin" || email === "rishabmishra075@gmail.com" || email === "rishabhmishra075@gmail.com" || email.includes("admin");
+    const isExplicitAgent = metaRole === "agent" || email === "rainamishra00023@gmail.com" || email.includes("agent") || email.includes("rainamishra");
+    const fallbackRole: UserRole = metaRole ? (metaRole === "admin" ? "admin" : "agent") : (isExplicitAgent ? "agent" : "admin");
+    const userName = currentSession.user.user_metadata?.full_name || email.split("@")[0] || (fallbackRole === "admin" ? "Operations Admin" : "Field Agent");
     const fallbackProfile: UserProfile = {
-      id: currentSession.user.id || "00000000-0000-0000-0000-000000000002",
+      id: currentSession.user.id,
       email: currentSession.user.email || email,
-      full_name: currentSession.user.user_metadata?.full_name || (isAgent ? "Rishabh Mishra" : "Administrator"),
+      full_name: userName,
       role: fallbackRole,
-      agent_id: isAgent ? "00000000-0000-0000-0000-000000000002" : undefined,
-      agent_code: isAgent ? "AGT-121" : undefined,
-      agent_status: isAgent ? "active" : undefined,
-      territory: isAgent ? "Mumbai, Maharashtra" : undefined,
+      agent_id: fallbackRole === "agent" ? "5f926578-e5c7-40cc-ac8e-d59616be0c37" : undefined,
+      agent_code: fallbackRole === "agent" ? "121" : undefined,
+      agent_status: fallbackRole === "agent" ? "active" : undefined,
+      territory: fallbackRole === "agent" ? "Mumbai" : undefined,
     };
 
     setProfile(fallbackProfile);
@@ -202,8 +235,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     const normalizedEmail = email.trim().toLowerCase();
-    const isAgent = normalizedEmail.includes("rainamishra") || normalizedEmail.includes("agent") || !normalizedEmail.includes("admin");
-    const targetRole: UserRole = isAgent ? "agent" : "admin";
+    const isExplicitAdmin = normalizedEmail === "rishabmishra075@gmail.com" || normalizedEmail === "rishabhmishra075@gmail.com" || normalizedEmail.includes("admin");
+    const isExplicitAgent = normalizedEmail === "rainamishra00023@gmail.com" || normalizedEmail.includes("agent") || normalizedEmail.includes("rainamishra");
+    const targetRole: UserRole = isExplicitAdmin ? "admin" : (isExplicitAgent ? "agent" : "admin");
 
     // 1. Try Supabase signInWithPassword if configured
     if (isConfigured) {
@@ -228,7 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             password,
             options: {
               data: {
-                full_name: "Rishabh Mishra",
+                full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra",
                 role: targetRole,
               },
             },
@@ -249,10 +283,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Resilient demo/client authentication session
     const localUser = {
-      id: isAgent ? "00000000-0000-0000-0000-000000000002" : "00000000-0000-0000-0000-000000000001",
+      id: targetRole === "agent" ? "c53f6da2-2c6f-4d61-9388-7ca727f0dbcc" : "ac6c9f34-becc-4c84-a2d1-d99e7fa90159",
       email: normalizedEmail,
       app_metadata: { provider: "email" },
-      user_metadata: { full_name: "Rishabh Mishra", role: targetRole },
+      user_metadata: { 
+        full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra", 
+        role: targetRole 
+      },
       aud: "authenticated",
       created_at: new Date().toISOString(),
     } as unknown as User;
@@ -265,14 +302,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } as unknown as Session;
 
     const localProfile: UserProfile = {
-      id: localUser.id,
+      id: targetRole === "agent" ? "858cbb87-4d00-4410-90c6-4aa75ad9d840" : "c142be77-b642-41a4-a184-461fd59cce04",
       email: normalizedEmail,
-      full_name: "Rishabh Mishra",
+      full_name: targetRole === "admin" ? "Rishabh Mishra" : "Raina Mishra",
       role: targetRole,
-      agent_id: isAgent ? "00000000-0000-0000-0000-000000000002" : undefined,
-      agent_code: isAgent ? "AGT-121" : undefined,
-      agent_status: isAgent ? "active" : undefined,
-      territory: isAgent ? "Mumbai, Maharashtra" : undefined,
+      agent_id: targetRole === "agent" ? "5f926578-e5c7-40cc-ac8e-d59616be0c37" : undefined,
+      agent_code: targetRole === "agent" ? "121" : undefined,
+      agent_status: targetRole === "agent" ? "active" : undefined,
+      territory: targetRole === "agent" ? "Mumbai" : undefined,
     };
 
     try {

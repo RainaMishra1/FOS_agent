@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from app.db.session import AsyncSessionLocal
 from app.models.profile import Profile
+from app.models.agent import Agent
 from app.config import settings, BACKEND_DIR
 
 logger = logging.getLogger("fos.bootstrap")
@@ -128,9 +129,135 @@ async def ensure_admin_account(
         return None
 
 
+async def ensure_agent_account(
+    email: str = "rainamishra00023@gmail.com",
+    password: str = "Raina@23",
+    full_name: str = "Raina Mishra",
+    agent_code: str = "121",
+    territory: str = "Mumbai",
+) -> Optional[uuid.UUID]:
+    """
+    Guarantees that the specified Agent account exists in both:
+    1. Supabase Auth (with email_confirm=True and updated password)
+    2. Application database `profiles` and `agents` table
+    """
+    load_dotenv(BACKEND_DIR / ".env", override=True)
+    service_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_url = settings.SUPABASE_URL or os.environ.get("SUPABASE_URL")
+
+    if not service_key or not supabase_url or "placeholder" in supabase_url:
+        logger.warning("[Bootstrap] Supabase service role key or URL not configured. Skipping agent ensure.")
+        return None
+
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Content-Type": "application/json",
+    }
+
+    normalized_email = email.strip().lower()
+    auth_user_id: Optional[uuid.UUID] = None
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            list_res = await client.get(
+                f"{supabase_url.rstrip('/')}/auth/v1/admin/users",
+                headers=headers,
+                params={"per_page": 100},
+            )
+
+            existing_user = None
+            if list_res.status_code == 200:
+                users = list_res.json().get("users", [])
+                for u in users:
+                    u_email = (u.get("email") or "").strip().lower()
+                    if u_email == normalized_email:
+                        existing_user = u
+                        break
+
+            if existing_user:
+                auth_user_id = uuid.UUID(str(existing_user["id"]))
+                await client.put(
+                    f"{supabase_url.rstrip('/')}/auth/v1/admin/users/{auth_user_id}",
+                    headers=headers,
+                    json={
+                        "password": password,
+                        "email_confirm": True,
+                        "user_metadata": {"full_name": full_name, "role": "agent"},
+                    },
+                )
+            else:
+                create_res = await client.post(
+                    f"{supabase_url.rstrip('/')}/auth/v1/admin/users",
+                    headers=headers,
+                    json={
+                        "email": normalized_email,
+                        "password": password,
+                        "email_confirm": True,
+                        "user_metadata": {"full_name": full_name, "role": "agent"},
+                    },
+                )
+                if create_res.status_code in (200, 201):
+                    created_data = create_res.json()
+                    user_obj = created_data.get("user", created_data)
+                    auth_user_id = uuid.UUID(str(user_obj["id"]))
+
+        if auth_user_id:
+            async with AsyncSessionLocal() as session:
+                profile = await session.scalar(
+                    select(Profile).where(func.lower(Profile.email) == normalized_email)
+                )
+                if profile:
+                    profile.auth_user_id = auth_user_id
+                    profile.role = "agent"
+                    profile.full_name = full_name
+                else:
+                    profile = Profile(
+                        id=uuid.uuid4(),
+                        auth_user_id=auth_user_id,
+                        email=normalized_email,
+                        full_name=full_name,
+                        role="agent",
+                    )
+                    session.add(profile)
+                await session.flush()
+
+                # Ensure linked agent record
+                agent_stmt = select(Agent).where(Agent.profile_id == profile.id)
+                ag = (await session.execute(agent_stmt)).scalars().first()
+                if not ag:
+                    ag = Agent(
+                        id=uuid.uuid4(),
+                        profile_id=profile.id,
+                        agent_code=agent_code,
+                        status="active",
+                        territory=territory,
+                        address="Mumbai Central Hub",
+                        location_source="gps",
+                        current_latitude=19.21899,
+                        current_longitude=73.14008,
+                        battery_level=90,
+                    )
+                    session.add(ag)
+                else:
+                    ag.agent_code = agent_code
+                    ag.status = "active"
+                    ag.territory = territory
+
+                await session.commit()
+                logger.info(f"[Bootstrap] Agent account ready: {normalized_email} ({agent_code})!")
+
+        return auth_user_id
+    except Exception as exc:
+        logger.error(f"[Bootstrap] Error ensuring agent account: {exc}", exc_info=True)
+        return None
+
+
 async def bootstrap_initial_admins():
-    """Ensure both email variations are provisioned as admin."""
-    # The primary email from the user's login form:
+    """Ensure both admin and agent credentials are provisioned."""
+    # Primary admin email:
     await ensure_admin_account("rishabmishra075@gmail.com", "Rishabh@2007", "Rishabh Mishra")
-    # Also handle the variant with 'h' if applicable:
+    # Secondary admin variant:
     await ensure_admin_account("rishabhmishra075@gmail.com", "Rishabh@2007", "Rishabh Mishra")
+    # Primary agent account:
+    await ensure_agent_account("rainamishra00023@gmail.com", "Raina@23", "Raina Mishra", "121", "Mumbai")

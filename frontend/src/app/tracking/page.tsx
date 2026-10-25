@@ -11,7 +11,7 @@ import {
   VisitApiResponse,
   AdminRoutePreview,
 } from "@/lib/api";
-import { mockAgents, mockAssignments } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
 import AgentRoadRouteMap, { RouteMapStop } from "@/components/agent/AgentRoadRouteMap";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import StatusBadge from "@/components/StatusBadge";
@@ -106,52 +106,56 @@ export default function AgentTrackingPage() {
             return queryAgentId;
           }
           if (current && res.items.some((a) => a.id === current)) return current;
-          const rishabh = res.items.find((a) =>
-            a.name.toLowerCase().includes("rishabh")
-          );
-          return rishabh ? rishabh.id : res.items[0].id;
+          return res.items[0]?.id || null;
         });
       } else {
-        fallbackToMockAgents();
+        void fallbackToLiveAgents();
       }
     } catch (err: any) {
-      console.warn("Could not load agents from live server, using local data:", err);
-      fallbackToMockAgents();
+      console.warn("Could not load agents from live server, using Supabase data:", err);
+      void fallbackToLiveAgents();
     } finally {
       setIsLoadingAgents(false);
     }
   }, [session?.access_token, queryAgentId]);
 
-  const fallbackToMockAgents = () => {
-    const converted: AgentApiItem[] = mockAgents.map((m) => ({
-      id: m.id,
-      agent_code: m.id,
-      name: m.name,
-      email: m.email,
-      phone: m.phone,
-      status: m.status === "active" ? "active" : "off_duty",
-      territory: m.territory,
-      address: "Field Operations Center",
-      location_source: "gps",
-      current_latitude: m.coordinates?.lat ?? 19.21899,
-      current_longitude: m.coordinates?.lng ?? 73.14006,
-      battery_level: m.batteryLevel ?? 88,
-      last_location_update: new Date().toISOString(),
-      assigned_tasks: m.assignedTasks,
-      completed_visits: m.completedVisits,
-      created_at: new Date().toISOString(),
-    }));
-    setAgents(converted);
-    setSelectedAgentId((current) => {
-      if (queryAgentId && converted.some((a) => a.id === queryAgentId)) {
-        return queryAgentId;
+  const fallbackToLiveAgents = async () => {
+    try {
+      const { data: dbAgents } = await supabase
+        .from("agents")
+        .select("*, profile:profiles(id, full_name, email, phone)");
+
+      if (dbAgents && dbAgents.length > 0) {
+        const converted: AgentApiItem[] = dbAgents.map((a: any) => ({
+          id: a.id,
+          agent_code: a.agent_code || a.id.slice(0, 8),
+          name: a.profile?.full_name || "Field Agent",
+          email: a.profile?.email || "",
+          phone: a.profile?.phone || "+91 98450 00000",
+          status: a.status || "active",
+          territory: a.territory || "Field Hub",
+          address: a.address || "Field Center",
+          location_source: a.location_source || "gps",
+          current_latitude: Number(a.current_latitude) || 12.9716,
+          current_longitude: Number(a.current_longitude) || 77.5946,
+          battery_level: a.battery_level ?? 90,
+          last_location_update: a.last_location_update || new Date().toISOString(),
+          assigned_tasks: 2,
+          completed_visits: 1,
+          created_at: a.created_at || new Date().toISOString(),
+        }));
+        setAgents(converted);
+        setSelectedAgentId((current) => {
+          if (queryAgentId && converted.some((a) => a.id === queryAgentId)) {
+            return queryAgentId;
+          }
+          if (current && converted.some((a) => a.id === current)) return current;
+          return converted[0]?.id || "";
+        });
       }
-      if (current && converted.some((a) => a.id === current)) return current;
-      const rishabh = converted.find((a) =>
-        a.name.toLowerCase().includes("rishabh")
-      );
-      return rishabh ? rishabh.id : converted[0]?.id || "";
-    });
+    } catch (err) {
+      console.warn("Supabase live agent fallback exception:", err);
+    }
   };
 
   useEffect(() => {
@@ -195,59 +199,54 @@ export default function AgentTrackingPage() {
           console.warn("OSRM road route preview failed:", routeErr);
         }
       } else {
-        // Fallback to local mock visits for this agent if available
-        loadMockVisitsForAgent(selectedAgentId);
+        // Fallback to live Supabase database visits for this agent
+        void loadLiveVisitsForAgent(selectedAgentId);
       }
     } catch (err: any) {
-      console.warn("Live visits fetch failed, loading local assignment data:", err);
-      loadMockVisitsForAgent(selectedAgentId);
+      console.warn("Live visits fetch failed, loading Supabase database data:", err);
+      void loadLiveVisitsForAgent(selectedAgentId);
     } finally {
       setIsLoadingVisits(false);
       setIsRefreshing(false);
     }
   }, [selectedAgentId, scheduledDate, session?.access_token]);
 
-  const loadMockVisitsForAgent = (agentId: string) => {
-    const agent = agents.find((a) => a.id === agentId);
-    const agentName = agent?.name || "Rishabh Mishra";
+  const loadLiveVisitsForAgent = async (agentId: string) => {
+    try {
+      const { data: dbVisits } = await supabase
+        .from("visits")
+        .select("*, customer:customers(*)")
+        .eq("agent_id", agentId);
 
-    // Find assignments matching this agent or create realistic defaults
-    const filtered = mockAssignments.filter(
-      (asn) =>
-        asn.agentId === agentId ||
-        asn.agentName.toLowerCase() === agentName.toLowerCase()
-    );
-
-    const source =
-      filtered.length > 0
-        ? filtered
-        : mockAssignments.filter((asn) => asn.agentName.includes("Rishabh"));
-
-    const baseLat = agent?.current_latitude || 28.6139;
-    const baseLng = agent?.current_longitude || 77.209;
-
-    const mockConverted: VisitApiResponse[] = source.map((item, idx) => ({
-      id: item.id,
-      visit_code: `VIS-${item.id.replace("ASN-", "")}`,
-      customer_id: item.customerId,
-      agent_id: agentId,
-      customer_name: item.customerName,
-      customer_company: "Enterprise Client",
-      customer_address: item.address,
-      customer_latitude: baseLat + (idx + 1) * 0.0075 * (idx % 2 === 0 ? 1 : -1),
-      customer_longitude: baseLng + (idx + 1) * 0.0065,
-      scheduled_date: scheduledDate,
-      scheduled_time_window: item.scheduledTime,
-      status: item.status === "active" ? "in_progress" : item.status === "assigned" ? "pending" : item.status,
-      geofence_verified: item.status === "completed",
-      order_index: idx + 1,
-      estimated_duration_minutes: item.estimatedDurationMinutes,
-      purpose: item.notes,
-      priority: item.priority,
-      created_at: new Date().toISOString(),
-    }));
-
-    setVisits(mockConverted);
+      if (dbVisits && dbVisits.length > 0) {
+        const converted: VisitApiResponse[] = dbVisits.map((v: any) => ({
+          id: v.id,
+          visit_code: v.visit_code || `VIS-${v.id.slice(0, 6)}`,
+          customer_id: v.customer_id,
+          agent_id: agentId,
+          customer_name: v.customer?.name || "Customer Site",
+          customer_company: v.customer?.company || "Enterprise Client",
+          customer_address: v.customer?.address || "Field Operations Site",
+          customer_latitude: Number(v.customer?.latitude) || 12.9716,
+          customer_longitude: Number(v.customer?.longitude) || 77.5946,
+          scheduled_date: v.scheduled_date || scheduledDate,
+          scheduled_time: v.scheduled_time || "10:30 AM",
+          status: v.status || "pending",
+          geofence_verified: Boolean(v.geofence_verified),
+          accuracy_meters: 15.0,
+          purpose: v.purpose || "Field inspection",
+          order_index: v.order_index || 1,
+          estimated_duration_minutes: 45,
+          created_at: v.created_at || new Date().toISOString(),
+        }));
+        setVisits(converted);
+      } else {
+        setVisits([]);
+      }
+    } catch (err) {
+      console.warn("Could not query visits from Supabase:", err);
+      setVisits([]);
+    }
   };
 
   useEffect(() => {

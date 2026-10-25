@@ -1,8 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
-import { initialSettings } from "@/lib/mockData";
 import { SystemSettings } from "@/types";
+
+const defaultSettings: SystemSettings = {
+  orgName: "FOS Enterprise Field Operations",
+  supportEmail: "ops-support@fos-enterprise.com",
+  timezone: "UTC+05:30 (Asia/Kolkata)",
+  geofenceRadiusMeters: 750,
+  maxGpsAccuracyMeters: 100,
+  locationStaleThresholdSeconds: 300,
+  autoDispatchEnabled: true,
+  enforceGeofenceCheckin: true,
+};
 import {
   Settings,
   ShieldCheck,
@@ -16,7 +26,7 @@ import {
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<SystemSettings>(initialSettings);
+  const [settings, setSettings] = useState<SystemSettings>(defaultSettings);
   const [saveToast, setSaveToast] = useState(false);
 
   const handleSave = (e: React.FormEvent) => {

@@ -7,6 +7,7 @@ import AssignWorkModal from "@/components/AssignWorkModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
 import { fetchAgents, inviteAgentAccount, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 import {
   Search,
   Filter,
@@ -127,8 +128,60 @@ export default function AgentsPage() {
       });
       setAvailableTerritories((prev) => Array.from(new Set([...prev, ...Array.from(terrSet)])));
     } catch (err: any) {
-      console.error("Failed to load agents:", err);
-      setError(err.message || "Failed to load agent directory from FastAPI backend.");
+      console.warn("FastAPI backend unreachable, querying Supabase directly:", err);
+      try {
+        let query = supabase
+          .from("agents")
+          .select("*, profile:profiles(id, full_name, email, phone)", { count: "exact" });
+
+        if (statusFilter !== "all") {
+          query = query.eq("status", statusFilter);
+        }
+        if (territoryFilter !== "all") {
+          query = query.eq("territory", territoryFilter);
+        }
+
+        const { data: dbAgents, count } = await query.range(skip, skip + limit - 1);
+        if (dbAgents && dbAgents.length > 0) {
+          const mapped: Agent[] = dbAgents.map((a: any) => {
+            const prof = a.profile || {};
+            const name = prof.full_name || `Agent ${a.agent_code || a.id.slice(0, 4)}`;
+            const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase() || "AG";
+            return {
+              id: a.id,
+              agentCode: a.agent_code || undefined,
+              name,
+              initials,
+              email: prof.email || "No email",
+              phone: prof.phone || "No phone",
+              status: (a.status || "active") as any,
+              territory: a.territory || "Unassigned",
+              address: a.address || undefined,
+              locationSource: (a.location_source as any) || "gps",
+              currentTask: "Field Operations Active",
+              assignedTasks: 2,
+              completedVisits: 1,
+              lastLocationUpdate: a.last_location_update ? new Date(a.last_location_update).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Today",
+              authLinked: Boolean(a.profile_id),
+              coordinates: a.current_latitude && a.current_longitude ? { lat: Number(a.current_latitude), lng: Number(a.current_longitude) } : null,
+              batteryLevel: a.battery_level ?? 92,
+            };
+          });
+
+          setAgents(mapped);
+          setTotalAgents(count ?? mapped.length);
+          const terrSet = new Set<string>();
+          dbAgents.forEach((item: any) => {
+            if (item.territory) terrSet.add(item.territory);
+          });
+          setAvailableTerritories((prev) => Array.from(new Set([...prev, ...Array.from(terrSet)])));
+          setError(null);
+        } else {
+          setError(err.message || "Failed to load agent directory.");
+        }
+      } catch (sbErr: any) {
+        setError(sbErr.message || "Failed to load agent directory from database.");
+      }
     } finally {
       setIsLoading(false);
     }

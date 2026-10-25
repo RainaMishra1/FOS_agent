@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { mockAssignments, mockAgents, mockCustomers } from "@/lib/mockData";
+import { useOperations } from "@/context/OperationsContext";
 import { Assignment, TaskStatus } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
@@ -22,7 +22,10 @@ import {
 } from "lucide-react";
 
 export default function AssignmentsPage() {
-  const [assignments, setAssignments] = useState<Assignment[]>(mockAssignments);
+  const { assignments: liveAssignments } = useOperations();
+  const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
+  const assignments = localAssignments.length > 0 ? localAssignments : liveAssignments;
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
@@ -43,14 +46,14 @@ export default function AssignmentsPage() {
   });
 
   const handleUpdateStatus = (assignmentId: string, newStatus: TaskStatus) => {
-    setAssignments((prev) =>
-      prev.map((a) => (a.id === assignmentId ? { ...a, status: newStatus } : a))
+    setLocalAssignments(
+      assignments.map((a) => (a.id === assignmentId ? { ...a, status: newStatus } : a))
     );
     setStatusNotification(`Assignment ${assignmentId} updated to ${newStatus.toUpperCase()}`);
     setTimeout(() => setStatusNotification(null), 3000);
   };
 
-  const uniqueAgents = Array.from(new Set(mockAssignments.map((a) => a.agentName)));
+  const uniqueAgents = Array.from(new Set(assignments.map((a) => a.agentName)));
 
   return (
     <div className="space-y-5">

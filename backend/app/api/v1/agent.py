@@ -257,6 +257,7 @@ async def get_agent_route_geometry(
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
     try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(
                 f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord_path}",
                 params={"overview": "full", "geometries": "geojson", "steps": "true"},
@@ -740,6 +741,6 @@ async def update_agent_live_location(
     db.add(loc_log)
 
     await db.commit()
-    await db.refresh(agent)
+    agent.profile = current_user
 
     return _to_agent_response(agent)

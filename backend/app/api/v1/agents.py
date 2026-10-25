@@ -508,6 +508,6 @@ async def update_my_location(
     db.add(loc_log)
 
     await db.commit()
-    await db.refresh(agent)
+    agent.profile = current_user
 
     return _to_agent_response(agent)

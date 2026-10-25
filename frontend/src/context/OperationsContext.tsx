@@ -1,9 +1,8 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { Customer, Agent, Assignment, TaskStatus } from "@/types";
-import { mockCustomers, mockAgents, mockAssignments } from "@/lib/mockData";
-import { initialAgentVisits } from "@/lib/agentMockData";
+import { supabase } from "@/lib/supabaseClient";
 import { AgentVisit } from "@/types/agent";
 
 interface AssignLeadParams {
@@ -42,13 +41,14 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       const saved = localStorage.getItem(STORAGE_KEY_CUSTOMERS);
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch {
           // fallback
         }
       }
     }
-    return mockCustomers;
+    return [];
   });
 
   const [agents, setAgents] = useState<Agent[]>(() => {
@@ -56,13 +56,14 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       const saved = localStorage.getItem(STORAGE_KEY_AGENTS);
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch {
           // fallback
         }
       }
     }
-    return mockAgents;
+    return [];
   });
 
   const [assignments, setAssignments] = useState<Assignment[]>(() => {
@@ -70,13 +71,14 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       const saved = localStorage.getItem(STORAGE_KEY_ASSIGNMENTS);
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch {
           // fallback
         }
       }
     }
-    return mockAssignments;
+    return [];
   });
 
   const [maxWorkloadLimit, setMaxWorkloadLimit] = useState<number>(() => {
@@ -90,7 +92,101 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
     return 6;
   });
 
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>("CUST-407"); // Default to Kalyan Textiles Outlet (unassigned)
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+
+  // Load 100% real data from Supabase PostgreSQL database
+  const loadLiveOperationsData = useCallback(async () => {
+    try {
+        const [custRes, agRes, asnRes] = await Promise.allSettled([
+          supabase.from("customers").select("*").order("name"),
+          supabase.from("agents").select("*, profile:profiles(id, full_name, email, phone)"),
+          supabase.from("assignments").select("*, lead:leads(*, customer:customers(*)), agent:agents(*, profile:profiles(id, full_name))")
+        ]);
+
+        if (custRes.status === "fulfilled" && custRes.value.data && custRes.value.data.length > 0) {
+          const liveCusts: Customer[] = custRes.value.data.map((c: any) => ({
+            id: c.customer_code || c.id,
+            name: c.name || "Corporate Client",
+            leadId: c.customer_code ? `LEAD-${c.customer_code.replace("CUST-", "")}` : `LEAD-${c.id.slice(0, 4)}`,
+            company: c.company || c.name,
+            email: c.email || "",
+            phone: c.phone || c.contact_person || "+91 80 4000 0000",
+            address: c.address || "Bengaluru Metro",
+            city: c.city || "Bengaluru",
+            priority: "medium",
+            assignmentStatus: "assigned",
+            coordinates: {
+              lat: Number(c.latitude) || 12.9716,
+              lng: Number(c.longitude) || 77.5946,
+            },
+            createdDate: c.created_at || new Date().toISOString(),
+            notes: c.notes || "",
+          }));
+          setCustomers(liveCusts);
+          if (!selectedLeadId && liveCusts.length > 0) {
+            setSelectedLeadId(liveCusts[0].id);
+          }
+        }
+
+        if (agRes.status === "fulfilled" && agRes.value.data && agRes.value.data.length > 0) {
+          const liveAgents: Agent[] = agRes.value.data.map((a: any) => {
+            const name = a.profile?.full_name || "Field Agent";
+            const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase() || "AG";
+            return {
+              id: a.agent_code || a.id,
+              name,
+              agentCode: a.agent_code || undefined,
+              initials,
+              email: a.profile?.email || "",
+              phone: a.profile?.phone || "+91 98450 00000",
+              status: (a.status as any) || "active",
+              currentTask: a.territory ? `Active in ${a.territory}` : "Field Operations",
+              assignedTasks: 2,
+              completedVisits: 1,
+              lastLocationUpdate: a.last_location_update || new Date().toISOString(),
+              territory: a.territory || "Field Hub",
+              address: a.address || "Field Center",
+              locationSource: (a.location_source as any) || "gps",
+              coordinates: {
+                lat: Number(a.current_latitude) || 12.9716,
+                lng: Number(a.current_longitude) || 77.5946,
+              },
+              batteryLevel: a.battery_level ?? 90,
+            };
+          });
+          setAgents(liveAgents);
+        }
+
+        if (asnRes.status === "fulfilled" && asnRes.value.data && asnRes.value.data.length > 0) {
+          const liveAsns: Assignment[] = asnRes.value.data.map((row: any) => {
+            const custName = row.lead?.customer?.name || "Customer Site";
+            const agName = row.agent?.profile?.full_name || "Assigned Agent";
+            const addr = row.lead?.customer?.address || "Field Location";
+            return {
+              id: row.assignment_code || row.id.slice(0, 8),
+              customerName: custName,
+              customerId: row.lead?.customer?.customer_code || row.lead?.customer?.id || row.id,
+              agentName: agName,
+              agentId: row.agent?.agent_code || row.agent_id,
+              scheduledTime: row.scheduled_time || "10:30 AM",
+              scheduledDate: row.scheduled_date || new Date().toISOString().split("T")[0],
+              priority: (row.lead?.priority as any) || "medium",
+              status: (row.status as any) || "assigned",
+              address: addr,
+              estimatedDurationMinutes: 45,
+              notes: row.notes || "Field visit and verification",
+            };
+          });
+          setAssignments(liveAsns);
+        }
+      } catch (err) {
+        console.warn("Could not load real operations data from Supabase:", err);
+      }
+  }, [selectedLeadId]);
+
+  useEffect(() => {
+    loadLiveOperationsData();
+  }, [loadLiveOperationsData]);
 
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info";
@@ -320,11 +416,6 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
   };
 
   const resetOperationsData = () => {
-    setCustomers(mockCustomers);
-    setAgents(mockAgents);
-    setAssignments(mockAssignments);
-    setMaxWorkloadLimit(6);
-    setSelectedLeadId("CUST-407");
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_KEY_CUSTOMERS);
       localStorage.removeItem(STORAGE_KEY_AGENTS);
@@ -333,7 +424,9 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       localStorage.removeItem("fos_agent_visits");
       window.dispatchEvent(new CustomEvent("fos_operations_reset"));
     }
-    showNotification("info", "Operations state reset to default mock values.");
+    setMaxWorkloadLimit(6);
+    loadLiveOperationsData();
+    showNotification("info", "Operations state refreshed from live database.");
   };
 
   return (

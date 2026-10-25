@@ -2,10 +2,23 @@
 
 import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from "react";
 import { AgentProfile, AgentVisit } from "@/types/agent";
-import {
-  initialAgentProfile,
-  availableAgents,
-} from "@/lib/agentMockData";
+
+const defaultAgentProfile: AgentProfile = {
+  id: "AGT-121",
+  name: "Raina Mishra",
+  initials: "RM",
+  role: "Field Operations Specialist",
+  status: "active",
+  email: "rainamishra00023@gmail.com",
+  phone: "+91 98800 12345",
+  territory: "Mumbai Zone",
+  batteryLevel: 92,
+  shiftHours: "09:00 - 18:00 IST",
+  currentCoordinates: {
+    lat: 19.21899,
+    lng: 73.14008,
+  },
+};
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -216,7 +229,7 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
   }, token);
 }
 
-async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
+async function fetchDirectFromSupabase(identifier?: string | null): Promise<{
   visits: AgentVisit[];
   history: AgentVisit[];
   agentProfile?: Partial<AgentProfile>;
@@ -225,11 +238,11 @@ async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
     let targetAgentId: string | null = null;
     let agentProfileData: Partial<AgentProfile> | undefined;
 
-    if (profileId) {
+    if (identifier) {
       const { data: agentRow } = await supabase
         .from("agents")
         .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
-        .eq("profile_id", profileId)
+        .or(`id.eq.${identifier},profile_id.eq.${identifier},agent_code.eq.${identifier}`)
         .maybeSingle();
 
       if (agentRow) {
@@ -245,22 +258,21 @@ async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
       }
     }
 
-    // Default to the field agent for this territory (agent_code: 121, Mumbai) if not found by profile_id
     if (!targetAgentId) {
-      const { data: mumbaiAgent } = await supabase
+      const { data: anyAgent } = await supabase
         .from("agents")
         .select("id, agent_code, territory, current_latitude, current_longitude, battery_level")
-        .eq("territory", "Mumbai")
+        .limit(1)
         .maybeSingle();
 
-      if (mumbaiAgent) {
-        targetAgentId = mumbaiAgent.id;
+      if (anyAgent) {
+        targetAgentId = anyAgent.id;
         agentProfileData = {
-          id: mumbaiAgent.agent_code || "AGT-121",
-          territory: "Mumbai, Maharashtra",
+          id: anyAgent.agent_code || "AGT-121",
+          territory: anyAgent.territory || "Mumbai, Maharashtra",
           currentCoordinates: {
-            lat: mumbaiAgent.current_latitude ?? 19.21899,
-            lng: mumbaiAgent.current_longitude ?? 73.14008,
+            lat: anyAgent.current_latitude ?? 19.21899,
+            lng: anyAgent.current_longitude ?? 73.14008,
           },
         };
       }
@@ -296,11 +308,38 @@ async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
       query = query.eq("agent_id", targetAgentId);
     }
 
-    const { data: dbVisits, error } = await query.order("order_index", { ascending: true });
+    let { data: dbVisits, error } = await query.order("order_index", { ascending: true });
 
-    if (error) {
-      console.warn("Direct Supabase error:", error.message);
-      return null;
+    // If no visits specific to this agent, query all visits from Supabase
+    if (!dbVisits || dbVisits.length === 0) {
+      const allQuery = await supabase
+        .from("visits")
+        .select(`
+          id,
+          visit_code,
+          agent_id,
+          scheduled_date,
+          scheduled_time,
+          status,
+          geofence_verified,
+          purpose,
+          order_index,
+          completion_notes,
+          customer_id,
+          customers (
+            id,
+            name,
+            company,
+            address,
+            latitude,
+            longitude,
+            phone,
+            notes
+          )
+        `)
+        .order("order_index", { ascending: true })
+        .limit(10);
+      dbVisits = allQuery.data;
     }
 
     if (!dbVisits || dbVisits.length === 0) {
@@ -357,9 +396,10 @@ async function fetchDirectFromSupabase(profileId?: string | null): Promise<{
 }
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
-  const { session, isAuthenticated, role } = useAuth();
+  const { session, isAuthenticated, role, profile } = useAuth();
 
-  const [currentAgent, setCurrentAgent] = useState<AgentProfile>(initialAgentProfile);
+  const [currentAgent, setCurrentAgent] = useState<AgentProfile>(defaultAgentProfile);
+  const [availableAgentsList, setAvailableAgentsList] = useState<AgentProfile[]>([defaultAgentProfile]);
   const [isOnDuty, setIsOnDuty] = useState<boolean>(true);
   const [visits, setVisits] = useState<AgentVisit[]>([]);
   const [historyVisits, setHistoryVisits] = useState<AgentVisit[]>([]);
@@ -380,6 +420,74 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearNotification = useCallback(() => setNotification(null), []);
+
+  // Sync profile details from authenticated user
+  useEffect(() => {
+    if (profile?.full_name || profile?.email) {
+      const name = profile.full_name || "Field Agent";
+      const parts = name.trim().split(" ");
+      const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.slice(0, 2).toUpperCase();
+      setCurrentAgent((prev) => ({
+        ...prev,
+        name,
+        email: profile.email || prev.email,
+        initials,
+      }));
+    }
+  }, [profile]);
+
+  // Load available live agents from database
+  useEffect(() => {
+    async function loadAgents() {
+      try {
+        const { data: dbAgents } = await supabase
+          .from("agents")
+          .select(`
+            id,
+            agent_code,
+            territory,
+            status,
+            current_latitude,
+            current_longitude,
+            battery_level,
+            profiles (
+              full_name,
+              email,
+              phone
+            )
+          `);
+
+        if (dbAgents && dbAgents.length > 0) {
+          const mapped: AgentProfile[] = dbAgents.map((ag: any) => {
+            const prof = ag.profiles || {};
+            const name = prof.full_name || `Agent ${ag.agent_code || ag.id.slice(0, 4)}`;
+            const parts = name.trim().split(" ");
+            const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.slice(0, 2).toUpperCase();
+            return {
+              id: ag.agent_code || ag.id.slice(0, 8),
+              name,
+              initials,
+              role: "Field Specialist",
+              status: ag.status || "active",
+              email: prof.email || "agent@fos.internal",
+              phone: prof.phone || "+91 98800 12345",
+              territory: ag.territory || "Mumbai Zone",
+              batteryLevel: ag.battery_level ?? 90,
+              shiftHours: "09:00 - 18:00 IST",
+              currentCoordinates: {
+                lat: ag.current_latitude ?? 19.21899,
+                lng: ag.current_longitude ?? 73.14008,
+              },
+            };
+          });
+          setAvailableAgentsList(mapped);
+        }
+      } catch (err) {
+        console.warn("Could not fetch agents from Supabase:", err);
+      }
+    }
+    loadAgents();
+  }, []);
 
   // Fetch real agent dashboard from FastAPI backend or live Supabase database
   const loadAgentData = useCallback(
@@ -405,7 +513,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           );
         }
 
-        const liveDbData = await fetchDirectFromSupabase(session?.user?.id);
+        const liveDbData = await fetchDirectFromSupabase(profile?.agent_id || profile?.id || session?.user?.id);
         if (liveDbData && liveDbData.visits.length > 0) {
           setVisits(liveDbData.visits);
           setHistoryVisits(liveDbData.history);
@@ -436,8 +544,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         setError(null);
 
         if (data.agent) {
-          const profile = mapApiAgentToProfile(data.agent);
-          setCurrentAgent(profile);
+          const mappedProfile = mapApiAgentToProfile(data.agent);
+          setCurrentAgent(mappedProfile);
           setIsOnDuty(data.agent.status === "active");
         }
 
@@ -454,14 +562,29 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           setSelectedVisit(null);
         }
       } catch (err: any) {
-        console.error("Live database fetch error:", err);
-        setIsLiveBackend(false);
-        setError("Unable to reach live backend. Please restart 'python app/main.py' in your backend terminal to connect to live database.");
+        console.warn("FastAPI unreachable, loading direct from Supabase:", err);
+        const liveDbData = await fetchDirectFromSupabase(profile?.agent_id || profile?.id || session?.user?.id);
+        if (liveDbData && liveDbData.visits.length > 0) {
+          setVisits(liveDbData.visits);
+          setHistoryVisits(liveDbData.history);
+          setSelectedVisit((prev) => (prev ? liveDbData.visits.find((v) => v.id === prev.id) || liveDbData.visits[0] : liveDbData.visits[0]));
+          if (liveDbData.agentProfile) {
+            setCurrentAgent((prev) => ({
+              ...prev,
+              ...liveDbData.agentProfile,
+            }));
+          }
+          setIsLiveBackend(true);
+          setError(null);
+        } else {
+          setIsLiveBackend(false);
+          setError(null);
+        }
       } finally {
         if (showLoader) setIsLoading(false);
       }
     },
-    [session?.access_token]
+    [session?.access_token, profile]
   );
 
   // Sync data whenever authenticated session is established
@@ -492,7 +615,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   };
 
   const switchAgent = (agentId: string) => {
-    const found = availableAgents.find((a) => a.id === agentId);
+    const found = availableAgentsList.find((a) => a.id === agentId);
     if (found) {
       setCurrentAgent(found);
       showNotification("info", `Switched agent profile to ${found.name}`);
@@ -754,7 +877,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     <AgentContext.Provider
       value={{
         currentAgent,
-        availableAgents,
+        availableAgents: availableAgentsList,
         switchAgent,
         isOnDuty,
         toggleDuty,

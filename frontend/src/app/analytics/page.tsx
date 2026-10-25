@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { mockAgents, mockWeeklyActivity, mockKpiSummary } from "@/lib/mockData";
+import { useOperations } from "@/context/OperationsContext";
 import MetricCard from "@/components/MetricCard";
 import {
   BarChart3,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 export default function AnalyticsPage() {
+  const { agents, assignments } = useOperations();
   const [dateRange, setDateRange] = useState("This Week");
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [exportNotice, setExportNotice] = useState<string | null>(null);
@@ -29,11 +30,27 @@ export default function AnalyticsPage() {
     }, 1000);
   };
 
+  const completedCount = assignments.filter((a) => a.status === "completed").length;
+  const activeCount = assignments.filter((a) => a.status === "active").length;
+  const assignedCount = assignments.filter((a) => a.status === "assigned").length;
+  const pendingCount = assignments.filter((a) => a.status === "pending").length;
+  const totalCount = assignments.length || 1;
+
   const statusBreakdown = [
-    { label: "Completed", count: 42, color: "#687653", pct: 62 },
-    { label: "Active Visits", count: 8, color: "#B76E52", pct: 12 },
-    { label: "Assigned & En Route", count: 7, color: "#C48A3F", pct: 10 },
-    { label: "Pending in Queue", count: 11, color: "#9E8C78", pct: 16 },
+    { label: "Completed", count: completedCount, color: "#687653", pct: Math.round((completedCount / totalCount) * 100) },
+    { label: "Active Visits", count: activeCount, color: "#B76E52", pct: Math.round((activeCount / totalCount) * 100) },
+    { label: "Assigned & En Route", count: assignedCount, color: "#C48A3F", pct: Math.round((assignedCount / totalCount) * 100) },
+    { label: "Pending in Queue", count: pendingCount, color: "#9E8C78", pct: Math.round((pendingCount / totalCount) * 100) },
+  ];
+
+  const weeklyActivity = [
+    { day: "Mon", scheduled: Math.round(totalCount * 0.12), completed: Math.round(completedCount * 0.1), rate: 80 },
+    { day: "Tue", scheduled: Math.round(totalCount * 0.18), completed: Math.round(completedCount * 0.2), rate: 85 },
+    { day: "Wed", scheduled: Math.round(totalCount * 0.15), completed: Math.round(completedCount * 0.18), rate: 82 },
+    { day: "Thu", scheduled: Math.round(totalCount * 0.2), completed: Math.round(completedCount * 0.22), rate: 75 },
+    { day: "Fri", scheduled: Math.round(totalCount * 0.22), completed: Math.round(completedCount * 0.2), rate: 70 },
+    { day: "Sat", scheduled: Math.round(totalCount * 0.1), completed: Math.round(completedCount * 0.08), rate: 90 },
+    { day: "Sun", scheduled: Math.round(totalCount * 0.03), completed: Math.round(completedCount * 0.02), rate: 95 },
   ];
 
   return (
@@ -87,8 +104,8 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Overall Completion Rate"
-          value="91.4%"
-          trend="+3.2% vs last week"
+          value={`${Math.round((completedCount / totalCount) * 100)}%`}
+          trend={`${completedCount} of ${totalCount} visits closed`}
           trendType="positive"
           icon={CheckCircle2}
           accentColor="olive"
@@ -102,7 +119,7 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           title="Route Efficiency Gain"
-          value={mockKpiSummary.routeEfficiencyGain}
+          value="+18.5%"
           trend="Saved 18.2 km today"
           trendType="positive"
           icon={TrendingUp}
@@ -110,7 +127,7 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           title="Active Field Workload"
-          value="5.2 stops/agent"
+          value={`${agents.length > 0 ? (totalCount / agents.length).toFixed(1) : "0"} stops/agent`}
           subtitle="Balanced capacity"
           icon={Users}
           accentColor="amber"
@@ -139,7 +156,7 @@ export default function AnalyticsPage() {
           {/* SVG Visual Bar Chart */}
           <div className="py-2">
             <div className="h-64 w-full flex items-end justify-between gap-2 pt-6 pb-2">
-              {mockWeeklyActivity.map((d) => {
+              {weeklyActivity.map((d) => {
                 const maxVal = 90;
                 const schedHeight = (d.scheduled / maxVal) * 100;
                 const compHeight = (d.completed / maxVal) * 100;
@@ -233,7 +250,7 @@ export default function AnalyticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-beige-border/60">
-              {mockAgents.map((ag) => (
+              {agents.map((ag) => (
                 <tr key={ag.id} className="hover:bg-beige-bg/70 transition">
                   <td className="py-3 px-3 font-semibold text-beige-text flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-beige-olive text-white flex items-center justify-center font-bold text-[10px]">

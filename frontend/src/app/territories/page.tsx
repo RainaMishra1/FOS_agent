@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { mockTerritories, mockAgents } from "@/lib/mockData";
+import React, { useState, useMemo } from "react";
+import { useOperations } from "@/context/OperationsContext";
 import { Territory } from "@/types";
 import {
   Layers,
@@ -17,8 +17,71 @@ import {
 } from "lucide-react";
 
 export default function TerritoriesPage() {
-  const [territories, setTerritories] = useState<Territory[]>(mockTerritories);
-  const [selectedTerritory, setSelectedTerritory] = useState<Territory | null>(mockTerritories[0]);
+  const { agents, customers } = useOperations();
+
+  const liveTerritories: Territory[] = useMemo(() => {
+    const territoryMap = new Map<string, { agents: string[]; count: number }>();
+    agents.forEach((ag) => {
+      const terr = ag.territory || "Central Operations";
+      const existing = territoryMap.get(terr) || { agents: [], count: 0 };
+      existing.agents.push(ag.name);
+      existing.count += ag.assignedTasks || 1;
+      territoryMap.set(terr, existing);
+    });
+
+    if (territoryMap.size === 0) {
+      return [
+        {
+          id: "TER-01",
+          name: "Central Business District",
+          region: "Metro Central",
+          assignedAgents: ["Marcus Vance", "Elena Rostova"],
+          customerCount: 8,
+          activeVisits: 3,
+          color: "#687653",
+          center: { lat: 12.9716, lng: 77.5946 },
+        },
+        {
+          id: "TER-02",
+          name: "North Tech Corridor",
+          region: "Tech Corridor",
+          assignedAgents: ["Marcus Vance", "Sarah Jenkins"],
+          customerCount: 6,
+          activeVisits: 2,
+          color: "#B76E52",
+          center: { lat: 12.9815, lng: 77.608 },
+        },
+        {
+          id: "TER-03",
+          name: "South Metro",
+          region: "Metro South",
+          assignedAgents: ["Priya Sharma", "Arjun Nambiar"],
+          customerCount: 10,
+          activeVisits: 4,
+          color: "#C48A3F",
+          center: { lat: 12.9352, lng: 77.6245 },
+        },
+      ];
+    }
+
+    const colors = ["#687653", "#B76E52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64"];
+    return Array.from(territoryMap.entries()).map(([name, data], idx) => ({
+      id: `TER-0${idx + 1}`,
+      name,
+      region: "Metro Operations",
+      assignedAgents: data.agents,
+      customerCount: customers.filter((c) => c.address?.includes(name) || true).length || data.agents.length * 3,
+      activeVisits: data.count,
+      color: colors[idx % colors.length],
+      center: { lat: 12.9716 + idx * 0.015, lng: 77.5946 + idx * 0.015 },
+    }));
+  }, [agents, customers]);
+
+  const [customTerritories, setCustomTerritories] = useState<Territory[]>([]);
+  const territories = customTerritories.length > 0 ? customTerritories : liveTerritories;
+  const [selectedTerritory, setSelectedTerritory] = useState<Territory | null>(null);
+
+  const activeSelectedTerritory = selectedTerritory || territories[0] || null;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editTerritory, setEditTerritory] = useState<Partial<Territory>>({
     name: "",
@@ -220,10 +283,10 @@ export default function TerritoriesPage() {
                   { cx: "78%", cy: "35%", r: "18%" },
                 ];
                 const c = centers[idx % centers.length];
-                const isSelected = selectedTerritory?.id === t.id;
+                const isSelected = selectedTerritory ? selectedTerritory.id === t.id : idx === 0;
 
                 return (
-                  <g key={t.id} className="cursor-pointer">
+                  <g key={t.id} className="cursor-pointer" onClick={() => setSelectedTerritory(t)}>
                     <circle
                       cx={c.cx}
                       cy={c.cy}
@@ -250,18 +313,18 @@ export default function TerritoriesPage() {
             </svg>
 
             {/* Selected Territory Banner */}
-            {selectedTerritory && (
+            {(selectedTerritory || territories[0]) && (
               <div className="z-10 p-4 rounded-xl bg-beige-card/95 backdrop-blur-md border border-beige-border shadow-md max-w-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span
                     className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: selectedTerritory.color }}
+                    style={{ backgroundColor: (selectedTerritory || territories[0])?.color }}
                   />
-                  <h4 className="font-bold text-xs text-beige-text">{selectedTerritory.name}</h4>
+                  <h4 className="font-bold text-xs text-beige-text">{(selectedTerritory || territories[0])?.name}</h4>
                 </div>
                 <p className="text-[11px] text-beige-muted">
-                  Region: {selectedTerritory.region} • {selectedTerritory.customerCount} accounts covered by{" "}
-                  {selectedTerritory.assignedAgents.join(", ")}.
+                  Region: {(selectedTerritory || territories[0])?.region} • {(selectedTerritory || territories[0])?.customerCount} accounts covered by{" "}
+                  {(selectedTerritory || territories[0])?.assignedAgents?.join(", ")}.
                 </p>
               </div>
             )}

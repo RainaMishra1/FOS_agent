@@ -78,7 +78,7 @@ export default function PortalAuthForm({ portal }: { portal: UserRole }) {
             type="button"
             onClick={() => {
               setEmail(isAdmin ? "rishabmishra075@gmail.com" : "rainamishra00023@gmail.com");
-              setPassword("Rishabh@2007");
+              setPassword(isAdmin ? "Rishabh@2007" : "Raina@23");
             }}
             className="w-full py-2 px-3 rounded-xl bg-[#EAF2EC] hover:bg-[#D8E9DC] text-[#1E3F35] text-xs font-semibold border border-[#CDE1D2] transition flex items-center justify-center gap-1.5 cursor-pointer"
           >

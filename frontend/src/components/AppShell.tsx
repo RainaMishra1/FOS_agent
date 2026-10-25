@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import HealthChecker from "./HealthChecker";
 import { useAuth } from "@/context/AuthContext";
-import { mockAgents } from "@/lib/mockData";
+import { useOperations } from "@/context/OperationsContext";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -34,6 +34,7 @@ export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
+  const { agents } = useOperations();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -45,15 +46,15 @@ export default function AppShell({ children }: AppShellProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const matchingAgents = React.useMemo(() => {
-    if (!globalSearch.trim()) return mockAgents.slice(0, 5);
+    if (!globalSearch.trim()) return (agents || []).slice(0, 5);
     const q = globalSearch.toLowerCase();
-    return mockAgents.filter(
+    return (agents || []).filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
         (a.territory && a.territory.toLowerCase().includes(q)) ||
         (a.id && a.id.toLowerCase().includes(q))
     );
-  }, [globalSearch]);
+  }, [globalSearch, agents]);
 
   const isAuthPage = pathname === "/login" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
   const isAgentRoute = Boolean(pathname === "/agent" || pathname?.startsWith("/agent/"));

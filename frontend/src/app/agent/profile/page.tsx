@@ -265,7 +265,7 @@ export default function AgentProfilePage() {
           className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-beige-sand hover:bg-beige-border text-beige-muted hover:text-beige-text border border-beige-border transition flex items-center justify-center gap-2"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset Demo Data &amp; Reset Mock Distances</span>
+          <span>Refresh Field Operations Data from Database</span>
         </button>
 
         <button
