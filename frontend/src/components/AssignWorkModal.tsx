@@ -272,7 +272,7 @@ export default function AssignWorkModal({
       // Deduplicate unique list by agent ID and normalized name
       const seenKeys = new Set<string>();
       const uniqueList: AgentApiItem[] = [];
-      for (const ag of agentMap.values()) {
+      agentMap.forEach((ag) => {
         const nameKey = (ag.name || "").trim().toLowerCase();
         const idKey = ag.id;
         if (!seenKeys.has(nameKey) && !seenKeys.has(idKey)) {
@@ -280,7 +280,7 @@ export default function AssignWorkModal({
           seenKeys.add(idKey);
           uniqueList.push(ag);
         }
-      }
+      });
       uniqueList.sort((a, b) => a.name.localeCompare(b.name));
 
       setAgents(uniqueList);
