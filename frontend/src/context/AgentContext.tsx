@@ -476,8 +476,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setCurrentAgent((prev) => ({
         ...prev,
         id: profile.agent_id || profile.id || prev.id,
-        dbId: profile.agent_id,
-        agentCode: profile.agent_code,
+        dbId: profile.agent_id ?? undefined,
+        agentCode: profile.agent_code ?? undefined,
         name,
         email: profile.email || prev.email,
         initials,

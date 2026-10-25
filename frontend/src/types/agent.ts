@@ -36,12 +36,12 @@ export interface AgentVisit {
 
 export interface AgentProfile {
   id: string;
-  dbId?: string;
-  agentCode?: string;
+  dbId?: string | null;
+  agentCode?: string | null;
   name: string;
   initials: string;
   role: string;
-  status?: string;
+  status?: string | null;
   email: string;
   phone: string;
   territory: string;
