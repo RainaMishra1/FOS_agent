@@ -355,7 +355,7 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
         const existingVisitsJson = localStorage.getItem("fos_agent_visits");
         const existingVisits: AgentVisit[] = existingVisitsJson
           ? JSON.parse(existingVisitsJson)
-          : initialAgentVisits;
+          : [];
         const updated = [...existingVisits, newAgentVisit];
         localStorage.setItem("fos_agent_visits", JSON.stringify(updated));
 
