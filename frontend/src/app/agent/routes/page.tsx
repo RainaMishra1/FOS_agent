@@ -59,7 +59,7 @@ function AgentRoutePageContent() {
   const searchParams = useSearchParams();
   const preselectedVisitId = searchParams.get("visitId");
 
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const { checkInVisit, isOnDuty, visits, currentAgent } = useAgent();
 
   const [routeData, setRouteData] = useState<AgentRouteData | null>(null);

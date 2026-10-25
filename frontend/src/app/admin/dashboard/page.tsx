@@ -326,8 +326,8 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* 5 KPI Metric Cards matching reference screenshot */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* 4 KPI Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Total Agents"
           value={isLoading ? "..." : totalAgentCount}
@@ -352,9 +352,9 @@ export default function OverviewPage() {
         />
 
         <MetricCard
-          title="Visits Scheduled"
+          title="Total Schedule"
           value={isLoading ? "..." : scheduledToday}
-          subtitle="Scheduled for today"
+          subtitle="Total visits scheduled"
           icon={Calendar}
           accentColor="amber"
           sparkline="bars-amber"
@@ -368,16 +368,6 @@ export default function OverviewPage() {
           icon={CheckCircle2}
           accentColor="olive"
           sparkline="wavy-green"
-        />
-
-        <MetricCard
-          title="Pending Queue"
-          value={isLoading ? "..." : pendingQueue}
-          badge={`${pendingQueue} in queue`}
-          badgeType="amber"
-          icon={Clock}
-          accentColor="amber"
-          sparkline="bars-amber"
         />
       </div>
 
@@ -607,33 +597,6 @@ export default function OverviewPage() {
                     <span className="font-semibold text-[#1A201C]">{delayedVisits}</span>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Widget 2: Weekly Run Rate (Past 7 Days) */}
-          <div className="p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-[0_1px_3px_rgba(48,45,40,0.03)]">
-            <div className="flex items-center gap-2 pb-3 border-b border-[#E6DFD3]/60">
-              <Calendar className="w-4 h-4 text-[#1E3F35]" />
-              <h4 className="font-bold text-sm text-[#1A201C]">Weekly Run Rate (Past 7 Days)</h4>
-            </div>
-
-            <div className="pt-4 pb-1">
-              <div className="flex items-end justify-between gap-2 h-20">
-                {weekDays.map((d) => (
-                  <div key={d.day} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
-                    <div className="w-full max-w-[28px] bg-[#EFEBE2] rounded-t-md h-full relative flex items-end overflow-hidden">
-                      {d.rate > 0 && (
-                        <div
-                          className="w-full bg-[#1E3F35] rounded-t-md transition-all duration-500"
-                          style={{ height: `${d.rate}%` }}
-                          title={`${d.day}: ${d.completed}/${d.scheduled} visits (${d.rate}%)`}
-                        />
-                      )}
-                    </div>
-                    <span className="text-[10px] font-medium text-[#756F66]">{d.day}</span>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
