@@ -332,8 +332,8 @@ export default function AssignWorkModal({
               email: c.email || undefined,
               address: c.address || "",
               city: c.city || "",
-              latitude: c.latitude != null ? Number(c.latitude) : undefined,
-              longitude: c.longitude != null ? Number(c.longitude) : undefined,
+              latitude: Number(c.latitude) || 0,
+              longitude: Number(c.longitude) || 0,
               created_at: c.created_at || new Date().toISOString(),
             }));
           }

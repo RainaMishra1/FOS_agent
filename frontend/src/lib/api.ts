@@ -549,8 +549,8 @@ export interface CustomerApiItem {
   phone?: string | null;
   address: string;
   city: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number | null;
+  longitude?: number | null;
   notes?: string | null;
   created_at?: string;
 }
