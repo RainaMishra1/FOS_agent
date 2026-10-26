@@ -643,7 +643,7 @@ export default function AssignWorkModal({
       } catch (apiErr) {
         console.warn("[AssignWorkModal] FastAPI dispatch failed, creating record via Supabase direct:", apiErr);
         
-        let targetCustomerId = selectedCustomerId;
+        let targetCustomerId: string | undefined = selectedCustomerId || undefined;
         if (targetCustomerId) {
           const { data: custExists } = await supabase
             .from("customers")
