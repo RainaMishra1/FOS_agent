@@ -55,17 +55,29 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
           </div>
 
           {/* Live Distance Estimate Banner */}
-          {distanceMeters !== null && !isCompleted && !isInProgress && (
-            <div className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${isWithinGeofence ? "bg-beige-olive-subtle text-beige-olive border border-beige-olive/30" : "bg-beige-sand text-beige-text border border-beige-border"}`}>
+          {distanceMeters !== null && !isCompleted && (
+            <div
+              className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${
+                isWithinGeofence
+                  ? "bg-beige-olive-subtle text-beige-olive border border-beige-olive/30"
+                  : "bg-red-50 text-red-700 border border-red-200"
+              }`}
+            >
               {isWithinGeofence ? (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5 text-beige-olive shrink-0" />
-                  <span>You are <strong>{distanceMeters}m</strong> away (within the 750m zone). Ready to check in!</span>
+                  <span>
+                    You are <strong>{distanceMeters}m</strong> away (within 750m zone).{" "}
+                    {isInProgress ? "Ready to complete visit!" : "Ready to check in!"}
+                  </span>
                 </>
               ) : (
                 <>
-                  <AlertCircle className="h-3.5 w-3.5 text-beige-muted shrink-0" />
-                  <span>You are far away: <strong>{formatDistance(distanceKm!)}</strong> ({distanceMeters}m). You have to be within 750m.</span>
+                  <AlertCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />
+                  <span>
+                    You are far away: <strong>{formatDistance(distanceKm!)}</strong> ({distanceMeters}m). You must be within 750m to{" "}
+                    {isInProgress ? "complete this visit" : "check in"}.
+                  </span>
                 </>
               )}
             </div>
@@ -75,7 +87,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
             {isCompleted
               ? "Visit completion was verified against a fresh GPS reading and the saved site location."
               : isInProgress
-              ? "Your check-in was verified. GPS range and accuracy will be checked again when you complete the visit."
+              ? "Your check-in was recorded. Live GPS range (750m) is strictly verified when completing the visit."
               : "Allow GPS when prompted. Check-in is accepted only within 750m of the customer's coordinates."}
           </p>
         </div>
@@ -102,7 +114,7 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
         </button>
       )}
 
-      {(isCompleted || isInProgress) && visit.geofenceVerified && (
+      {isCompleted && visit.geofenceVerified && (
         <p className="flex items-center gap-1.5 rounded-xl border border-beige-olive/30 bg-beige-olive-subtle p-2.5 text-[11px] font-semibold text-beige-olive">
           <CheckCircle2 className="h-3.5 w-3.5" />
           Inside the 750m geofence at the last verified GPS check.

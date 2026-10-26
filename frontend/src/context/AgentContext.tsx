@@ -830,23 +830,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // If live browser GPS is within 750m, use it!
-      if (liveDist !== null && liveDist <= 750) {
+      // Prioritize live GPS if available, otherwise fall back to agentCoords
+      if (liveDist !== null) {
         distanceMeters = liveDist;
         targetLat = liveBrowserCoords!.lat;
         targetLng = liveBrowserCoords!.lng;
-      } else if (stateDist !== null && stateDist <= 750) {
-        // If agent's saved profile coordinate is within 750m, use that!
+      } else if (stateDist !== null) {
         distanceMeters = stateDist;
         targetLat = agentCoords!.lat;
         targetLng = agentCoords!.lng;
-      } else {
-        // Neither is <= 750m; pick whichever is closest
-        if (liveDist !== null && stateDist !== null) {
-          distanceMeters = Math.min(liveDist, stateDist);
-        } else {
-          distanceMeters = liveDist ?? stateDist;
-        }
       }
     }
 
@@ -905,7 +897,20 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           session.access_token
         );
         mapped = mapApiVisitToAgentVisit(updatedApi);
-      } catch (statusErr) {
+      } catch (statusErr: any) {
+        const errorDetail = extractErrorMessage(statusErr, "Check-in failed on server.");
+        const isGeofenceOrRuleError =
+          statusErr?.status === 409 ||
+          statusErr?.status === 400 ||
+          statusErr?.status === 403 ||
+          errorDetail.toLowerCase().includes("geofence") ||
+          errorDetail.toLowerCase().includes("750") ||
+          errorDetail.toLowerCase().includes("away from");
+
+        if (isGeofenceOrRuleError) {
+          throw new Error(errorDetail);
+        }
+
         console.warn("FastAPI visit status update failed, updating Supabase directly:", statusErr);
         await supabase
           .from("visits")
@@ -960,6 +965,89 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       if (!session?.access_token) {
         throw new Error("Your secure session is unavailable. Sign in again to complete this visit.");
       }
+
+      const agentCoords = currentAgent?.currentCoordinates;
+      const custCoords = visit.coordinates;
+      const hasCustCoords = Boolean(
+        visit.hasCoordinates &&
+        custCoords &&
+        (custCoords.lat !== 0 || custCoords.lng !== 0)
+      );
+
+      // 1. Acquire fresh live browser GPS if available
+      let liveBrowserCoords: { lat: number; lng: number } | null = null;
+      if (typeof navigator !== "undefined" && navigator.geolocation) {
+        try {
+          const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => resolve(pos),
+              () => resolve(null),
+              { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+            );
+          });
+          if (freshFix && freshFix.coords) {
+            liveBrowserCoords = {
+              lat: freshFix.coords.latitude,
+              lng: freshFix.coords.longitude,
+            };
+          }
+        } catch {
+          // Fall back to agentCoords
+        }
+      }
+
+      // 2. Calculate distance to customer site
+      let distanceMeters: number | null = null;
+      if (hasCustCoords && custCoords) {
+        let liveDist: number | null = null;
+        let stateDist: number | null = null;
+
+        if (liveBrowserCoords) {
+          liveDist = Math.round(
+            calculateHaversineDistanceKm(
+              liveBrowserCoords.lat,
+              liveBrowserCoords.lng,
+              custCoords.lat,
+              custCoords.lng
+            ) * 1000
+          );
+        }
+
+        if (agentCoords && (agentCoords.lat !== 0 || agentCoords.lng !== 0)) {
+          stateDist = Math.round(
+            calculateHaversineDistanceKm(
+              agentCoords.lat,
+              agentCoords.lng,
+              custCoords.lat,
+              custCoords.lng
+            ) * 1000
+          );
+        }
+
+        if (liveDist !== null) {
+          distanceMeters = liveDist;
+        } else if (stateDist !== null) {
+          distanceMeters = stateDist;
+        }
+      }
+
+      // Strict 750m check on completion
+      if (distanceMeters !== null && distanceMeters > 750) {
+        const errorMsg = `Cannot complete visit: You are not within the 750m geofence. You are ${distanceMeters}m away from the customer's location.`;
+        showNotification("error", errorMsg);
+        return {
+          success: false,
+          message: errorMsg,
+        };
+      }
+
+      if (liveBrowserCoords) {
+        setCurrentAgent((prev) => ({
+          ...prev,
+          currentCoordinates: { lat: liveBrowserCoords!.lat, lng: liveBrowserCoords!.lng },
+        }));
+      }
+
       // Capture fresh GPS for completion; non-blocking notice
       try {
         await syncFreshGpsLocation(session.access_token);
@@ -977,7 +1065,20 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           session.access_token
         );
         mapped = mapApiVisitToAgentVisit(updatedApi);
-      } catch (statusErr) {
+      } catch (statusErr: any) {
+        const errorDetail = extractErrorMessage(statusErr, "Failed to complete visit on server.");
+        const isGeofenceOrRuleError =
+          statusErr?.status === 409 ||
+          statusErr?.status === 400 ||
+          statusErr?.status === 403 ||
+          errorDetail.toLowerCase().includes("geofence") ||
+          errorDetail.toLowerCase().includes("750") ||
+          errorDetail.toLowerCase().includes("away from");
+
+        if (isGeofenceOrRuleError) {
+          throw new Error(errorDetail);
+        }
+
         console.warn("FastAPI visit complete failed, updating Supabase directly:", statusErr);
         await supabase
           .from("visits")

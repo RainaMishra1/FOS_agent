@@ -7,6 +7,7 @@ import { useAgent } from "@/context/AgentContext";
 import StatusBadge from "@/components/StatusBadge";
 import VisitGeofenceCheckIn from "./VisitGeofenceCheckIn";
 import CompleteVisitModal from "./CompleteVisitModal";
+import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 import {
   X,
   Phone,
@@ -34,7 +35,7 @@ export default function VisitDetailDrawer({
   visit: initialVisit,
   onClose,
 }: VisitDetailDrawerProps) {
-  const { visits, historyVisits, isOnDuty, checkInVisit, notification, clearNotification } = useAgent();
+  const { visits, historyVisits, isOnDuty, checkInVisit, currentAgent, notification, clearNotification } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [phoneDialed, setPhoneDialed] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -62,6 +63,18 @@ export default function VisitDetailDrawer({
       setIsCheckingIn(false);
     }
   };
+
+  const distanceKm =
+    visit?.hasCoordinates && currentAgent?.currentCoordinates
+      ? calculateHaversineDistanceKm(
+          currentAgent.currentCoordinates.lat,
+          currentAgent.currentCoordinates.lng,
+          visit.coordinates.lat,
+          visit.coordinates.lng
+        )
+      : null;
+  const distanceMeters = distanceKm !== null ? Math.round(distanceKm * 1000) : null;
+  const isOutsideGeofence = distanceMeters !== null && distanceMeters > 750;
 
   return (
     <>
@@ -261,10 +274,12 @@ export default function VisitDetailDrawer({
             {visit.status === "in_progress" ? (
               <button
                 onClick={() => setShowCompleteModal(true)}
-                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  isOutsideGeofence ? "bg-amber-700 hover:bg-amber-800" : "bg-[#1E3F35] hover:bg-[#162F27]"
+                }`}
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Complete Visit</span>
+                {isOutsideGeofence ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                <span>{isOutsideGeofence ? `Complete Visit (${distanceMeters}m away)` : "Complete Visit"}</span>
               </button>
             ) : visit.status === "completed" ? (
               <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-[#EAF2EC] text-[#1E3F35] text-center border border-[#CDE1D2]">
