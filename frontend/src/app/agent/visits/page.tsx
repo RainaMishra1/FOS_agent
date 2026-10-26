@@ -28,6 +28,7 @@ import {
 export default function MyVisitsPage() {
   const {
     currentAgent,
+    liveGpsCoords,
     visits,
     historyVisits,
     isOnDuty,
@@ -148,16 +149,17 @@ export default function MyVisitsPage() {
 
   // Distance estimation helper
   const getEstimatedDistanceInfo = (visit: AgentVisit, index: number) => {
+    const originCoords = liveGpsCoords || currentAgent.currentCoordinates;
     if (
       visit.coordinates &&
       visit.coordinates.lat &&
       visit.coordinates.lng &&
-      currentAgent.currentCoordinates &&
-      currentAgent.currentCoordinates.lat
+      originCoords &&
+      originCoords.lat
     ) {
       const dist = calculateHaversineDistanceKm(
-        currentAgent.currentCoordinates.lat,
-        currentAgent.currentCoordinates.lng,
+        originCoords.lat,
+        originCoords.lng,
         visit.coordinates.lat,
         visit.coordinates.lng
       );

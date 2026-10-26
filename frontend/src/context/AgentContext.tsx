@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { AgentProfile, AgentVisit } from "@/types/agent";
 
 const defaultAgentProfile: AgentProfile = {
@@ -56,6 +56,7 @@ interface AgentContextType {
     completionPercentage: number;
     nextVisit: AgentVisit | null;
   };
+  liveGpsCoords: { lat: number; lng: number; accuracy?: number } | null;
   isLoading: boolean;
   error: string | null;
   isLiveBackend: boolean;
@@ -518,7 +519,43 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const clearNotification = useCallback(() => setNotification(null), []);
 
-  // Sync profile details from authenticated user
+  // Persistent live GPS tracking from browser Geolocation API
+  const [liveGpsCoords, setLiveGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
+  const liveGpsCoordsRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
+    const handlePos = (pos: GeolocationPosition) => {
+      const coords = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      };
+      liveGpsCoordsRef.current = coords;
+      setLiveGpsCoords(coords);
+      setCurrentAgent((prev) => ({
+        ...prev,
+        currentCoordinates: { lat: coords.lat, lng: coords.lng },
+      }));
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      handlePos,
+      (err) => console.warn("[AgentContext] Initial GPS notice:", err.message),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 }
+    );
+
+    const watchId = navigator.geolocation.watchPosition(
+      handlePos,
+      (err) => console.warn("[AgentContext] GPS watch error:", err.message),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
   useEffect(() => {
     if (profile) {
       const name = profile.full_name || "Field Agent";
@@ -633,10 +670,12 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             setCurrentAgent((prev) => ({
               ...prev,
               ...liveDbData.agentProfile,
-              currentCoordinates: {
-                ...prev.currentCoordinates,
-                ...liveDbData.agentProfile?.currentCoordinates,
-              },
+              currentCoordinates: liveGpsCoordsRef.current
+                ? { lat: liveGpsCoordsRef.current.lat, lng: liveGpsCoordsRef.current.lng }
+                : {
+                    ...prev.currentCoordinates,
+                    ...liveDbData.agentProfile?.currentCoordinates,
+                  },
             }));
             if (liveDbData.agentProfile.status) {
               setIsOnDuty(liveDbData.agentProfile.status === "active");
@@ -777,15 +816,14 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       (custCoords.lat !== 0 || custCoords.lng !== 0)
     );
 
-    // 1. Acquire live browser GPS if available
-    let liveBrowserCoords: { lat: number; lng: number } | null = null;
+    let liveBrowserCoords: { lat: number; lng: number } | null = liveGpsCoordsRef.current;
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       try {
         const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
           navigator.geolocation.getCurrentPosition(
             (pos) => resolve(pos),
             () => resolve(null),
-            { enableHighAccuracy: true, timeout: 3_000, maximumAge: 15_000 }
+            { enableHighAccuracy: true, timeout: 6_000, maximumAge: 5_000 }
           );
         });
         if (freshFix && freshFix.coords) {
@@ -793,53 +831,40 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             lat: freshFix.coords.latitude,
             lng: freshFix.coords.longitude,
           };
+          liveGpsCoordsRef.current = liveBrowserCoords;
+          setLiveGpsCoords({
+            lat: freshFix.coords.latitude,
+            lng: freshFix.coords.longitude,
+            accuracy: freshFix.coords.accuracy,
+          });
         }
       } catch {
-        // Fall back to agentCoords
+        // failed to get fresh fix
       }
     }
 
-    // Determine target location and distance to customer
-    let targetLat = liveBrowserCoords?.lat ?? agentCoords?.lat;
-    let targetLng = liveBrowserCoords?.lng ?? agentCoords?.lng;
+    if (!liveBrowserCoords) {
+      const errorMsg = "Unable to verify geofence: Live GPS coordinates could not be acquired from your device. Please allow location access in your browser and try again.";
+      showNotification("error", errorMsg);
+      return {
+        success: false,
+        message: errorMsg,
+      };
+    }
+
+    const targetLat = liveBrowserCoords.lat;
+    const targetLng = liveBrowserCoords.lng;
 
     let distanceMeters: number | null = null;
     if (hasCustCoords && custCoords) {
-      let liveDist: number | null = null;
-      let stateDist: number | null = null;
-
-      if (liveBrowserCoords) {
-        liveDist = Math.round(
-          calculateHaversineDistanceKm(
-            liveBrowserCoords.lat,
-            liveBrowserCoords.lng,
-            custCoords.lat,
-            custCoords.lng
-          ) * 1000
-        );
-      }
-
-      if (agentCoords && (agentCoords.lat !== 0 || agentCoords.lng !== 0)) {
-        stateDist = Math.round(
-          calculateHaversineDistanceKm(
-            agentCoords.lat,
-            agentCoords.lng,
-            custCoords.lat,
-            custCoords.lng
-          ) * 1000
-        );
-      }
-
-      // Prioritize live GPS if available, otherwise fall back to agentCoords
-      if (liveDist !== null) {
-        distanceMeters = liveDist;
-        targetLat = liveBrowserCoords!.lat;
-        targetLng = liveBrowserCoords!.lng;
-      } else if (stateDist !== null) {
-        distanceMeters = stateDist;
-        targetLat = agentCoords!.lat;
-        targetLng = agentCoords!.lng;
-      }
+      distanceMeters = Math.round(
+        calculateHaversineDistanceKm(
+          targetLat,
+          targetLng,
+          custCoords.lat,
+          custCoords.lng
+        ) * 1000
+      );
     }
 
     // 2. Strict 750m check
@@ -974,15 +999,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         (custCoords.lat !== 0 || custCoords.lng !== 0)
       );
 
-      // 1. Acquire fresh live browser GPS if available
-      let liveBrowserCoords: { lat: number; lng: number } | null = null;
+      // 1. Acquire fresh live browser GPS
+      let liveBrowserCoords: { lat: number; lng: number } | null = liveGpsCoordsRef.current;
       if (typeof navigator !== "undefined" && navigator.geolocation) {
         try {
           const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
             navigator.geolocation.getCurrentPosition(
               (pos) => resolve(pos),
               () => resolve(null),
-              { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+              { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 }
             );
           });
           if (freshFix && freshFix.coords) {
@@ -990,45 +1015,38 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
               lat: freshFix.coords.latitude,
               lng: freshFix.coords.longitude,
             };
+            liveGpsCoordsRef.current = liveBrowserCoords;
+            setLiveGpsCoords({
+              lat: freshFix.coords.latitude,
+              lng: freshFix.coords.longitude,
+              accuracy: freshFix.coords.accuracy,
+            });
           }
         } catch {
-          // Fall back to agentCoords
+          // failed to get fresh fix
         }
       }
 
-      // 2. Calculate distance to customer site
+      if (!liveBrowserCoords) {
+        const errorMsg = "Cannot complete visit: Live GPS coordinates could not be acquired from your device. Please allow location access in your browser and try again.";
+        showNotification("error", errorMsg);
+        return {
+          success: false,
+          message: errorMsg,
+        };
+      }
+
+      // 2. Calculate distance to customer site strictly using live GPS
       let distanceMeters: number | null = null;
       if (hasCustCoords && custCoords) {
-        let liveDist: number | null = null;
-        let stateDist: number | null = null;
-
-        if (liveBrowserCoords) {
-          liveDist = Math.round(
-            calculateHaversineDistanceKm(
-              liveBrowserCoords.lat,
-              liveBrowserCoords.lng,
-              custCoords.lat,
-              custCoords.lng
-            ) * 1000
-          );
-        }
-
-        if (agentCoords && (agentCoords.lat !== 0 || agentCoords.lng !== 0)) {
-          stateDist = Math.round(
-            calculateHaversineDistanceKm(
-              agentCoords.lat,
-              agentCoords.lng,
-              custCoords.lat,
-              custCoords.lng
-            ) * 1000
-          );
-        }
-
-        if (liveDist !== null) {
-          distanceMeters = liveDist;
-        } else if (stateDist !== null) {
-          distanceMeters = stateDist;
-        }
+        distanceMeters = Math.round(
+          calculateHaversineDistanceKm(
+            liveBrowserCoords.lat,
+            liveBrowserCoords.lng,
+            custCoords.lat,
+            custCoords.lng
+          ) * 1000
+        );
       }
 
       // Strict 750m check on completion
@@ -1180,6 +1198,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         notification,
         clearNotification,
         stats,
+        liveGpsCoords,
         isLoading,
         error,
         isLiveBackend,

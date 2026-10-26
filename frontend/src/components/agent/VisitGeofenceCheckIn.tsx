@@ -11,17 +11,35 @@ interface VisitGeofenceCheckInProps {
 }
 
 export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProps) {
-  const { checkInVisit, isOnDuty, currentAgent } = useAgent();
+  const { checkInVisit, isOnDuty, liveGpsCoords } = useAgent();
+  const [deviceCoords, setDeviceCoords] = useState<{ lat: number; lng: number } | null>(liveGpsCoords);
+  const [isAcquiringGps, setIsAcquiringGps] = useState<boolean>(!liveGpsCoords);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCompleted = visit.status === "completed";
   const isInProgress = visit.status === "in_progress";
 
-  // Calculate live distance from agent's known coordinates to customer site
+  React.useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setIsAcquiringGps(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDeviceCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setIsAcquiringGps(false);
+      },
+      () => setIsAcquiringGps(false),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 3000 }
+    );
+  }, []);
+
+  const activeCoords = deviceCoords || liveGpsCoords;
+  // Calculate live distance from device's true GPS coordinates to customer site
   const distanceKm =
-    visit.hasCoordinates && currentAgent?.currentCoordinates
+    visit.hasCoordinates && activeCoords
       ? calculateHaversineDistanceKm(
-          currentAgent.currentCoordinates.lat,
-          currentAgent.currentCoordinates.lng,
+          activeCoords.lat,
+          activeCoords.lng,
           visit.coordinates.lat,
           visit.coordinates.lng
         )
@@ -55,6 +73,20 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
           </div>
 
           {/* Live Distance Estimate Banner */}
+          {isAcquiringGps && !isCompleted && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+              <span className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+              <span>Acquiring live device GPS position...</span>
+            </div>
+          )}
+
+          {!isAcquiringGps && !activeCoords && !isCompleted && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              <span>Location access required. Allow browser location to verify geofence.</span>
+            </div>
+          )}
+
           {distanceMeters !== null && !isCompleted && (
             <div
               className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${

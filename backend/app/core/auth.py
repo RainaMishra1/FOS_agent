@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.session import get_db
 from app.models.profile import Profile
+from app.models.agent import Agent
 
 logger = logging.getLogger("fos.auth")
 
@@ -307,6 +308,55 @@ async def get_current_profile(
                 profile.id,
                 link_err.__class__.__name__,
             )
+
+    # Strategy 4: Auto-provision profile and agent for valid Supabase authenticated user
+    if not profile and user_uuid:
+        try:
+            user_meta = claims.get("user_metadata", {}) or {}
+            derived_name = (
+                user_meta.get("full_name")
+                or claims.get("name")
+                or (token_email.split("@")[0].replace(".", " ").title() if token_email else "Field Agent")
+            )
+            derived_role = user_meta.get("role") or ("admin" if "admin" in (token_email or "").lower() else "agent")
+            profile = Profile(
+                id=user_uuid,
+                auth_user_id=user_uuid,
+                email=token_email or f"{user_uuid}@fos.internal",
+                full_name=derived_name,
+                role=derived_role,
+            )
+            db.add(profile)
+            await db.flush()
+
+            if derived_role == "agent":
+                ag = Agent(
+                    id=uuid.uuid4(),
+                    profile_id=profile.id,
+                    agent_code="AGT-" + str(profile.id)[:4].upper(),
+                    status="active",
+                    territory="Mumbai Zone",
+                    address="Mumbai Hub",
+                    location_source="gps",
+                    current_latitude=None,
+                    current_longitude=None,
+                    battery_level=90,
+                )
+                db.add(ag)
+                await db.flush()
+            await db.commit()
+            lookup_strategy = "auto_provisioned"
+            logger.info("Auto-provisioned profile & agent for authenticated user %s (%s)", user_uuid, token_email)
+        except Exception as prov_err:
+            logger.warning("Auto-provision profile failed: %s", prov_err)
+            await db.rollback()
+            try:
+                res = await db.execute(
+                    select(Profile).options(joinedload(Profile.agent)).where(Profile.id == user_uuid)
+                )
+                profile = res.unique().scalars().first()
+            except Exception:
+                pass
 
     if profile:
         logger.info(

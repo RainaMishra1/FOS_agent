@@ -25,7 +25,11 @@ export default function CompleteVisitModal({
   onClose,
   onSuccess,
 }: CompleteVisitModalProps) {
-  const { completeVisit, currentAgent } = useAgent();
+  const { completeVisit, liveGpsCoords } = useAgent();
+  const [deviceCoords, setDeviceCoords] = useState<{ lat: number; lng: number } | null>(liveGpsCoords);
+  const [isAcquiringGps, setIsAcquiringGps] = useState<boolean>(!liveGpsCoords);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+
   const [notes, setNotes] = useState(
     visit.completionNotes ||
       "Inspection and verification tasks successfully carried out. Hardware seals confirmed and customer acknowledged completion."
@@ -34,11 +38,41 @@ export default function CompleteVisitModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Request high-accuracy live GPS directly upon opening modal
+  React.useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setIsAcquiringGps(false);
+      setGpsError("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDeviceCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setIsAcquiringGps(false);
+        setGpsError(null);
+      },
+      (err) => {
+        setIsAcquiringGps(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setGpsError("Location access denied. Please allow location access in your browser to verify the geofence.");
+        } else {
+          setGpsError("Could not acquire your device GPS position. Please check location permissions.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 3000 }
+    );
+  }, []);
+
+  const activeCoords = deviceCoords || liveGpsCoords;
   const distanceKm =
-    visit.hasCoordinates && currentAgent?.currentCoordinates
+    visit.hasCoordinates && activeCoords
       ? calculateHaversineDistanceKm(
-          currentAgent.currentCoordinates.lat,
-          currentAgent.currentCoordinates.lng,
+          activeCoords.lat,
+          activeCoords.lng,
           visit.coordinates.lat,
           visit.coordinates.lng
         )
@@ -97,11 +131,21 @@ export default function CompleteVisitModal({
           </div>
           <div className="flex items-center justify-between">
             <span className="text-beige-muted">Geofence Status:</span>
-            <span className={`font-semibold flex items-center gap-1 ${isOutsideGeofence ? "text-red-600" : "text-beige-olive"}`}>
-              {isOutsideGeofence ? (
+            <span className={`font-semibold flex items-center gap-1 ${gpsError || isOutsideGeofence ? "text-red-600" : isAcquiringGps ? "text-amber-600" : "text-beige-olive"}`}>
+              {isAcquiringGps ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                  Acquiring live GPS...
+                </>
+              ) : gpsError ? (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                  Outside 750m zone ({distanceMeters}m away)
+                  Location unavailable
+                </>
+              ) : isOutsideGeofence ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                  Outside 750m zone ({distanceKm !== null ? formatDistance(distanceKm) : `${distanceMeters}m`} away)
                 </>
               ) : (
                 <>
@@ -119,7 +163,15 @@ export default function CompleteVisitModal({
           </div>
         </div>
 
-        {/* Error Alert */}
+        {/* GPS Error Alert */}
+        {gpsError && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+            <span className="leading-snug">{gpsError}</span>
+          </div>
+        )}
+
+        {/* Server Error Alert */}
         {error && (
           <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
@@ -128,11 +180,11 @@ export default function CompleteVisitModal({
         )}
 
         {/* Outside Geofence Warning */}
-        {isOutsideGeofence && !error && (
+        {isOutsideGeofence && !error && !gpsError && (
           <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
             <div className="leading-snug">
-              <strong>Geofence Notice:</strong> You are currently <strong>{distanceMeters}m</strong> away from this customer site. Completion requires being within 750 metres.
+              <strong>Geofence Notice:</strong> You are currently <strong>{distanceKm !== null ? formatDistance(distanceKm) : `${distanceMeters}m`}</strong> away from this customer site. Completion requires being within 750 metres.
             </div>
           </div>
         )}
@@ -191,9 +243,9 @@ export default function CompleteVisitModal({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isOutsideGeofence}
+              disabled={isSubmitting || isOutsideGeofence || isAcquiringGps || Boolean(gpsError)}
               className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold text-white shadow-md transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
-                isOutsideGeofence
+                isOutsideGeofence || Boolean(gpsError)
                   ? "bg-red-600 hover:bg-red-700"
                   : "bg-beige-terracotta hover:bg-beige-terracotta-light"
               }`}
@@ -203,10 +255,20 @@ export default function CompleteVisitModal({
                   <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Finalizing...
                 </>
+              ) : isAcquiringGps ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Checking GPS...
+                </>
+              ) : gpsError ? (
+                <>
+                  <AlertCircle className="w-4 h-4" />
+                  Location Required
+                </>
               ) : isOutsideGeofence ? (
                 <>
                   <AlertCircle className="w-4 h-4" />
-                  Outside 750m Zone ({distanceMeters}m)
+                  Outside 750m Zone ({distanceKm !== null ? formatDistance(distanceKm) : `${distanceMeters}m`})
                 </>
               ) : (
                 <>

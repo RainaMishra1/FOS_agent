@@ -30,7 +30,7 @@ export default function NextVisitCard({
   visit,
   onOpenDetails,
 }: NextVisitCardProps) {
-  const { currentAgent, checkInVisit } = useAgent();
+  const { currentAgent, liveGpsCoords, checkInVisit } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
 
@@ -38,15 +38,10 @@ export default function NextVisitCard({
   const leafletMapRef = useRef<any>(null);
   const [isLeafletReady, setIsLeafletReady] = useState(false);
 
-  // Fallback road geometry Kalyan -> Murbad matching reference screenshot
-  const defaultOrigin: [number, number] = [
-    currentAgent?.currentCoordinates?.lat && currentAgent.currentCoordinates.lat !== 0
-      ? currentAgent.currentCoordinates.lat
-      : 19.2403,
-    currentAgent?.currentCoordinates?.lng && currentAgent.currentCoordinates.lng !== 0
-      ? currentAgent.currentCoordinates.lng
-      : 73.1305,
-  ];
+  // Use live GPS location for origin on map
+  const originLat = liveGpsCoords?.lat || (currentAgent?.currentCoordinates?.lat !== 0 ? currentAgent?.currentCoordinates?.lat : undefined) || 19.2403;
+  const originLng = liveGpsCoords?.lng || (currentAgent?.currentCoordinates?.lng !== 0 ? currentAgent?.currentCoordinates?.lng : undefined) || 73.1305;
+  const defaultOrigin: [number, number] = [originLat, originLng];
 
   const defaultDest: [number, number] = [
     visit?.coordinates?.lat && visit.coordinates.lat !== 0 ? visit.coordinates.lat : 19.2564,
