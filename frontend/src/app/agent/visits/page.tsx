@@ -6,7 +6,7 @@ import { useAgent } from "@/context/AgentContext";
 import { AgentVisit } from "@/types/agent";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
-import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
+import { calculateHaversineDistanceKm, formatDistance } from "@/lib/geoUtils";
 import {
   CalendarCheck,
   Search,
@@ -148,7 +148,7 @@ export default function MyVisitsPage() {
   };
 
   // Distance estimation helper
-  const getEstimatedDistanceInfo = (visit: AgentVisit, index: number) => {
+  const getEstimatedDistanceInfo = (visit: AgentVisit, _index?: number) => {
     const originCoords = liveGpsCoords || currentAgent.currentCoordinates;
     if (
       visit.coordinates &&
@@ -163,15 +163,11 @@ export default function MyVisitsPage() {
         visit.coordinates.lat,
         visit.coordinates.lng
       );
-      const mins = Math.max(15, Math.round(dist * 2.2));
-      return `${dist.toFixed(1)} km • ~${mins} mins`;
+      const mins = Math.max(2, Math.round(dist * 2.4));
+      return `${formatDistance(dist)} • ~${mins} mins`;
     }
 
-    // Default reference values
-    if (index === 0) return "12.4 km • ~27 mins";
-    if (index === 1) return "18.7 km • ~42 mins";
-    if (index === 2) return "28.3 km • ~55 mins";
-    return "15.0 km • ~35 mins";
+    return "Distance unavailable";
   };
 
   // Relative due estimation helper

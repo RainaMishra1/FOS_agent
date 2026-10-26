@@ -35,7 +35,7 @@ export default function VisitDetailDrawer({
   visit: initialVisit,
   onClose,
 }: VisitDetailDrawerProps) {
-  const { visits, historyVisits, isOnDuty, checkInVisit, liveGpsCoords, notification, clearNotification } = useAgent();
+  const { currentAgent, visits, historyVisits, isOnDuty, checkInVisit, liveGpsCoords, notification, clearNotification } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [phoneDialed, setPhoneDialed] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -64,11 +64,12 @@ export default function VisitDetailDrawer({
     }
   };
 
+  const activeOrigin = liveGpsCoords || (currentAgent?.currentCoordinates?.lat ? currentAgent.currentCoordinates : null);
   const distanceKm =
-    visit?.hasCoordinates && liveGpsCoords
+    visit?.hasCoordinates && activeOrigin
       ? calculateHaversineDistanceKm(
-          liveGpsCoords.lat,
-          liveGpsCoords.lng,
+          activeOrigin.lat,
+          activeOrigin.lng,
           visit.coordinates.lat,
           visit.coordinates.lng
         )

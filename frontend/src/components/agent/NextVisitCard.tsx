@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
 import CompleteVisitModal from "./CompleteVisitModal";
+import { calculateHaversineDistanceKm, formatDistance } from "@/lib/geoUtils";
 import Link from "next/link";
 import {
   MapPin,
@@ -19,6 +20,8 @@ import {
   ZoomIn,
   ZoomOut,
   FileText,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 
 interface NextVisitCardProps {
@@ -30,23 +33,78 @@ export default function NextVisitCard({
   visit,
   onOpenDetails,
 }: NextVisitCardProps) {
-  const { currentAgent, liveGpsCoords, checkInVisit } = useAgent();
+  const { currentAgent, liveGpsCoords, checkInVisit, refreshLiveGps } = useAgent();
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [isCalibratingGps, setIsCalibratingGps] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<any>(null);
   const [isLeafletReady, setIsLeafletReady] = useState(false);
 
-  // Use live GPS location for origin on map
-  const originLat = liveGpsCoords?.lat || (currentAgent?.currentCoordinates?.lat !== 0 ? currentAgent?.currentCoordinates?.lat : undefined) || 19.2403;
-  const originLng = liveGpsCoords?.lng || (currentAgent?.currentCoordinates?.lng !== 0 ? currentAgent?.currentCoordinates?.lng : undefined) || 73.1305;
-  const defaultOrigin: [number, number] = [originLat, originLng];
+  // Use live GPS location for origin on map, fallback to agent profile coordinates
+  const originLat =
+    liveGpsCoords?.lat ??
+    (currentAgent?.currentCoordinates?.lat && currentAgent.currentCoordinates.lat !== 0
+      ? currentAgent.currentCoordinates.lat
+      : 19.2403);
+  const originLng =
+    liveGpsCoords?.lng ??
+    (currentAgent?.currentCoordinates?.lng && currentAgent.currentCoordinates.lng !== 0
+      ? currentAgent.currentCoordinates.lng
+      : 73.1305);
 
-  const defaultDest: [number, number] = [
-    visit?.coordinates?.lat && visit.coordinates.lat !== 0 ? visit.coordinates.lat : 19.2564,
-    visit?.coordinates?.lng && visit.coordinates.lng !== 0 ? visit.coordinates.lng : 73.4000,
-  ];
+  const destLat =
+    visit?.coordinates?.lat && visit.coordinates.lat !== 0
+      ? visit.coordinates.lat
+      : visit?.latitude && visit.latitude !== 0
+      ? visit.latitude
+      : 19.2564;
+  const destLng =
+    visit?.coordinates?.lng && visit.coordinates.lng !== 0
+      ? visit.coordinates.lng
+      : visit?.longitude && visit.longitude !== 0
+      ? visit.longitude
+      : 73.4000;
+
+  // Real calculated Haversine distance
+  const distanceKm =
+    originLat && originLng && destLat && destLng
+      ? calculateHaversineDistanceKm(originLat, originLng, destLat, destLng)
+      : null;
+
+  const distanceMeters = distanceKm !== null ? Math.round(distanceKm * 1000) : null;
+  const isWithinGeofence = distanceMeters !== null && distanceMeters <= 750;
+  const isOutsideGeofence = distanceMeters !== null && distanceMeters > 750;
+
+  // Realistic transit time based on true distance (~25 km/h urban speed)
+  const etaMinutes = distanceKm !== null ? Math.max(2, Math.round(distanceKm * 2.4)) : null;
+  const etaFormatted =
+    distanceKm !== null
+      ? distanceKm < 0.1
+        ? "< 2 mins"
+        : etaMinutes! > 60
+        ? `${Math.floor(etaMinutes! / 60)}h ${etaMinutes! % 60}m`
+        : `~${etaMinutes} mins`
+      : visit?.estimatedDuration || "25 mins";
+
+  const formattedDistance =
+    distanceKm !== null
+      ? formatDistance(distanceKm)
+      : liveGpsCoords
+      ? "Calculating..."
+      : "Locating GPS...";
+
+  const handleCalibrateGps = async () => {
+    setIsCalibratingGps(true);
+    try {
+      if (refreshLiveGps) {
+        await refreshLiveGps();
+      }
+    } finally {
+      setIsCalibratingGps(false);
+    }
+  };
 
   // Load Leaflet dynamically
   useEffect(() => {
@@ -103,25 +161,22 @@ export default function NextVisitCard({
 
     const map = leafletMapRef.current;
 
-    // Clear previous markers / polylines
+    // Clear previous markers / polylines / circles
     map.eachLayer((layer: any) => {
-      if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+      if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
         map.removeLayer(layer);
       }
     });
 
-    const originLat = defaultOrigin[0];
-    const originLng = defaultOrigin[1];
-    const destLat = defaultDest[0];
-    const destLng = defaultDest[1];
+    const isLive = Boolean(liveGpsCoords);
 
     // Origin "You" marker
     const originIcon = L.divIcon({
       className: "custom-you-marker",
       html: `
         <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-          <div style="background: #ffffff; border: 1.5px solid #E6DFD3; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #1E3F35; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px;">
-            You
+          <div style="background: #ffffff; border: 1.5px solid #E6DFD3; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #1E3F35; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px; white-space: nowrap;">
+            You ${isLive ? "(Live GPS)" : ""}
           </div>
           <div style="width: 14px; height: 14px; border-radius: 50%; background: #0284c7; border: 2.5px solid #ffffff; box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25);"></div>
         </div>
@@ -132,7 +187,7 @@ export default function NextVisitCard({
     L.marker([originLat, originLng], { icon: originIcon }).addTo(map);
 
     // Destination Pin marker
-    const destName = visit?.customerName || "Girya";
+    const destName = visit?.customerName || "Destination Site";
     const destIcon = L.divIcon({
       className: "custom-dest-marker",
       html: `
@@ -143,7 +198,7 @@ export default function NextVisitCard({
               <circle cx="12" cy="11" r="4.5" fill="#ffffff"/>
             </svg>
           </div>
-          <div style="background: #ffffff; border: 1px solid #E6DFD3; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px;">
+          <div style="background: #ffffff; border: 1px solid #E6DFD3; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px; white-space: nowrap;">
             ${destName}
           </div>
         </div>
@@ -153,31 +208,44 @@ export default function NextVisitCard({
 
     L.marker([destLat, destLng], { icon: destIcon }).addTo(map);
 
-    // Realistic curved route geometry connecting Kalyan and Murbad
-    const routeCoords: [number, number][] = [
-      [originLat, originLng],
-      [originLat + (destLat - originLat) * 0.15 - 0.005, originLng + (destLng - originLng) * 0.2],
-      [originLat + (destLat - originLat) * 0.35 + 0.008, originLng + (destLng - originLng) * 0.4],
-      [originLat + (destLat - originLat) * 0.6 - 0.004, originLng + (destLng - originLng) * 0.65],
-      [originLat + (destLat - originLat) * 0.85 + 0.003, originLng + (destLng - originLng) * 0.85],
-      [destLat, destLng],
-    ];
-
-    L.polyline(routeCoords, {
-      color: "#1E3F35",
-      weight: 4.5,
-      opacity: 0.9,
-      lineCap: "round",
-      lineJoin: "round",
+    // 750m Geofence circle around customer site
+    L.circle([destLat, destLng], {
+      radius: 750,
+      color: isWithinGeofence ? "#16a34a" : "#ca8a04",
+      fillColor: isWithinGeofence ? "#22c55e" : "#eab308",
+      fillOpacity: 0.12,
+      weight: 1.5,
+      dashArray: "4, 4",
     }).addTo(map);
 
-    // Fit bounds with padding
-    const bounds = L.latLngBounds([
-      [originLat, originLng],
-      [destLat, destLng],
-    ]);
-    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-  }, [isLeafletReady, defaultOrigin[0], defaultOrigin[1], defaultDest[0], defaultDest[1], visit?.customerName]);
+    // Dynamic Route line connecting origin and destination
+    if (distanceMeters && distanceMeters > 50) {
+      L.polyline(
+        [
+          [originLat, originLng],
+          [destLat, destLng],
+        ],
+        {
+          color: "#1E3F35",
+          weight: 3.5,
+          opacity: 0.85,
+          dashArray: "6, 8",
+          lineCap: "round",
+        }
+      ).addTo(map);
+    }
+
+    // Fit bounds with appropriate zoom
+    if (Math.abs(originLat - destLat) > 0.0005 || Math.abs(originLng - destLng) > 0.0005) {
+      const bounds = L.latLngBounds([
+        [originLat, originLng],
+        [destLat, destLng],
+      ]);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else {
+      map.setView([destLat, destLng], 15);
+    }
+  }, [isLeafletReady, originLat, originLng, destLat, destLng, visit?.customerName, isWithinGeofence, distanceMeters, liveGpsCoords]);
 
   const handleZoom = (delta: number) => {
     if (!leafletMapRef.current) return;
@@ -189,8 +257,15 @@ export default function NextVisitCard({
     if (!leafletMapRef.current) return;
     const L = (window as any).L;
     if (!L) return;
-    const bounds = L.latLngBounds([defaultOrigin, defaultDest]);
-    leafletMapRef.current.fitBounds(bounds, { padding: [50, 50] });
+    if (Math.abs(originLat - destLat) > 0.0005 || Math.abs(originLng - destLng) > 0.0005) {
+      const bounds = L.latLngBounds([
+        [originLat, originLng],
+        [destLat, destLng],
+      ]);
+      leafletMapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else {
+      leafletMapRef.current.setView([destLat, destLng], 15);
+    }
   };
 
   if (!visit) {
@@ -236,6 +311,13 @@ export default function NextVisitCard({
                 <span>◆</span>
                 <span className="capitalize">{visit.priority} Priority</span>
               </span>
+
+              {liveGpsCoords && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  <span>GPS Active</span>
+                </span>
+              )}
             </div>
 
             {/* Customer Title & Address */}
@@ -249,7 +331,7 @@ export default function NextVisitCard({
               </p>
             </div>
 
-            {/* Geofence Rule Notice Banner */}
+            {/* Geofence Status Notice Banner */}
             <button
               type="button"
               onClick={() => onOpenDetails(visit)}
@@ -258,15 +340,27 @@ export default function NextVisitCard({
               <div className="flex items-center gap-2 text-xs text-[#7A5B2E]">
                 <Compass className="w-4 h-4 shrink-0 text-[#9E6924]" />
                 <span className="font-medium text-[11px] sm:text-xs">
-                  {isCheckedIn
-                    ? `GPS geofence verified at ${visit.checkInTime || "check-in"}. Complete verification active.`
-                    : "Fresh GPS must be within 750m of the site to check in."}
+                  {distanceMeters !== null ? (
+                    isWithinGeofence ? (
+                      <span className="text-emerald-800 font-semibold">
+                        Within 750m site geofence ({distanceMeters}m away). Verification active.
+                      </span>
+                    ) : (
+                      <span className="text-amber-900 font-medium">
+                        Currently {formattedDistance} ({distanceMeters}m) away. Fresh GPS must be within 750m to verify.
+                      </span>
+                    )
+                  ) : isCheckedIn ? (
+                    `GPS geofence verified at ${visit.checkInTime || "check-in"}. Complete verification active.`
+                  ) : (
+                    "Fresh GPS must be within 750m of the site to check in."
+                  )}
                 </span>
               </div>
               <ChevronRight className="w-4 h-4 text-[#9E6924] group-hover:translate-x-0.5 transition shrink-0" />
             </button>
 
-            {/* 3 Metrics Strip */}
+            {/* 3 Metrics Strip - 100% Dynamically Calculated */}
             <div className="grid grid-cols-3 divide-x divide-[#E6DFD3] border-y border-[#E6DFD3] py-2.5 my-1">
               <div className="px-2">
                 <div className="text-[10px] text-beige-muted font-medium flex items-center gap-1">
@@ -274,7 +368,7 @@ export default function NextVisitCard({
                   <span>Distance (est.)</span>
                 </div>
                 <div className="text-base sm:text-lg font-bold text-beige-text mt-0.5">
-                  12.8 km
+                  {formattedDistance}
                 </div>
               </div>
 
@@ -284,7 +378,7 @@ export default function NextVisitCard({
                   <span>Estimated Time</span>
                 </div>
                 <div className="text-base sm:text-lg font-bold text-beige-text mt-0.5">
-                  {visit.estimatedDuration || "27 mins"}
+                  {etaFormatted}
                 </div>
               </div>
 
@@ -306,10 +400,17 @@ export default function NextVisitCard({
                 <button
                   type="button"
                   onClick={() => setShowCompleteModal(true)}
-                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
+                  className={`py-2.5 px-3.5 rounded-xl text-xs font-bold text-white shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer ${
+                    isOutsideGeofence
+                      ? "bg-amber-700 hover:bg-amber-800"
+                      : "bg-[#1E3F35] hover:bg-[#162F27]"
+                  }`}
+                  title={isOutsideGeofence ? "You are outside the 750m zone" : "Complete Visit"}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Complete Visit</span>
+                  <span>
+                    {isOutsideGeofence ? `Complete (${formattedDistance})` : "Complete Visit"}
+                  </span>
                 </button>
               ) : (
                 <button
@@ -363,7 +464,7 @@ export default function NextVisitCard({
               <button
                 type="button"
                 onClick={() => handleZoom(1)}
-                className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand/60 transition"
+                className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand/60 transition cursor-pointer"
                 title="Zoom In"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
@@ -371,32 +472,42 @@ export default function NextVisitCard({
               <button
                 type="button"
                 onClick={() => handleZoom(-1)}
-                className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand/60 transition"
+                className="p-1.5 rounded-lg text-beige-muted hover:text-beige-text hover:bg-beige-sand/60 transition cursor-pointer"
                 title="Zoom Out"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Floating Top-Right Re-center Button */}
-            <div className="absolute top-3 right-3 z-10">
+            {/* Floating Top-Right Controls */}
+            <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCalibrateGps}
+                disabled={isCalibratingGps}
+                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] text-beige-muted hover:text-[#1E3F35] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
+                title="Calibrate device live GPS"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCalibratingGps ? "animate-spin text-[#1E3F35]" : ""}`} />
+              </button>
+
               <button
                 type="button"
                 onClick={handleRecenter}
-                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] text-beige-muted hover:text-[#1E3F35] hover:bg-beige-sand/60 shadow-xs transition"
+                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] text-beige-muted hover:text-[#1E3F35] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
                 title="Re-center on Route"
               >
                 <Crosshair className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Floating Bottom Trip ETA Card */}
+            {/* Floating Bottom Trip ETA Card - Matches Left Metrics Exactly */}
             <div className="absolute bottom-3 right-3 z-10 bg-white/95 backdrop-blur-md border border-[#E6DFD3] rounded-2xl px-3.5 py-2 shadow-md flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Car className="w-4 h-4 text-[#1E3F35]" />
                 <div>
                   <span className="text-xs font-bold text-beige-text block leading-tight">
-                    12.8 km
+                    {formattedDistance}
                   </span>
                   <span className="text-[9px] text-beige-muted block">Distance</span>
                 </div>
@@ -408,7 +519,7 @@ export default function NextVisitCard({
                 <Clock className="w-4 h-4 text-[#9E6924]" />
                 <div>
                   <span className="text-xs font-bold text-beige-text block leading-tight">
-                    27 mins
+                    {etaFormatted}
                   </span>
                   <span className="text-[9px] text-beige-muted block">ETA</span>
                 </div>

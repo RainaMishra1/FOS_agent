@@ -57,6 +57,7 @@ interface AgentContextType {
     nextVisit: AgentVisit | null;
   };
   liveGpsCoords: { lat: number; lng: number; accuracy?: number } | null;
+  refreshLiveGps: () => Promise<{ lat: number; lng: number; accuracy?: number } | null>;
   isLoading: boolean;
   error: string | null;
   isLiveBackend: boolean;
@@ -556,6 +557,40 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       navigator.geolocation.clearWatch(watchId);
     };
   }, []);
+
+  const refreshLiveGps = useCallback(async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+    try {
+      const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve(p),
+          (err) => {
+            console.warn("[AgentContext] GPS query error:", err.message);
+            resolve(null);
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+      });
+      if (pos && pos.coords) {
+        const coords = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
+        liveGpsCoordsRef.current = coords;
+        setLiveGpsCoords(coords);
+        setCurrentAgent((prev) => ({
+          ...prev,
+          currentCoordinates: { lat: coords.lat, lng: coords.lng },
+        }));
+        return coords;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, []);
+
   useEffect(() => {
     if (profile) {
       const name = profile.full_name || "Field Agent";
@@ -1199,6 +1234,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         clearNotification,
         stats,
         liveGpsCoords,
+        refreshLiveGps,
         isLoading,
         error,
         isLiveBackend,

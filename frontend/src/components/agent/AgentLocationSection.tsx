@@ -96,7 +96,7 @@ export default function AgentLocationSection() {
         void syncLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
       () => {},
-      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 60_000 }
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 10_000 }
     );
 
     // Watch live location continuously
@@ -107,7 +107,7 @@ export default function AgentLocationSection() {
           void syncLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
         },
         () => {},
-        { enableHighAccuracy: false, timeout: 20_000, maximumAge: 30_000 }
+        { enableHighAccuracy: true, timeout: 20_000, maximumAge: 10_000 }
       );
     }
   }, [stopWatching, syncLocation]);
