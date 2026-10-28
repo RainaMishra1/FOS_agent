@@ -421,7 +421,18 @@ async def dispatch_visit(
         )
         db.add(lead)
         await db.flush()
+        import random
+        vst_code = f"VST-{random.randint(100000, 999999)}"
+        max_order = await db.scalar(
+            select(func.max(Visit.order_index)).where(
+                Visit.agent_id == agent.id,
+                Visit.scheduled_date == payload.scheduled_date,
+            )
+        )
+        next_order = (max_order or 0) + 1
+
         assignment = Assignment(
+            assignment_code=f"ASN-{random.randint(100000, 999999)}",
             lead_id=lead.id,
             agent_id=agent.id,
             assigned_by_id=current_admin.id,
@@ -431,32 +442,55 @@ async def dispatch_visit(
             notes=payload.notes.strip() if payload.notes else None,
         )
         visit = Visit(
+            visit_code=vst_code,
             customer_id=customer.id,
             agent_id=agent.id,
             scheduled_date=payload.scheduled_date,
             scheduled_time=payload.scheduled_time.strip(),
             status="pending",
-            order_index=1,
+            order_index=next_order,
             estimated_duration_minutes=45,
             purpose=payload.notes.strip() if payload.notes else None,
+            geofence_verified=False,
         )
         db.add_all([assignment, visit])
         await db.commit()
-        result = await db.execute(
-            select(Visit)
-            .options(joinedload(Visit.customer))
-            .where(Visit.id == visit.id)
+
+        return VisitResponse(
+            id=visit.id,
+            visit_code=visit.visit_code,
+            customer_id=customer.id,
+            agent_id=agent.id,
+            customer_name=customer.name,
+            customer_company=customer.company,
+            customer_contact_person=customer.contact_person,
+            customer_phone=customer.phone,
+            customer_email=customer.email,
+            customer_address=customer.address,
+            customer_city=customer.city,
+            customer_latitude=customer.latitude,
+            customer_longitude=customer.longitude,
+            scheduled_date=visit.scheduled_date,
+            scheduled_time=visit.scheduled_time,
+            status=visit.status,
+            geofence_verified=visit.geofence_verified,
+            order_index=visit.order_index,
+            estimated_duration_minutes=visit.estimated_duration_minutes,
+            purpose=visit.purpose,
+            priority=payload.priority,
+            created_at=visit.created_at or datetime.now(timezone.utc),
         )
-        persisted = result.unique().scalars().first()
-        if not persisted:
-            raise HTTPException(status_code=500, detail="Dispatch was saved but could not be loaded.")
-        return _to_visit_response(persisted)
     except HTTPException:
         await db.rollback()
         raise
-    except Exception:
+    except Exception as exc:
         await db.rollback()
-        raise
+        import logging
+        logging.getLogger(__name__).error("Failed to dispatch visit: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Dispatch failed: {str(exc)}",
+        )
 
 
 def _to_visit_response(v: Visit) -> VisitResponse:

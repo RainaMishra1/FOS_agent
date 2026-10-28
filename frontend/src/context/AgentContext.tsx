@@ -480,11 +480,25 @@ async function fetchDirectFromSupabase(
       };
     });
 
-    const active = mapped.filter((v) => v.status !== "completed");
-    const history = mapped.filter((v) => v.status === "completed");
+    // Deduplicate any duplicate visits created for the same customer and scheduled date
+    const seenVisitKeys = new Set<string>();
+    const deduplicatedMapped: AgentVisit[] = [];
+    for (const v of mapped) {
+      const cName = (v.customerName || "").trim().toLowerCase();
+      const sDate = v.scheduledDate || "";
+      const sTime = (v.scheduledTime || "").replace(/\s+/g, "").toLowerCase();
+      const key = `${cName}_${sDate}_${sTime}`;
+      if (!seenVisitKeys.has(key)) {
+        seenVisitKeys.add(key);
+        deduplicatedMapped.push(v);
+      }
+    }
+
+    const active = deduplicatedMapped.filter((v) => v.status !== "completed");
+    const history = deduplicatedMapped.filter((v) => v.status === "completed");
 
     return {
-      visits: active.length > 0 ? active : mapped,
+      visits: active.length > 0 ? active : deduplicatedMapped,
       history,
       agentProfile: agentProfileData,
     };

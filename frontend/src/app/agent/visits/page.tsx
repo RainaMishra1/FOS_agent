@@ -59,20 +59,34 @@ export default function MyVisitsPage() {
     visits.filter((v) => v.status === "completed").forEach((v) => allCompletedMap.set(v.id, v));
     const allCompletedList = Array.from(allCompletedMap.values());
 
+    const dedupeVisits = (items: AgentVisit[]) => {
+      const seen = new Set<string>();
+      return items.filter((v) => {
+        const key = `${(v.customerName || "").trim().toLowerCase()}_${v.scheduledDate || ""}_${(v.scheduledTime || "").replace(/\s+/g, "").toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
     // Active pending/assigned/in_progress visits for today or awaiting action
-    const todayActive = visits.filter(
-      (v) =>
-        v.status !== "completed" &&
-        (!v.scheduledDate || v.scheduledDate <= todayDateStr || v.status === "in_progress")
+    const todayActive = dedupeVisits(
+      visits.filter(
+        (v) =>
+          v.status !== "completed" &&
+          (!v.scheduledDate || v.scheduledDate <= todayDateStr || v.status === "in_progress")
+      )
     );
 
     // Upcoming future scheduled visits that are not completed
-    const upcomingActive = visits.filter(
-      (v) =>
-        v.scheduledDate &&
-        v.scheduledDate > todayDateStr &&
-        v.status !== "completed" &&
-        v.status !== "in_progress"
+    const upcomingActive = dedupeVisits(
+      visits.filter(
+        (v) =>
+          v.scheduledDate &&
+          v.scheduledDate > todayDateStr &&
+          v.status !== "completed" &&
+          v.status !== "in_progress"
+      )
     );
 
     if (activeTab === "today") {
@@ -399,7 +413,7 @@ export default function MyVisitsPage() {
                   <div className="flex items-start gap-3.5 flex-1 min-w-0">
                     {/* Order Badge */}
                     <div className="w-10 h-10 rounded-xl bg-[#F5EFE6] text-beige-text font-bold text-sm flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
-                      #{visit.orderIndex || index + 1}
+                      #{index + 1}
                     </div>
 
                     <div className="space-y-1.5 flex-1 min-w-0">

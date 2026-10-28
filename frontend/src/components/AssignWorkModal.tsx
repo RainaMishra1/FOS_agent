@@ -637,6 +637,7 @@ export default function AssignWorkModal({
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
+    if (isSubmitting) return;
     event.preventDefault();
     setMessage("");
 
@@ -741,7 +742,7 @@ export default function AssignWorkModal({
             customer_id: selectedCustomerId || undefined,
             agent_id: validAgentId,
             customer_name: customerName.trim(),
-            company: company.trim() || (customerType !== "Individual" ? customerName.trim() : undefined),
+            company: company.trim() || undefined,
             contact_person: contactPerson.trim() || undefined,
             phone: phone.trim() || undefined,
             email: email.trim() || undefined,
@@ -757,92 +758,125 @@ export default function AssignWorkModal({
           session?.access_token
         );
       } catch (apiErr) {
-        console.warn("[AssignWorkModal] FastAPI dispatch failed, creating record via Supabase direct:", apiErr);
-        
-        let targetCustomerId: string | undefined = selectedCustomerId || undefined;
-        if (targetCustomerId) {
-          const { data: custExists } = await supabase
-            .from("customers")
-            .select("id")
-            .eq("id", targetCustomerId)
-            .maybeSingle();
+        console.warn("[AssignWorkModal] Backend dispatch call threw error, verifying if record already saved:", apiErr);
 
-          if (!custExists) {
-            targetCustomerId = undefined;
+        // Safety check: verify if the visit was already committed in database before doing direct fallback
+        const { data: recentCandidateVisits } = await supabase
+          .from("visits")
+          .select("id, visit_code, scheduled_date, scheduled_time, customers(name, address)")
+          .eq("agent_id", validAgentId)
+          .eq("scheduled_date", scheduledDate || today())
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        const alreadySaved = recentCandidateVisits?.find((v: any) => {
+          const c = Array.isArray(v.customers) ? v.customers[0] : v.customers;
+          const matchName = (c?.name || "").toLowerCase().trim();
+          return matchName === customerName.toLowerCase().trim();
+        });
+
+        if (alreadySaved) {
+          console.info("[AssignWorkModal] Visit was already persisted by backend, skipping fallback insert to prevent duplicates:", alreadySaved.id);
+          visit = {
+            id: alreadySaved.id,
+            visit_code: alreadySaved.visit_code,
+            customer_latitude: coordinates.latitude,
+            customer_longitude: coordinates.longitude,
+          };
+        } else {
+          let targetCustomerId: string | undefined = selectedCustomerId || undefined;
+          if (targetCustomerId) {
+            const { data: custExists } = await supabase
+              .from("customers")
+              .select("id")
+              .eq("id", targetCustomerId)
+              .maybeSingle();
+
+            if (!custExists) {
+              targetCustomerId = undefined;
+            }
           }
-        }
 
-        if (!targetCustomerId) {
-          const newCustId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "cust-" + Date.now();
-          const { data: newCust, error: custErr } = await supabase
-            .from("customers")
+          if (!targetCustomerId) {
+            const newCustId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "cust-" + Date.now();
+            const { data: newCust, error: custErr } = await supabase
+              .from("customers")
+              .insert({
+                id: newCustId,
+                name: customerName.trim(),
+                company: company.trim() || null,
+                contact_person: contactPerson.trim() || null,
+                phone: phone.trim() || null,
+                email: email.trim().toLowerCase() || null,
+                address: address.trim(),
+                city: persistedCity,
+                latitude: coordinates.latitude,
+                longitude: coordinates.longitude,
+              })
+              .select()
+              .single();
+
+            if (custErr && !newCust) {
+              const errText = custErr?.message || JSON.stringify(custErr);
+              throw new Error(errText);
+            }
+            targetCustomerId = newCust?.id || newCustId;
+          }
+
+          // Compute order index dynamically
+          const { count: existingVisitCount } = await supabase
+            .from("visits")
+            .select("id", { count: "exact", head: true })
+            .eq("agent_id", validAgentId)
+            .eq("scheduled_date", scheduledDate || today());
+
+          const nextOrder = (existingVisitCount || 0) + 1;
+          const visitId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "vst-" + Date.now();
+          const visitCode = "VST-" + Math.floor(100000 + Math.random() * 900000);
+          const { data: newVisit, error: visitErr } = await supabase
+            .from("visits")
             .insert({
-              id: newCustId,
-              name: customerName.trim(),
-              company: company.trim() || null,
-              contact_person: contactPerson.trim() || null,
-              phone: phone.trim() || null,
-              email: email.trim().toLowerCase() || null,
-              address: address.trim(),
-              city: persistedCity,
-              latitude: coordinates.latitude,
-              longitude: coordinates.longitude,
+              id: visitId,
+              customer_id: targetCustomerId,
+              agent_id: validAgentId,
+              visit_code: visitCode,
+              scheduled_date: scheduledDate || today(),
+              scheduled_time: scheduledTime || "10:30 AM",
+              status: "pending",
+              order_index: nextOrder,
+              estimated_duration_minutes: 45,
+              purpose: purpose.trim() || notes.trim() || "Field Inspection",
+              geofence_verified: false,
             })
             .select()
             .single();
 
-          if (custErr && !newCust) {
-            const errText = custErr?.message || JSON.stringify(custErr);
+          if (visitErr && !newVisit) {
+            const errText = visitErr?.message || JSON.stringify(visitErr);
             throw new Error(errText);
           }
-          targetCustomerId = newCust?.id || newCustId;
-        }
 
-        const visitId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "vst-" + Date.now();
-        const visitCode = "VST-" + Math.floor(100000 + Math.random() * 900000);
-        const { data: newVisit, error: visitErr } = await supabase
-          .from("visits")
-          .insert({
-            id: visitId,
-            customer_id: targetCustomerId,
-            agent_id: validAgentId,
-            visit_code: visitCode,
-            scheduled_date: scheduledDate || today(),
-            scheduled_time: scheduledTime || "10:30 AM",
-            status: "pending",
-            order_index: 1,
-            estimated_duration_minutes: 45,
-            purpose: purpose.trim() || notes.trim() || "Field Inspection",
-            geofence_verified: false,
-          })
-          .select()
-          .single();
+          visit = {
+            id: newVisit?.id || visitId,
+            visit_code: newVisit?.visit_code || visitCode,
+            customer_latitude: coordinates.latitude,
+            customer_longitude: coordinates.longitude,
+          };
 
-        if (visitErr && !newVisit) {
-          const errText = visitErr?.message || JSON.stringify(visitErr);
-          throw new Error(errText);
-        }
-
-        visit = {
-          id: newVisit?.id || visitId,
-          visit_code: newVisit?.visit_code || visitCode,
-          customer_latitude: coordinates.latitude,
-          customer_longitude: coordinates.longitude,
-        };
-
-        // Also sync assignments table
-        try {
-          const assignId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "asn-" + Date.now();
-          await supabase.from("assignments").insert({
-            id: assignId,
-            agent_id: validAgentId,
-            status: "assigned",
-            scheduled_date: scheduledDate || today(),
-            scheduled_time: scheduledTime || "10:30 AM",
-            notes: notes.trim() || undefined,
-          });
-        } catch {
-          // non-fatal
+          // Also sync assignments table
+          try {
+            const assignId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "asn-" + Date.now();
+            await supabase.from("assignments").insert({
+              id: assignId,
+              agent_id: validAgentId,
+              status: "assigned",
+              scheduled_date: scheduledDate || today(),
+              scheduled_time: scheduledTime || "10:30 AM",
+              notes: notes.trim() || undefined,
+            });
+          } catch {
+            // non-fatal
+          }
         }
       }
 
@@ -866,6 +900,7 @@ export default function AssignWorkModal({
   };
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) || null;
+  const selectedCustomer = existingCustomers.find((c) => c.id === selectedCustomerId) || null;
 
   const inputClass =
     "w-full text-sm rounded-xl bg-beige-bg border border-beige-border px-3 py-2.5 text-beige-text placeholder-beige-muted focus:outline-none focus:border-beige-terracotta";
@@ -1028,657 +1063,524 @@ export default function AssignWorkModal({
               )}
             </div>
 
-            {/* Customer Mode: Existing Customer vs New Customer */}
-            <div className="rounded-2xl border border-beige-border bg-beige-sand/40 p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                <label className="text-xs font-semibold text-beige-text flex items-center gap-1.5" htmlFor="dispatch-customer-select">
-                  <Building2 className="h-4 w-4 text-beige-terracotta" />
-                  Customer
-                </label>
-                <span className="text-[11px] text-beige-muted">
-                  Reuse verified customer records or enter new destination
+            {/* 2. Customer Section (Card 2) - Highlighted with green border */}
+            <div className="rounded-2xl border-2 border-[#75A585]/70 bg-white p-4 sm:p-5 space-y-4 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#E5F0E8] flex items-center justify-center text-[#2E5A44] shrink-0">
+                    <User className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#1A201C] flex items-center gap-1">
+                      Customer <span className="text-rose-500">*</span>
+                    </h3>
+                    <p className="text-xs text-[#756F66]">Select an existing customer or add a new one.</p>
+                  </div>
+                </div>
+                <span className="text-[11px] text-[#756F66] sm:text-right">
+                  Required for location, visit details and route optimisation.
                 </span>
               </div>
 
-              <select
-                id="dispatch-customer-select"
-                value={selectedCustomerId}
-                onChange={(e) => handleSelectCustomer(e.target.value)}
-                disabled={customersLoading}
-                className={inputClass}
-              >
-                <option value="">+ New Customer / One-off Destination</option>
-                {existingCustomers.map((cust) => (
-                  <option key={cust.id} value={cust.id}>
-                    {cust.name} {cust.company ? `(${cust.company})` : ""} · {cust.city || cust.address}
-                    {cust.latitude != null && cust.longitude != null ? " [✓ Coordinates Saved]" : ""}
-                  </option>
-                ))}
-              </select>
+              {/* Customer Selector Dropdown */}
+              <div className="relative">
+                <div className="flex items-center justify-between w-full rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-sm cursor-pointer">
+                  <span className="flex items-center gap-2 font-medium text-[#1A201C] truncate">
+                    <span className="text-lg leading-none font-normal text-[#1A201C]">+</span>
+                    {selectedCustomer
+                      ? `${selectedCustomer.name} ${selectedCustomer.company ? `(${selectedCustomer.company})` : ""} · ${selectedCustomer.city || selectedCustomer.address || ""}`
+                      : "New Customer / One-off Destination"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-[#756F66] shrink-0 ml-2" />
+                </div>
+                <select
+                  id="dispatch-customer-select"
+                  value={selectedCustomerId}
+                  onChange={(e) => handleSelectCustomer(e.target.value)}
+                  disabled={customersLoading}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                >
+                  <option value="">+ New Customer / One-off Destination</option>
+                  {existingCustomers.map((cust) => (
+                    <option key={cust.id} value={cust.id}>
+                      {cust.name} {cust.company ? `(${cust.company})` : ""} · {cust.city || cust.address}
+                      {cust.latitude != null && cust.longitude != null ? " [✓ Coordinates Saved]" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {reusingVerifiedCoords && (
-                <div className="mt-2.5 flex items-start gap-2 rounded-xl bg-beige-olive-subtle/80 border border-beige-olive/30 p-2.5 text-xs text-beige-olive-dark">
-                  <UserCheck className="h-4 w-4 shrink-0 text-beige-olive mt-0.5" />
+                <div className="flex items-start gap-2 rounded-xl bg-[#EAF2EC] border border-[#CDE1D2] p-2.5 text-xs text-[#1E3F35]">
+                  <UserCheck className="h-4 w-4 shrink-0 text-[#2E5A44] mt-0.5" />
                   <div>
-                    <span className="font-semibold text-beige-text">Reusing verified customer coordinates:</span>{" "}
+                    <span className="font-semibold">Reusing verified customer coordinates:</span>{" "}
                     <span className="font-mono text-[11px]">
                       {coordinates?.latitude.toFixed(6)}, {coordinates?.longitude.toFixed(6)}
                     </span>
-                    <p className="text-[11px] text-beige-muted mt-0.5">
+                    <p className="text-[11px] text-[#4F6A59] mt-0.5">
                       These verified coordinates are protected and will NOT be overwritten unless you adjust the pin on the map.
                     </p>
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Customer Information Block (Template styled with separately highlighted tabs) */}
-            <div className="rounded-3xl border border-neutral-800 bg-[#0d0f12] p-5 sm:p-7 text-neutral-100 shadow-xl space-y-6">
-              {/* Header & Title */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800/80 pb-4">
+              {/* Tabs Strip */}
+              <div className="grid grid-cols-3 gap-1 rounded-xl bg-[#F4EFEA] p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveCustomerTab("basic")}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-[#E5F0E8] text-[#1E3F35] font-semibold transition cursor-pointer"
+                >
+                  <User className="h-4 w-4 text-[#2E5A44]" />
+                  <span>Basic details</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById("location-details-card");
+                    el?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[#756F66] hover:text-[#1A201C] transition font-medium cursor-pointer"
+                >
+                  <MapPin className="h-4 w-4 text-[#756F66]" />
+                  <span>Location details</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById("visit-details-card");
+                    el?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[#756F66] hover:text-[#1A201C] transition font-medium cursor-pointer"
+                >
+                  <Calendar className="h-4 w-4 text-[#756F66]" />
+                  <span>Visit details</span>
+                </button>
+              </div>
+
+              {/* Basic Details Form Fields - Customer type omitted as requested */}
+              <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-[#B86F52]" />
-                    Customer Information
-                  </h3>
-                  <p className="text-xs text-neutral-400 mt-0.5">
-                    Configure customer profile, geocoded entrance, and scheduled visit parameters
-                  </p>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-customer">
+                    Customer name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="dispatch-customer"
+                    required
+                    maxLength={255}
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    placeholder="Enter name"
+                  />
                 </div>
 
-                {/* Separately Highlighted Tab Navigation Strip */}
-                <div className="flex items-center gap-1 p-1 rounded-2xl bg-neutral-900 border border-neutral-800 self-start sm:self-auto overflow-x-auto max-w-full">
-                  <button
-                    type="button"
-                    onClick={() => setActiveCustomerTab("all")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
-                      activeCustomerTab === "all"
-                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
-                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
-                    }`}
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                    All
-                  </button>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-phone">
+                      Phone number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="dispatch-phone"
+                      required
+                      type="tel"
+                      maxLength={50}
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                      className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                      placeholder="+91XXXXXXXXXX"
+                    />
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveCustomerTab("basic")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
-                      activeCustomerTab === "basic"
-                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
-                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
-                    }`}
-                  >
-                    <User className="h-3.5 w-3.5" />
-                    Basic details
-                    {customerName && phone && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
-                    )}
-                  </button>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-email">
+                      Email address
+                    </label>
+                    <input
+                      id="dispatch-email"
+                      type="email"
+                      maxLength={120}
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveCustomerTab("location")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
-                      activeCustomerTab === "location"
-                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
-                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
-                    }`}
-                  >
-                    <MapPin className="h-3.5 w-3.5" />
-                    Location details
-                    {coordinates && locationConfirmed && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
-                    )}
-                  </button>
+            {/* 3. Location Details Section (Card 3) */}
+            <div id="location-details-card" className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 space-y-4 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-[#E5F0E8] flex items-center justify-center text-[#2E5A44] shrink-0">
+                  <MapPin className="h-4 w-4" />
+                </div>
+                <h3 className="text-sm font-bold text-[#1A201C]">Location details</h3>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveCustomerTab("visit")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
-                      activeCustomerTab === "visit"
-                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
-                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
-                    }`}
-                  >
-                    <Calendar className="h-3.5 w-3.5" />
-                    Visit details
-                    {scheduledDate && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
-                    )}
-                  </button>
+              {/* Customer address */}
+              <div>
+                <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-address">
+                  Customer address <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <PhotonAutocompleteInput
+                    id="dispatch-address"
+                    value={address}
+                    onChange={(val) => updateAddressPart(setAddress, val)}
+                    onPlaceSelect={handlePhotonPlaceSelect}
+                    placeholder="Search address or landmark"
+                    required
+                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] pl-9 pr-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                  />
+                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#756F66]" />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-[#756F66] mt-1.5 px-0.5 flex-wrap gap-1">
+                  <span>Search using Photon API (OpenStreetMap). Select a location from suggestions.</span>
+                  <span>Powered by Photon API</span>
                 </div>
               </div>
 
-              {/* TAB 1: Basic details */}
-              {(activeCustomerTab === "all" || activeCustomerTab === "basic") && (
-                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#B86F52]/20 text-[#E08A68] border border-[#B86F52]/30">
-                        Tab 1
-                      </span>
-                      <h4 className="text-sm font-semibold text-neutral-200">Basic details</h4>
-                    </div>
-                    {activeCustomerTab === "basic" && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveCustomerTab("location")}
-                        className="text-xs text-[#E08A68] hover:underline flex items-center gap-1 font-medium"
-                      >
-                        Next: Location details <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-customer">
-                        Customer name *
-                      </label>
-                      <input
-                        id="dispatch-customer"
-                        required
-                        maxLength={255}
-                        value={customerName}
-                        onChange={(event) => setCustomerName(event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="Enter name"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-customer-type">
-                        Customer type *
-                      </label>
-                      <select
-                        id="dispatch-customer-type"
-                        value={customerType}
-                        onChange={(event) => setCustomerType(event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                      >
-                        <option value="Individual">Individual</option>
-                        <option value="Business">Business</option>
-                        <option value="Enterprise">Enterprise</option>
-                        <option value="Retail">Retail</option>
-                        <option value="Government">Government</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-phone">
-                        Phone number *
-                      </label>
-                      <input
-                        id="dispatch-phone"
-                        required
-                        type="tel"
-                        maxLength={50}
-                        value={phone}
-                        onChange={(event) => setPhone(event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="+91 XXXXX XXXXX"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-email">
-                        Email address
-                      </label>
-                      <input
-                        id="dispatch-email"
-                        type="email"
-                        maxLength={120}
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="Optional"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Optional Company & Contact Person row for Business/Enterprise */}
-                  {customerType !== "Individual" && (
-                    <div className="grid gap-4 sm:grid-cols-2 pt-1 border-t border-neutral-800/60">
-                      <div>
-                        <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-company">
-                          Company / Entity name
-                        </label>
-                        <input
-                          id="dispatch-company"
-                          maxLength={255}
-                          value={company}
-                          onChange={(event) => setCompany(event.target.value)}
-                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                          placeholder="e.g. Acme Industries Ltd."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-contact">
-                          On-site Contact person
-                        </label>
-                        <input
-                          id="dispatch-contact"
-                          maxLength={255}
-                          value={contactPerson}
-                          onChange={(event) => setContactPerson(event.target.value)}
-                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                          placeholder="e.g. Ramesh Sharma (Manager)"
-                        />
-                      </div>
-                    </div>
-                  )}
+              {/* City & PIN code */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-locality">
+                    City <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="dispatch-locality"
+                    required
+                    maxLength={100}
+                    value={locality}
+                    onChange={(event) => updateAddressPart(setLocality, event.target.value)}
+                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    placeholder="City"
+                  />
                 </div>
-              )}
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-postal">
+                    PIN code <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="dispatch-postal"
+                    required
+                    maxLength={20}
+                    value={postalCode}
+                    onChange={(event) => updateAddressPart(setPostalCode, event.target.value)}
+                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    placeholder="6-digit PIN"
+                  />
+                </div>
+              </div>
 
-              {/* TAB 2: Location details */}
-              {(activeCustomerTab === "all" || activeCustomerTab === "location") && (
-                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                        Tab 2
-                      </span>
-                      <h4 className="text-sm font-semibold text-neutral-200">Location details</h4>
-                    </div>
-                    {activeCustomerTab === "location" && (
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setActiveCustomerTab("basic")}
-                          className="text-xs text-neutral-400 hover:text-white font-medium"
-                        >
-                          ← Basic details
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveCustomerTab("visit")}
-                          className="text-xs text-[#E08A68] hover:underline flex items-center gap-1 font-medium"
-                        >
-                          Next: Visit details <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
+              {/* Map location Subcard */}
+              <div className="rounded-2xl border border-[#EBE4D8] bg-[#FAF7F0] p-4 sm:p-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-[#F2E8DC] flex items-center justify-center text-[#8A4A28] shrink-0">
+                    <Crosshair className="h-5 w-5" />
                   </div>
-
-                  {/* Customer address */}
                   <div>
-                    <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-address">
-                      Customer address *
-                    </label>
-                    <PhotonAutocompleteInput
-                      id="dispatch-address"
-                      value={address}
-                      onChange={(val) => updateAddressPart(setAddress, val)}
-                      onPlaceSelect={handlePhotonPlaceSelect}
-                      placeholder="Search address or landmark"
-                      required
-                      className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                    />
-                  </div>
-
-                  {/* City & PIN code */}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-locality">
-                        City *
-                      </label>
-                      <input
-                        id="dispatch-locality"
-                        required
-                        maxLength={100}
-                        value={locality}
-                        onChange={(event) => updateAddressPart(setLocality, event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="City"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-postal">
-                        PIN code *
-                      </label>
-                      <input
-                        id="dispatch-postal"
-                        required
-                        maxLength={20}
-                        value={postalCode}
-                        onChange={(event) => updateAddressPart(setPostalCode, event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="6-digit PIN"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Map location section matching template */}
-                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                      <div className="flex items-start gap-2.5">
-                        <MapPin className="h-5 w-5 text-[#B86F52] shrink-0 mt-0.5" />
-                        <div>
-                          <h5 className="text-sm font-semibold text-white">Map location</h5>
-                          <p className="text-xs text-neutral-400">
-                            Latitude, longitude and location verification status
-                          </p>
-                          <p className="text-[11px] text-neutral-500 mt-0.5">
-                            Admin confirms the map pin before saving.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => void autoGeocodeFromFields()}
-                          disabled={isGeocoding || (!postalCode && !locality && !address)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#B86F52]/60 bg-[#B86F52]/20 px-3 py-1.5 text-xs font-semibold text-[#E08A68] hover:bg-[#B86F52]/30 transition disabled:opacity-50"
-                        >
-                          {isGeocoding ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Detecting…
-                            </>
-                          ) : (
-                            <>
-                              <Compass className="h-3.5 w-3.5" />
-                              Auto-detect Lat/Long
-                            </>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isGeocoding || address.trim().length < 2 || locality.trim().length < 2 || !country.trim()}
-                          onClick={findCoordinatesNominatim}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white disabled:opacity-50"
-                        >
-                          {isGeocoding ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Locating…
-                            </>
-                          ) : (
-                            <>
-                              <Search className="h-3.5 w-3.5 text-[#B86F52]" />
-                              OSM Search
-                            </>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setMapOpen((open) => !open)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white"
-                        >
-                          <Crosshair className="h-3.5 w-3.5 text-[#B86F52]" />
-                          {mapOpen ? "Hide Map" : "Adjust on Map"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Explicit Visible Latitude and Longitude Fields */}
-                    <div className="grid gap-3 sm:grid-cols-2 pt-1">
-                      <div>
-                        <label className="block text-[11px] font-medium text-neutral-300 mb-1" htmlFor="dispatch-manual-lat">
-                          Latitude *
-                        </label>
-                        <input
-                          id="dispatch-manual-lat"
-                          type="number"
-                          step="any"
-                          required
-                          value={coordinates?.latitude ?? ""}
-                          onChange={(e) => handleManualCoordinateChange(e.target.value, coordinates?.longitude ?? "")}
-                          placeholder="e.g. 19.172600"
-                          className="w-full text-sm font-mono rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-600 focus:outline-none focus:border-[#B86F52]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-medium text-neutral-300 mb-1" htmlFor="dispatch-manual-lng">
-                          Longitude *
-                        </label>
-                        <input
-                          id="dispatch-manual-lng"
-                          type="number"
-                          step="any"
-                          required
-                          value={coordinates?.longitude ?? ""}
-                          onChange={(e) => handleManualCoordinateChange(coordinates?.latitude ?? "", e.target.value)}
-                          placeholder="e.g. 72.956500"
-                          className="w-full text-sm font-mono rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-600 focus:outline-none focus:border-[#B86F52]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Nominatim Structured Candidate List */}
-                    {candidates.length > 0 && (
-                      <div className="space-y-2 rounded-xl border border-neutral-700 bg-neutral-900 p-3">
-                        <p className="text-xs font-semibold text-neutral-200">
-                          Choose a matching place ({candidates.length}):
-                        </p>
-                        <div className="max-h-56 space-y-2 overflow-y-auto">
-                          {candidates.map((candidate) => (
-                            <button
-                              type="button"
-                              key={candidate.place_id || `${candidate.latitude},${candidate.longitude}`}
-                              onClick={() => selectCandidate(candidate)}
-                              className={`w-full rounded-lg border p-2.5 text-left transition ${
-                                coordinates?.source === "nominatim" &&
-                                coordinates.latitude === candidate.latitude &&
-                                coordinates.longitude === candidate.longitude
-                                  ? "border-[#B86F52] bg-neutral-800 text-white"
-                                  : "border-neutral-800 bg-neutral-950 hover:bg-neutral-800 text-neutral-300"
-                              }`}
-                            >
-                              <span className="flex items-start gap-2">
-                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#B86F52]" />
-                                <span className="min-w-0">
-                                  <span className="block text-xs font-semibold text-white">{candidate.display_name}</span>
-                                  <span className="mt-0.5 block text-[10px] text-neutral-400">
-                                    {[candidate.locality, candidate.state, candidate.postal_code, candidate.country]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  </span>
-                                  <span className="mt-0.5 block font-mono text-[10px] text-neutral-400">
-                                    {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)}
-                                  </span>
-                                </span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Interactive Leaflet Map */}
-                    {mapOpen && (
-                      <div className="pt-2">
-                        <div className="flex items-center justify-between text-xs pb-1.5 text-neutral-400">
-                          <span className="flex items-center gap-1 font-medium text-neutral-300">
-                            <Navigation className="h-3.5 w-3.5 text-[#B86F52]" />
-                            Drag pin to building entrance
-                          </span>
-                          <span className="text-[11px]">Zoom 17+</span>
-                        </div>
-                        <DispatchLocationMap
-                          latitude={coordinates?.latitude ?? null}
-                          longitude={coordinates?.longitude ?? null}
-                          isEntranceVerified={isEntranceVerified}
-                          placeLabel={customerName || address || null}
-                          onSelect={(lat, lng, isAdjusted) => void selectMapPoint(lat, lng, isAdjusted)}
-                        />
-                      </div>
-                    )}
-
-                    {/* Coordinates & Confirmation status */}
-                    <div className="rounded-xl border border-neutral-800/80 bg-neutral-900/60 p-3 text-xs">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-[#B86F52] shrink-0" />
-                          <span className="font-medium text-neutral-300">
-                            {coordinates ? (
-                              <span className="font-mono text-xs text-white">
-                                📍 Lat: <strong className="text-emerald-400 font-bold">{coordinates.latitude.toFixed(6)}</strong> · Lng: <strong className="text-emerald-400 font-bold">{coordinates.longitude.toFixed(6)}</strong>
-                              </span>
-                            ) : (
-                              <span className="text-amber-400 font-medium">
-                                Coordinates pending — enter values above or click "Auto-detect Lat/Long"
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        {coordinates && (
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                              isEntranceVerified
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : "bg-neutral-800 text-neutral-300 border border-neutral-700"
-                            }`}
-                          >
-                            {isEntranceVerified ? (
-                              <>
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                                Entrance Pin Verified
-                              </>
-                            ) : (
-                              <>
-                                <Info className="h-3.5 w-3.5" />
-                                Centroid Coordinates
-                              </>
-                            )}
-                          </span>
-                        )}
-                      </div>
-
-                      {coordinates && (
-                        <label className="mt-3 flex items-start gap-2.5 border-t border-neutral-800/80 pt-2.5 text-xs cursor-pointer text-neutral-300">
-                          <input
-                            type="checkbox"
-                            checked={locationConfirmed}
-                            onChange={(event) => setLocationConfirmed(event.target.checked)}
-                            className="mt-0.5 h-4 w-4 rounded accent-[#B86F52]"
-                          />
-                          <span className="leading-tight text-neutral-200">
-                            I confirm these coordinates mark the customer building entrance for field agent dispatch and 750m geofence validation.
-                          </span>
-                        </label>
-                      )}
-                    </div>
+                    <h4 className="text-sm font-bold text-[#1A201C]">Map location</h4>
+                    <p className="text-xs text-[#756F66]">
+                      Latitude, longitude and location verification status.
+                    </p>
                   </div>
                 </div>
-              )}
 
-              {/* TAB 3: Visit details */}
-              {(activeCustomerTab === "all" || activeCustomerTab === "visit") && (
-                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        Tab 3
-                      </span>
-                      <h4 className="text-sm font-semibold text-neutral-200">Visit details</h4>
-                    </div>
-                    {activeCustomerTab === "visit" && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveCustomerTab("location")}
-                        className="text-xs text-neutral-400 hover:text-white font-medium"
-                      >
-                        ← Location details
-                      </button>
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => void autoGeocodeFromFields()}
+                    disabled={isGeocoding || (!postalCode && !locality && !address)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8C9B0] bg-[#FBEBDD] px-3.5 py-2 text-xs font-semibold text-[#8A4A28] hover:bg-[#F5DFC8] transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isGeocoding ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Detecting…
+                      </>
+                    ) : (
+                      <>
+                        <Compass className="h-4 w-4 text-[#8A4A28]" />
+                        Auto-detect Lat/Lng
+                      </>
                     )}
-                  </div>
+                  </button>
 
-                  {/* Purpose of visit */}
+                  <button
+                    type="button"
+                    disabled={isGeocoding || address.trim().length < 2 || locality.trim().length < 2 || !country.trim()}
+                    onClick={findCoordinatesNominatim}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2DAD0] bg-white px-3.5 py-2 text-xs font-semibold text-[#1A201C] hover:bg-neutral-50 transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isGeocoding ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Locating…
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-4 w-4 text-[#1A201C]" />
+                        OSM Search
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMapOpen((open) => !open)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2DAD0] bg-white px-3.5 py-2 text-xs font-semibold text-[#1A201C] hover:bg-neutral-50 transition cursor-pointer"
+                  >
+                    <MapPin className="h-4 w-4 text-rose-600" />
+                    {mapOpen ? "Hide Map" : "Adjust on Map"}
+                  </button>
+                </div>
+
+                {/* Latitude & Longitude inputs */}
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-purpose">
-                      Purpose of visit *
+                    <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-manual-lat">
+                      Latitude <span className="text-rose-500">*</span>
                     </label>
                     <input
-                      id="dispatch-purpose"
+                      id="dispatch-manual-lat"
+                      type="number"
+                      step="any"
                       required
-                      maxLength={255}
-                      value={purpose}
-                      onChange={(event) => setPurpose(event.target.value)}
-                      className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                      placeholder="e.g. Field inspection"
+                      value={coordinates?.latitude ?? ""}
+                      onChange={(e) => handleManualCoordinateChange(e.target.value, coordinates?.longitude ?? "")}
+                      placeholder="e.g. 19.172498"
+                      className="w-full text-sm font-mono rounded-xl border border-[#E6DFD3] bg-white px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
                     />
                   </div>
 
-                  {/* Priority & Scheduled date */}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-priority">
-                        Priority
-                      </label>
-                      <select
-                        id="dispatch-priority"
-                        value={priority}
-                        onChange={(event) => setPriority(event.target.value as "high" | "medium" | "low")}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                      >
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                        <option value="low">Low</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-date">
-                        Scheduled date
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="dispatch-date"
-                          required
-                          type="date"
-                          value={scheduledDate}
-                          onChange={(event) => setScheduledDate(event.target.value)}
-                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Scheduled time & Gate notes */}
-                  <div className="grid gap-4 sm:grid-cols-2 pt-1 border-t border-neutral-800/60">
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-time">
-                        Scheduled time
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="dispatch-time"
-                          type="time"
-                          value={scheduledTime}
-                          onChange={(event) => setScheduledTime(event.target.value)}
-                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        />
-                        <Clock className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-neutral-500" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-notes">
-                        Visit instructions / Gate notes
-                      </label>
-                      <input
-                        id="dispatch-notes"
-                        maxLength={500}
-                        value={notes}
-                        onChange={(event) => setNotes(event.target.value)}
-                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
-                        placeholder="e.g. Enter via Gate 2. Present pass."
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-manual-lng">
+                      Longitude <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="dispatch-manual-lng"
+                      type="number"
+                      step="any"
+                      required
+                      value={coordinates?.longitude ?? ""}
+                      onChange={(e) => handleManualCoordinateChange(coordinates?.latitude ?? "", e.target.value)}
+                      placeholder="e.g. 72.952620"
+                      className="w-full text-sm font-mono rounded-xl border border-[#E6DFD3] bg-white px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    />
                   </div>
                 </div>
-              )}
+
+                {/* Candidate list from OSM search if any */}
+                {candidates.length > 0 && (
+                  <div className="space-y-2 rounded-xl border border-[#E2DAD0] bg-white p-3">
+                    <p className="text-xs font-semibold text-[#1A201C]">
+                      Choose a matching place ({candidates.length}):
+                    </p>
+                    <div className="max-h-52 space-y-2 overflow-y-auto">
+                      {candidates.map((candidate) => (
+                        <button
+                          type="button"
+                          key={candidate.place_id || `${candidate.latitude},${candidate.longitude}`}
+                          onClick={() => selectCandidate(candidate)}
+                          className={`w-full rounded-lg border p-2.5 text-left transition cursor-pointer ${
+                            coordinates?.source === "nominatim" &&
+                            coordinates.latitude === candidate.latitude &&
+                            coordinates.longitude === candidate.longitude
+                              ? "border-[#2E5A44] bg-[#EAF2EC] text-[#1E3F35]"
+                              : "border-[#E6DFD3] bg-[#FCFAF6] hover:bg-neutral-100 text-[#1A201C]"
+                          }`}
+                        >
+                          <span className="flex items-start gap-2">
+                            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#2E5A44]" />
+                            <span className="min-w-0">
+                              <span className="block text-xs font-semibold">{candidate.display_name}</span>
+                              <span className="mt-0.5 block text-[10px] text-[#756F66]">
+                                {[candidate.locality, candidate.state, candidate.postal_code, candidate.country]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                              <span className="mt-0.5 block font-mono text-[10px] text-[#756F66]">
+                                {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)}
+                              </span>
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interactive Leaflet Map drawer */}
+                {mapOpen && (
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between text-xs pb-1.5 text-[#756F66]">
+                      <span className="flex items-center gap-1 font-semibold text-[#1A201C]">
+                        <Navigation className="h-3.5 w-3.5 text-[#2E5A44]" />
+                        Drag pin to building entrance
+                      </span>
+                      <span className="text-[11px]">Zoom 17+</span>
+                    </div>
+                    <DispatchLocationMap
+                      latitude={coordinates?.latitude ?? null}
+                      longitude={coordinates?.longitude ?? null}
+                      isEntranceVerified={isEntranceVerified}
+                      placeLabel={customerName || address || null}
+                      onSelect={(lat, lng, isAdjusted) => void selectMapPoint(lat, lng, isAdjusted)}
+                    />
+                  </div>
+                )}
+
+                {/* Coordinates status banner matching screenshot */}
+                <div className="rounded-xl bg-[#EAF2EC] border border-[#CDE1D2] px-3.5 py-2.5 flex items-center gap-2 text-xs text-[#1E3F35]">
+                  <MapPin className="h-4 w-4 text-[#2E5A44] shrink-0" />
+                  <span className="font-medium">
+                    {coordinates ? (
+                      <span>
+                        📍 Lat: <strong>{coordinates.latitude.toFixed(6)}</strong>, Lng: <strong>{coordinates.longitude.toFixed(6)}</strong> — location retrieved.
+                      </span>
+                    ) : (
+                      "Coordinates pending — retrieve lat/lng above or click 'Auto-detect Lat/Lng'."
+                    )}
+                  </span>
+                </div>
+
+                {coordinates && (
+                  <label className="flex items-start gap-2.5 pt-1 text-xs cursor-pointer text-[#1A201C]">
+                    <input
+                      type="checkbox"
+                      checked={locationConfirmed}
+                      onChange={(event) => setLocationConfirmed(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded accent-[#2E5A44]"
+                    />
+                    <span className="leading-tight text-xs text-[#423E3A]">
+                      I confirm these coordinates mark the customer building entrance for field agent dispatch and 750m geofence validation.
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Visit Details Section (Card 4) */}
+            <div id="visit-details-card" className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 space-y-4 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-[#E5F0E8] flex items-center justify-center text-[#2E5A44] shrink-0">
+                  <Calendar className="h-4 w-4" />
+                </div>
+                <h3 className="text-sm font-bold text-[#1A201C]">Visit details</h3>
+              </div>
+
+              {/* Purpose of visit */}
+              <div>
+                <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-purpose">
+                  Purpose of visit <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="dispatch-purpose"
+                  required
+                  maxLength={255}
+                  value={purpose}
+                  onChange={(event) => setPurpose(event.target.value)}
+                  className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                  placeholder="Field inspection"
+                />
+              </div>
+
+              {/* Priority & Scheduled date */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-priority">
+                    Priority
+                  </label>
+                  <div className="relative">
+                    <div className="flex items-center justify-between w-full rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-sm cursor-pointer">
+                      <span className="flex items-center gap-2 text-[#1A201C] font-medium capitalize">
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            priority === "high"
+                              ? "bg-rose-500"
+                              : priority === "low"
+                              ? "bg-emerald-500"
+                              : "bg-amber-500"
+                          }`}
+                        />
+                        {priority.charAt(0).toUpperCase() + priority.slice(1)}
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-[#756F66]" />
+                    </div>
+                    <select
+                      id="dispatch-priority"
+                      value={priority}
+                      onChange={(event) => setPriority(event.target.value as "high" | "medium" | "low")}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    >
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-date">
+                    Scheduled date
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="dispatch-date"
+                      required
+                      type="date"
+                      value={scheduledDate}
+                      onChange={(event) => setScheduledDate(event.target.value)}
+                      className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Scheduled time & Visit instructions */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-time">
+                    Scheduled time
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="dispatch-time"
+                      type="time"
+                      value={scheduledTime}
+                      onChange={(event) => setScheduledTime(event.target.value)}
+                      className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    />
+                    <Clock className="pointer-events-none absolute right-3.5 top-3 h-4 w-4 text-[#756F66]" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#1A201C] mb-1.5" htmlFor="dispatch-notes">
+                    Visit instructions / Gate notes
+                  </label>
+                  <input
+                    id="dispatch-notes"
+                    maxLength={500}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#8A857C] focus:outline-none focus:border-[#2E5A44] transition"
+                    placeholder="e.g. Enter via Gate 2. 2nd floor, ask for manager."
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Modal Actions */}
-            <div className="flex flex-col-reverse gap-2 border-t border-beige-border pt-4 sm:flex-row sm:justify-end">
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl px-4 py-2.5 text-xs font-semibold text-beige-muted hover:bg-beige-sand"
+                className="rounded-xl px-4 py-2.5 text-xs font-semibold text-[#756F66] hover:text-[#1A201C] transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -1691,7 +1593,7 @@ export default function AssignWorkModal({
                   !hasValidCoordinates ||
                   !locationConfirmed
                 }
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-beige-terracotta px-5 py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2E5A44] hover:bg-[#234837] px-6 py-2.5 text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {isSubmitting ? (
                   <>
