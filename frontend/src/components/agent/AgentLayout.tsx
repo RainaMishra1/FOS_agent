@@ -38,13 +38,30 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   const isAgentAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/agent/login" || pathname === "/agent/signup";
 
   // Route protection for Field Agent Portal
+  const email = (user?.email || profile?.email || "").toLowerCase();
+  const isAdminUser = role === "admin" || email.includes("rishabmishra075") || email.includes("rishabhmishra075");
+
   useEffect(() => {
     if (isAgentAuthPage) return;
-    if (!isLoading && (!isAuthenticated || !profile || (role !== "agent" && role !== "admin"))) {
-      const redirectParam = pathname ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
-      router.replace(`/login${redirectParam}`);
+
+    if (!isLoading) {
+      if (!isAuthenticated || !profile) {
+        const redirectParam = pathname ? `?redirectTo=${encodeURIComponent(pathname)}` : "";
+        router.replace(`/login${redirectParam}`);
+        return;
+      }
+
+      // If user is Admin, strictly redirect to Operations Admin Portal
+      if (isAdminUser) {
+        router.replace("/admin/dashboard");
+        return;
+      }
+
+      if (role !== "agent") {
+        router.replace("/login");
+      }
     }
-  }, [isLoading, isAuthenticated, isAgentAuthPage, profile, role, pathname, router]);
+  }, [isLoading, isAuthenticated, isAgentAuthPage, profile, role, isAdminUser, pathname, router]);
 
   if (isAgentAuthPage) return <>{children}</>;
 
@@ -60,7 +77,16 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     );
   }
 
-  if (!isAuthenticated || !profile || (role !== "agent" && role !== "admin")) {
+  if (isAdminUser) {
+    return (
+      <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
+        <p className="text-xs text-beige-muted">Redirecting to Operations Admin Portal...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !profile || role !== "agent") {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
         <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />

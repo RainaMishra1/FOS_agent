@@ -183,7 +183,13 @@ export async function searchPhotonAddress(
     throw new Error(`Photon API returned status ${response.status}: ${response.statusText}`);
   }
 
-  const data: PhotonResponse = await response.json();
+  const text = await response.text();
+  let data: PhotonResponse | null = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return [];
+  }
   if (!data || !Array.isArray(data.features)) {
     return [];
   }

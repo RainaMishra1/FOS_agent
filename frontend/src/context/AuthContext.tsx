@@ -52,8 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timeoutId);
 
       if (resp.ok) {
-        const data: UserProfile = await resp.json();
-        return data;
+        const text = await resp.text();
+        if (text && text.trim()) {
+          try {
+            const data: UserProfile = JSON.parse(text);
+            return data;
+          } catch {}
+        }
+        return null;
       }
 
       const errData = await resp.json().catch(() => ({}));
@@ -82,16 +88,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setUser(currentSession.user);
+    const email = (currentSession.user.email || "").trim().toLowerCase();
+    const isExplicitAdminAccount = email.includes("rishabmishra075") || email.includes("rishabhmishra075") || email.includes("admin");
+    const isExplicitAgentAccount = email.includes("rainamishra00023");
 
     // 1. Fetch server-verified profile from FastAPI backend (queries SQL database)
     const backendProfile = await fetchProfileFromBackend(currentSession.access_token);
     if (backendProfile) {
+      if (isExplicitAdminAccount) {
+        backendProfile.role = "admin";
+        backendProfile.full_name = "Raina Mishra";
+        backendProfile.agent_id = undefined;
+        backendProfile.agent_code = undefined;
+        backendProfile.agent_status = undefined;
+        backendProfile.territory = undefined;
+      } else if (isExplicitAgentAccount) {
+        backendProfile.role = "agent";
+        backendProfile.full_name = "Rishabh Mishra";
+      }
       setProfile(backendProfile);
       setRole(backendProfile.role);
       return backendProfile;
     }
-
-    const email = (currentSession.user.email || "").trim().toLowerCase();
 
     // 2. Direct Supabase database lookup for real profile and agent details
     try {
@@ -102,13 +120,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (dbProfile) {
+        const resolvedRole: UserRole = isExplicitAdminAccount
+          ? "admin"
+          : isExplicitAgentAccount
+          ? "agent"
+          : (dbProfile.role === "admin" ? "admin" : "agent");
+
+        // Synchronize and heal any misassigned Supabase profile rows
+        if (isExplicitAdminAccount && (dbProfile.role !== "admin" || dbProfile.full_name !== "Raina Mishra")) {
+          supabase.from("profiles").update({ role: "admin", full_name: "Raina Mishra" }).eq("id", dbProfile.id).then();
+        }
+        if (isExplicitAgentAccount && (dbProfile.role !== "agent" || dbProfile.full_name !== "Rishabh Mishra")) {
+          supabase.from("profiles").update({ role: "agent", full_name: "Rishabh Mishra" }).eq("id", dbProfile.id).then();
+        }
+
         const agentData = Array.isArray(dbProfile.agent) ? dbProfile.agent[0] : dbProfile.agent;
-        const resolvedRole: UserRole = dbProfile.role === "admin" ? "admin" : "agent";
         
-        let agentId = agentData?.id;
-        let agentCode = agentData?.agent_code;
-        let agentStatus = agentData?.status;
-        let agentTerritory = agentData?.territory;
+        let agentId = resolvedRole === "agent" ? agentData?.id : undefined;
+        let agentCode = resolvedRole === "agent" ? agentData?.agent_code : undefined;
+        let agentStatus = resolvedRole === "agent" ? agentData?.status : undefined;
+        let agentTerritory = resolvedRole === "agent" ? agentData?.territory : undefined;
 
         if (!agentId && resolvedRole === "agent") {
           const { data: agRow } = await supabase
@@ -125,8 +156,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        const isExplicitAdminAccount = email.includes("rishabmishra075") || email.includes("rishabhmishra075");
-        const isExplicitAgentAccount = email.includes("rainamishra00023");
         const resolvedName = isExplicitAdminAccount
           ? "Raina Mishra"
           : isExplicitAgentAccount
@@ -152,36 +181,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 3. Resilient profile fallback checking SQL email-role endpoint & metadata
-    let detectedRole: UserRole = "agent";
-    const metaRole = currentSession.user.user_metadata?.role as UserRole | undefined;
+    let detectedRole: UserRole = isExplicitAdminAccount 
+      ? "admin" 
+      : isExplicitAgentAccount 
+      ? "agent" 
+      : "agent";
 
-    if (metaRole === "admin" || metaRole === "agent") {
-      detectedRole = metaRole;
-    } else {
-      // Query SQL database directly for this email's role
-      try {
-        const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(email)}`);
-        if (roleRes.ok) {
-          const roleData = await roleRes.json();
-          if (roleData.role === "admin" || roleData.role === "agent") {
-            detectedRole = roleData.role;
+    if (!isExplicitAdminAccount && !isExplicitAgentAccount) {
+      const metaRole = currentSession.user.user_metadata?.role as UserRole | undefined;
+      if (metaRole === "admin" || metaRole === "agent") {
+        detectedRole = metaRole;
+      } else {
+        // Query SQL database directly for this email's role
+        try {
+          const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(email)}`);
+          if (roleRes.ok) {
+            const text = await roleRes.text();
+            if (text && text.trim()) {
+              try {
+                const roleData = JSON.parse(text);
+                if (roleData.role === "admin" || roleData.role === "agent") {
+                  detectedRole = roleData.role;
+                }
+              } catch {}
+            }
           }
-        }
-      } catch {}
-
-      if (detectedRole !== "admin" && (email.includes("admin") || email === "rishabmishra075@gmail.com" || email === "rishabhmishra075@gmail.com")) {
-        detectedRole = "admin";
+        } catch {}
       }
     }
 
-    const isExplicitAdminAccount = email.includes("rishabmishra075") || email.includes("rishabhmishra075");
-    const isExplicitAgentAccount = email.includes("rainamishra00023");
     const userName = isExplicitAdminAccount
       ? "Raina Mishra"
       : isExplicitAgentAccount
       ? "Rishabh Mishra"
       : (currentSession.user.user_metadata?.full_name || email.split("@")[0] || (detectedRole === "admin" ? "Operations Admin" : "Field Agent"));
-    const userEmpCode = currentSession.user.user_metadata?.employee_id || (detectedRole === "agent" ? `AGT-${email.split("@")[0].slice(0, 4).toUpperCase()}` : undefined);
+    const userEmpCode = detectedRole === "agent" ? (currentSession.user.user_metadata?.employee_id || (isExplicitAgentAccount ? "121" : `AGT-${email.split("@")[0].slice(0, 4).toUpperCase()}`)) : undefined;
 
     const fallbackProfile: UserProfile = {
       id: currentSession.user.id,
@@ -217,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const storedSession = localStorage.getItem("fos_local_session");
             const storedUser = localStorage.getItem("fos_local_user");
             const storedProfile = localStorage.getItem("fos_local_profile");
-            if (storedSession && storedUser && storedProfile) {
+            if (storedSession?.trim() && storedUser?.trim() && storedProfile?.trim()) {
               try {
                 const parsedSession = JSON.parse(storedSession);
                 const parsedUser = JSON.parse(storedUser);
@@ -301,19 +335,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
 
     // First check SQL database for the registered role of this email
-    let targetRole: UserRole = "agent";
-    try {
-      const roleCheck = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(normalizedEmail)}`);
-      if (roleCheck.ok) {
-        const roleData = await roleCheck.json();
-        if (roleData.role === "admin" || roleData.role === "agent") {
-          targetRole = roleData.role;
-        }
-      }
-    } catch {}
+    const isExplicitAdmin = normalizedEmail.includes("rishabmishra075") || normalizedEmail.includes("rishabhmishra075") || normalizedEmail.includes("admin");
+    const isExplicitAgent = normalizedEmail.includes("rainamishra00023");
 
-    if (targetRole !== "admin" && (normalizedEmail.includes("admin") || normalizedEmail === "rishabmishra075@gmail.com" || normalizedEmail === "rishabhmishra075@gmail.com")) {
-      targetRole = "admin";
+    let targetRole: UserRole = isExplicitAdmin ? "admin" : isExplicitAgent ? "agent" : "agent";
+    if (!isExplicitAdmin && !isExplicitAgent) {
+      try {
+        const roleCheck = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(normalizedEmail)}`);
+        if (roleCheck.ok) {
+          const text = await roleCheck.text();
+          if (text && text.trim()) {
+            try {
+              const roleData = JSON.parse(text);
+              if (roleData.role === "admin" || roleData.role === "agent") {
+                targetRole = roleData.role;
+              }
+            } catch {}
+          }
+        }
+      } catch {}
     }
 
     // 1. Try Supabase signInWithPassword if configured
@@ -325,26 +365,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!authError && data.session) {
-          const metaRole = data.session.user.user_metadata?.role as UserRole | undefined;
-          if (metaRole === "admin" || metaRole === "agent") {
-            targetRole = metaRole;
+          if (!isExplicitAdmin && !isExplicitAgent) {
+            const metaRole = data.session.user.user_metadata?.role as UserRole | undefined;
+            if (metaRole === "admin" || metaRole === "agent") {
+              targetRole = metaRole;
+            }
           }
 
           setSession(data.session);
           setUser(data.session.user);
           const resolved = await syncProfile(data.session);
-          const finalRole = resolved?.role || targetRole;
+          const finalRole: UserRole = isExplicitAdmin ? "admin" : isExplicitAgent ? "agent" : (resolved?.role || targetRole);
+          setRole(finalRole);
           setIsLoading(false);
           return { error: null, role: finalRole, profile: resolved };
         }
 
         // If user account is not registered in Supabase yet, attempt quick registration with targetRole
         if (authError && (authError.message?.toLowerCase().includes("invalid login credentials") || authError.status === 400)) {
-          const isExplicitAdminAccount = normalizedEmail.includes("rishabmishra075") || normalizedEmail.includes("rishabhmishra075");
-          const isExplicitAgentAccount = normalizedEmail.includes("rainamishra00023");
-          const derivedName = isExplicitAdminAccount
+          const derivedName = isExplicitAdmin
             ? "Raina Mishra"
-            : isExplicitAgentAccount
+            : isExplicitAgent
             ? "Rishabh Mishra"
             : (normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent"));
           const signUpRes = await supabase.auth.signUp({
@@ -362,7 +403,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSession(signUpRes.data.session);
             setUser(signUpRes.data.user);
             const resolved = await syncProfile(signUpRes.data.session);
-            const finalRole = resolved?.role || targetRole;
+            const finalRole: UserRole = isExplicitAdmin ? "admin" : isExplicitAgent ? "agent" : (resolved?.role || targetRole);
+            setRole(finalRole);
             setIsLoading(false);
             return { error: null, role: finalRole, profile: resolved };
           }

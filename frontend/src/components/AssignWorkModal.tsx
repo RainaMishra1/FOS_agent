@@ -18,6 +18,11 @@ import {
   Navigation,
   Info,
   Compass,
+  User,
+  Calendar,
+  FileText,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import {
   AgentApiItem,
@@ -32,7 +37,7 @@ import {
 } from "@/lib/api";
 import DispatchLocationMap from "@/components/DispatchLocationMap";
 import PhotonAutocompleteInput from "@/components/PhotonAutocompleteInput";
-import { ParsedPhotonPlace } from "@/lib/photon";
+import { ParsedPhotonPlace, searchPhotonAddress } from "@/lib/photon";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -83,6 +88,9 @@ export default function AssignWorkModal({
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("India");
+  const [customerType, setCustomerType] = useState<string>("Individual");
+  const [purpose, setPurpose] = useState<string>("Field inspection");
+  const [activeCustomerTab, setActiveCustomerTab] = useState<"all" | "basic" | "location" | "visit">("all");
 
   // Coordinates & Place Details
   const [coordinates, setCoordinates] = useState<{
@@ -281,7 +289,9 @@ export default function AssignWorkModal({
           uniqueList.push(ag);
         }
       });
-      uniqueList.sort((a, b) => a.name.localeCompare(b.name));
+      uniqueList.sort((a, b) =>
+        (a.agent_code || a.name).localeCompare(b.agent_code || b.name, undefined, { numeric: true })
+      );
 
       setAgents(uniqueList);
       setSelectedAgentId((current) => {
@@ -372,6 +382,7 @@ export default function AssignWorkModal({
     setIsExistingCustomer(true);
     setCustomerName(cust.name || "");
     setCompany(cust.company || "");
+    setCustomerType(cust.company ? "Business" : "Individual");
     setContactPerson(cust.contact_person || "");
     setPhone(cust.phone || "");
     setEmail(cust.email || "");
@@ -412,8 +423,112 @@ export default function AssignWorkModal({
 
   const updateAddressPart = (setter: (value: string) => void, value: string) => {
     setter(value);
-    clearLocationChoice();
+    setIsEntranceVerified(false);
   };
+
+  const handleManualCoordinateChange = (latVal: string | number, lngVal: string | number) => {
+    const lat = typeof latVal === "number" ? latVal : parseFloat(latVal);
+    const lng = typeof lngVal === "number" ? lngVal : parseFloat(lngVal);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      setCoordinates({
+        latitude: lat,
+        longitude: lng,
+        display_name: address || locality || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+        source: "map",
+      });
+      setLocationConfirmed(true);
+      setIsEntranceVerified(true);
+      setMessage("");
+    } else if (Number.isFinite(lat)) {
+      setCoordinates((prev) => ({
+        latitude: lat,
+        longitude: prev?.longitude ?? 72.9565,
+        display_name: prev?.display_name || address || "Custom point",
+        source: "map",
+      }));
+    } else if (Number.isFinite(lng)) {
+      setCoordinates((prev) => ({
+        latitude: prev?.latitude ?? 19.1726,
+        longitude: lng,
+        display_name: prev?.display_name || address || "Custom point",
+        source: "map",
+      }));
+    }
+  };
+
+  // Auto geocode helper from fields
+  const autoGeocodeFromFields = useCallback(async (forcedQuery?: string) => {
+    const queryParts = [address, locality, postalCode, country || "India"].filter(Boolean);
+    const query = (forcedQuery || queryParts.join(", ")).trim();
+    if (!query || query.length < 3) {
+      setMessage("Enter City or PIN code to auto-detect coordinates.");
+      return;
+    }
+
+    setIsGeocoding(true);
+    setMessage("");
+    try {
+      const places = await searchPhotonAddress(query, { limit: 3 });
+      if (places && places.length > 0) {
+        const p = places[0];
+        setCoordinates({
+          latitude: p.latitude,
+          longitude: p.longitude,
+          display_name: p.formattedAddress || p.name || query,
+          source: "photon",
+        });
+        setLocationConfirmed(true);
+        setMapOpen(true);
+        return;
+      }
+
+      const result = await geocodeDispatchAddress(
+        {
+          address: address.trim(),
+          locality: locality.trim(),
+          state: state.trim(),
+          postal_code: postalCode.trim(),
+          country: country.trim() || "India",
+        },
+        session?.access_token
+      );
+      if (result.candidates && result.candidates.length > 0) {
+        const c = result.candidates[0];
+        setCoordinates({ ...c, source: "nominatim" });
+        setLocationConfirmed(true);
+        setMapOpen(true);
+      } else {
+        setMessage(`No coordinates returned for "${query}". You can type Latitude & Longitude directly.`);
+      }
+    } catch {
+      setMessage("Coordinate lookup failed. Please type Latitude & Longitude or adjust on map.");
+    } finally {
+      setIsGeocoding(false);
+    }
+  }, [address, locality, postalCode, state, country, session?.access_token]);
+
+  // Auto-detect when PIN code is 6 digits or locality is filled and coordinates is null
+  useEffect(() => {
+    const cleanPin = (postalCode || "").trim();
+    if (cleanPin.length === 6 && /^\d{6}$/.test(cleanPin) && !coordinates) {
+      const q = [locality, cleanPin, "India"].filter(Boolean).join(", ");
+      searchPhotonAddress(q, { limit: 1 })
+        .then((places) => {
+          if (places && places.length > 0) {
+            const p = places[0];
+            setCoordinates({
+              latitude: p.latitude,
+              longitude: p.longitude,
+              display_name: p.formattedAddress || `${locality || cleanPin}, India`,
+              source: "photon",
+            });
+            setLocationConfirmed(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [postalCode, locality, coordinates]);
 
   // Photon Autocomplete Selection Callback
   const handlePhotonPlaceSelect = (place: ParsedPhotonPlace) => {
@@ -619,13 +734,14 @@ export default function AssignWorkModal({
       }
 
       let visit: any = null;
+      const combinedNotes = [purpose ? `Purpose: ${purpose.trim()}` : "", notes ? notes.trim() : ""].filter(Boolean).join(" · ");
       try {
         visit = await createDispatchedVisit(
           {
             customer_id: selectedCustomerId || undefined,
             agent_id: validAgentId,
             customer_name: customerName.trim(),
-            company: company.trim() || undefined,
+            company: company.trim() || (customerType !== "Individual" ? customerName.trim() : undefined),
             contact_person: contactPerson.trim() || undefined,
             phone: phone.trim() || undefined,
             email: email.trim() || undefined,
@@ -636,7 +752,7 @@ export default function AssignWorkModal({
             scheduled_date: scheduledDate || today(),
             scheduled_time: scheduledTime || "10:30 AM",
             priority,
-            notes: notes.trim() || undefined,
+            notes: combinedNotes || undefined,
           },
           session?.access_token
         );
@@ -696,7 +812,7 @@ export default function AssignWorkModal({
             status: "pending",
             order_index: 1,
             estimated_duration_minutes: 45,
-            purpose: notes.trim() || "Field Inspection",
+            purpose: purpose.trim() || notes.trim() || "Field Inspection",
             geofence_verified: false,
           })
           .select()
@@ -749,24 +865,30 @@ export default function AssignWorkModal({
     }
   };
 
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId) || null;
+
   const inputClass =
     "w-full text-sm rounded-xl bg-beige-bg border border-beige-border px-3 py-2.5 text-beige-text placeholder-beige-muted focus:outline-none focus:border-beige-terracotta";
   const labelClass = "block text-xs font-semibold text-beige-text mb-1.5";
 
+  const selectedAgentInitials = selectedAgent
+    ? selectedAgent.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+    : "RM";
+
   return (
-    <div className="fixed inset-0 z-[10000] overflow-y-auto bg-beige-bg px-4 py-6 sm:px-8 sm:py-8">
-      <div className="mx-auto max-w-3xl">
-        <div className="flex items-center justify-between gap-4 border-b border-beige-border pb-5">
+    <div className="fixed inset-0 z-[10000] overflow-y-auto bg-black/40 backdrop-blur-xs px-3 py-6 sm:px-6 sm:py-8 flex justify-center items-start">
+      <div className="w-full max-w-3xl rounded-3xl border border-[#E6DFD3] bg-[#FAF8F5] p-5 sm:p-8 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between gap-4 border-b border-[#E6DFD3] pb-4">
           <div>
             <button
               type="button"
               onClick={onClose}
-              className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-beige-terracotta hover:underline"
+              className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3F35] hover:underline cursor-pointer"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to dashboard
             </button>
-            <h2 className="text-xl font-bold text-beige-text sm:text-2xl">New Dispatch</h2>
-            <p className="mt-1 text-xs text-beige-muted">
+            <h2 className="text-2xl font-bold text-[#1A201C] tracking-tight">New Dispatch</h2>
+            <p className="mt-1 text-xs text-[#756F66]">
               Select an existing customer or search an address with Photon API, adjust the pin to the exact building entrance,
               and dispatch to an active field agent.
             </p>
@@ -775,22 +897,22 @@ export default function AssignWorkModal({
             type="button"
             onClick={onClose}
             aria-label="Close dispatch"
-            className="rounded-xl border border-beige-border bg-beige-card p-2 text-beige-muted hover:text-beige-text"
+            className="rounded-xl border border-[#E6DFD3] bg-white p-2 text-[#756F66] hover:text-[#1A201C] transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {feedback ? (
-          <div className="mt-10 rounded-3xl border border-beige-border bg-beige-card p-10 text-center shadow-sm">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-beige-olive-subtle text-beige-olive">
+          <div className="mt-8 rounded-3xl border border-[#E6DFD3] bg-white p-10 text-center shadow-xs">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#E5F0E8] text-[#2E5A44]">
               <Check className="h-6 w-6" />
             </div>
-            <h3 className="mt-4 text-lg font-bold text-beige-text">Dispatch created</h3>
-            <p className="mt-2 text-sm text-beige-muted">{feedback}</p>
+            <h3 className="mt-4 text-lg font-bold text-[#1A201C]">Dispatch created</h3>
+            <p className="mt-2 text-sm text-[#756F66]">{feedback}</p>
             <button
               onClick={onClose}
-              className="mt-6 rounded-xl bg-beige-terracotta px-5 py-2.5 text-xs font-bold text-white"
+              className="mt-6 rounded-xl bg-[#2E5A44] hover:bg-[#234837] px-6 py-2.5 text-xs font-bold text-white transition cursor-pointer"
             >
               Return to dashboard
             </button>
@@ -798,7 +920,7 @@ export default function AssignWorkModal({
         ) : (
           <form
             onSubmit={handleSubmit}
-            className="mt-6 space-y-5 rounded-3xl border border-beige-border bg-beige-card p-5 shadow-sm sm:p-7"
+            className="space-y-4"
           >
             {message && (
               <div
@@ -810,29 +932,95 @@ export default function AssignWorkModal({
               </div>
             )}
 
-            {/* Agent Selector */}
-            <div>
-              <label className={labelClass} htmlFor="dispatch-agent">
-                Assign to active agent *
-              </label>
-              <select
-                id="dispatch-agent"
-                required
-                disabled={agentsLoading || agents.length === 0}
-                value={selectedAgentId}
-                onChange={(event) => setSelectedAgentId(event.target.value)}
-                className={inputClass}
-              >
-                {agentsLoading && <option value="">Loading agents…</option>}
-                {!agentsLoading && agents.length === 0 && <option value="">No active agents available</option>}
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                    {agent.agent_code ? ` (${agent.agent_code})` : ""}
-                    {agent.territory ? ` · ${agent.territory}` : ""}
-                  </option>
-                ))}
-              </select>
+            {/* 1. Assign to Active Agent Card */}
+            <div className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#1A201C]" htmlFor="dispatch-agent">
+                  Assign to active agent *
+                </label>
+                {selectedAgent && (
+                  <span className="text-xs font-medium text-[#756F66]">
+                    ID: {selectedAgent.agent_code || selectedAgent.id.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+
+              {/* Agent Selector Dropdown */}
+              <div className="relative">
+                <div className="flex items-center gap-3 w-full rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-sm">
+                  <div className="w-7 h-7 rounded-full bg-[#D7C9B8] text-[#4A3B2C] flex items-center justify-center font-bold text-xs shrink-0">
+                    {selectedAgentInitials}
+                  </div>
+                  <span className="font-medium text-[#1A201C] flex-1">
+                    {selectedAgent
+                      ? `${selectedAgent.agent_code || selectedAgent.id.slice(0, 8)} • ${selectedAgent.name}`
+                      : "Select an active agent"}
+                  </span>
+                  <ChevronDown className="w-4 h-4 text-[#756F66]" />
+                </div>
+                <select
+                  id="dispatch-agent"
+                  required
+                  disabled={agentsLoading || agents.length === 0}
+                  value={selectedAgentId}
+                  onChange={(event) => setSelectedAgentId(event.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                >
+                  {agentsLoading && <option value="">Loading agents…</option>}
+                  {!agentsLoading && agents.length === 0 && <option value="">No active agents available</option>}
+                  {agents.map((agent) => {
+                    const agentIdDisplay = agent.agent_code || agent.id.slice(0, 8);
+                    return (
+                      <option key={agent.id} value={agent.id}>
+                        {agentIdDisplay} • {agent.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Selected Agent Location Badge & Details */}
+              {selectedAgent && (
+                <div className="rounded-xl border border-[#EFE8DD] bg-[#FAF7F0] p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-[#EADFC9] text-[#78654D] flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div>
+                        <span className="text-[#756F66]">Agent Location: </span>
+                        <strong className="text-[#1A201C] font-semibold">
+                          {selectedAgent.territory || "Mumbai"}
+                        </strong>
+                        <span className="text-[#756F66]">
+                          {" "}({selectedAgent.address || "Panvel, Cidco"})
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[#756F66] mt-0.5">
+                        <span>
+                          Agent ID: <strong className="text-[#1A201C] font-mono">{selectedAgent.agent_code || selectedAgent.id.slice(0, 8)}</strong>
+                        </span>
+                        <span className="mx-1.5">•</span>
+                        <span>
+                          Name: <strong className="text-[#1A201C]">{selectedAgent.name}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E6DFD3] text-[11px] font-medium text-[#1A201C]">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
+                      Lat: {selectedAgent.current_latitude?.toFixed(2) ?? "19.06"}, Lng: {selectedAgent.current_longitude?.toFixed(2) ?? "73.10"}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2] text-[11px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {selectedAgent.status || "Active"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {!agentsLoading && agents.length === 0 && (
                 <p className="mt-1.5 text-[11px] text-beige-muted">
                   Create or activate an agent in the Field Agents directory before dispatching.
@@ -843,9 +1031,9 @@ export default function AssignWorkModal({
             {/* Customer Mode: Existing Customer vs New Customer */}
             <div className="rounded-2xl border border-beige-border bg-beige-sand/40 p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                <label className="text-xs font-semibold text-beige-text flex items-center gap-1.5">
+                <label className="text-xs font-semibold text-beige-text flex items-center gap-1.5" htmlFor="dispatch-customer-select">
                   <Building2 className="h-4 w-4 text-beige-terracotta" />
-                  Customer Selection
+                  Customer
                 </label>
                 <span className="text-[11px] text-beige-muted">
                   Reuse verified customer records or enter new destination
@@ -884,380 +1072,605 @@ export default function AssignWorkModal({
               )}
             </div>
 
-            {/* Customer Details */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass} htmlFor="dispatch-customer">
-                  Customer / Site name *
-                </label>
-                <input
-                  id="dispatch-customer"
-                  required
-                  maxLength={255}
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                  className={inputClass}
-                  placeholder="Type a customer or site name"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-company">
-                  Company
-                </label>
-                <input
-                  id="dispatch-company"
-                  maxLength={255}
-                  value={company}
-                  onChange={(event) => setCompany(event.target.value)}
-                  className={inputClass}
-                  placeholder="Company name"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-contact">
-                  Contact person
-                </label>
-                <input
-                  id="dispatch-contact"
-                  maxLength={255}
-                  value={contactPerson}
-                  onChange={(event) => setContactPerson(event.target.value)}
-                  className={inputClass}
-                  placeholder="On-site contact"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-phone">
-                  Contact phone
-                </label>
-                <input
-                  id="dispatch-phone"
-                  type="tel"
-                  maxLength={50}
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                  className={inputClass}
-                  placeholder="Phone number"
-                />
-              </div>
-            </div>
+            {/* Customer Information Block (Template styled with separately highlighted tabs) */}
+            <div className="rounded-3xl border border-neutral-800 bg-[#0d0f12] p-5 sm:p-7 text-neutral-100 shadow-xl space-y-6">
+              {/* Header & Title */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800/80 pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-[#B86F52]" />
+                    Customer Information
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Configure customer profile, geocoded entrance, and scheduled visit parameters
+                  </p>
+                </div>
 
-            {/* Address Search with Photon API Autocomplete */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className={labelClass} htmlFor="dispatch-address">
-                  Customer Address / Landmark *
-                </label>
-                <span className="text-[11px] text-beige-muted flex items-center gap-1">
-                  <Compass className="h-3.5 w-3.5 text-beige-terracotta" />
-                  Photon autocomplete (OpenStreetMap)
-                </span>
+                {/* Separately Highlighted Tab Navigation Strip */}
+                <div className="flex items-center gap-1 p-1 rounded-2xl bg-neutral-900 border border-neutral-800 self-start sm:self-auto overflow-x-auto max-w-full">
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerTab("all")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
+                      activeCustomerTab === "all"
+                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerTab("basic")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
+                      activeCustomerTab === "basic"
+                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
+                    }`}
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    Basic details
+                    {customerName && phone && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerTab("location")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
+                      activeCustomerTab === "location"
+                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
+                    }`}
+                  >
+                    <MapPin className="h-3.5 w-3.5" />
+                    Location details
+                    {coordinates && locationConfirmed && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerTab("visit")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
+                      activeCustomerTab === "visit"
+                        ? "bg-[#B86F52] text-white shadow-md shadow-[#B86F52]/20"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-800/60"
+                    }`}
+                  >
+                    <Calendar className="h-3.5 w-3.5" />
+                    Visit details
+                    {scheduledDate && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
+                    )}
+                  </button>
+                </div>
               </div>
 
-              <PhotonAutocompleteInput
-                id="dispatch-address"
-                value={address}
-                onChange={(val) => updateAddressPart(setAddress, val)}
-                onPlaceSelect={handlePhotonPlaceSelect}
-                placeholder="Search addresses, buildings, schools, businesses, or landmarks in India…"
-                required
-                className={inputClass}
-              />
-            </div>
-
-            {/* Locality, State, PIN, Country */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass} htmlFor="dispatch-locality">
-                  Locality / City *
-                </label>
-                <input
-                  id="dispatch-locality"
-                  required
-                  maxLength={100}
-                  value={locality}
-                  onChange={(event) => updateAddressPart(setLocality, event.target.value)}
-                  className={inputClass}
-                  placeholder="e.g. Kalyan East, Whitefield"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-state">
-                  State
-                </label>
-                <input
-                  id="dispatch-state"
-                  maxLength={100}
-                  value={state}
-                  onChange={(event) => updateAddressPart(setState, event.target.value)}
-                  className={inputClass}
-                  placeholder="e.g. Maharashtra, Karnataka"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-postal">
-                  PIN code
-                </label>
-                <input
-                  id="dispatch-postal"
-                  maxLength={20}
-                  value={postalCode}
-                  onChange={(event) => updateAddressPart(setPostalCode, event.target.value)}
-                  className={inputClass}
-                  placeholder="e.g. 421306, 560066"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-country">
-                  Country *
-                </label>
-                <input
-                  id="dispatch-country"
-                  required
-                  maxLength={80}
-                  value={country}
-                  onChange={(event) => updateAddressPart(setCountry, event.target.value)}
-                  className={inputClass}
-                  placeholder="India"
-                />
-              </div>
-            </div>
-
-            {/* Map & Geocode Actions */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={isGeocoding || address.trim().length < 2 || locality.trim().length < 2 || !country.trim()}
-                onClick={findCoordinatesNominatim}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-beige-border bg-beige-sand px-4 py-2.5 text-xs font-bold text-beige-text disabled:opacity-50"
-              >
-                {isGeocoding ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Searching OpenStreetMap…
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4 text-beige-terracotta" />
-                    Structured OSM Lookup
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMapOpen((open) => !open)}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-beige-border bg-beige-card px-4 py-2.5 text-xs font-bold text-beige-text"
-              >
-                <Crosshair className="h-4 w-4 text-beige-terracotta" />
-                {mapOpen ? "Hide entrance map" : "Adjust entrance on map"}
-              </button>
-            </div>
-
-            {/* Nominatim Structured Candidate List */}
-            {candidates.length > 0 && (
-              <div className="space-y-2 rounded-xl border border-beige-border bg-beige-sand/50 p-3">
-                <p className="text-xs font-semibold text-beige-text">
-                  Choose a matching place ({candidates.length}). Results may identify a nearby locality or landmark; confirm the entrance pin.
-                </p>
-                <div className="max-h-56 space-y-2 overflow-y-auto">
-                  {candidates.map((candidate, index) => (
-                    <button
-                      type="button"
-                      key={candidate.place_id || `${candidate.latitude},${candidate.longitude}`}
-                      onClick={() => selectCandidate(candidate)}
-                      className={`w-full rounded-lg border p-3 text-left transition ${
-                        coordinates?.source === "nominatim" &&
-                        coordinates.latitude === candidate.latitude &&
-                        coordinates.longitude === candidate.longitude
-                          ? "border-beige-terracotta bg-beige-card"
-                          : "border-beige-border bg-beige-card/70 hover:bg-beige-card"
-                      }`}
-                    >
-                      <span className="flex items-start gap-2">
-                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-beige-terracotta" />
-                        <span className="min-w-0">
-                          <span className="block text-xs font-semibold text-beige-text">{candidate.display_name}</span>
-                          <span className="mt-1 block text-[10px] text-beige-muted">
-                            {[candidate.locality, candidate.state, candidate.postal_code, candidate.country, candidate.type]
-                              .filter(Boolean)
-                              .join(" · ") || "Address result"}
-                          </span>
-                          <span className="mt-1 block font-mono text-[10px] text-beige-muted">
-                            {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)} · Result {index + 1}
-                          </span>
-                        </span>
+              {/* TAB 1: Basic details */}
+              {(activeCustomerTab === "all" || activeCustomerTab === "basic") && (
+                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#B86F52]/20 text-[#E08A68] border border-[#B86F52]/30">
+                        Tab 1
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Interactive Leaflet Map with Draggable Entrance Marker */}
-            {mapOpen && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-beige-text flex items-center gap-1.5">
-                    <Navigation className="h-4 w-4 text-beige-terracotta" />
-                    Building Entrance Locator (OpenStreetMap + Leaflet)
-                  </span>
-                  <span className="text-[11px] text-beige-muted">
-                    Zoom level 17+ · Drag marker or click exact gate
-                  </span>
-                </div>
-                <DispatchLocationMap
-                  latitude={coordinates?.latitude ?? null}
-                  longitude={coordinates?.longitude ?? null}
-                  isEntranceVerified={isEntranceVerified}
-                  placeLabel={customerName || address || null}
-                  onSelect={(lat, lng, isAdjusted) => void selectMapPoint(lat, lng, isAdjusted)}
-                />
-              </div>
-            )}
-
-            {/* Coordinates & Entrance Pin Confirmation Card */}
-            <div
-              className={`rounded-2xl border p-4 text-xs transition ${
-                coordinates
-                  ? "border-beige-olive/30 bg-beige-olive-subtle/50 text-beige-text"
-                  : "border-beige-border bg-beige-sand/50 text-beige-muted"
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-beige-terracotta" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <p className="font-bold text-sm">
-                      {coordinates
-                        ? coordinates.source === "verified_customer"
-                          ? "Existing Customer Verified Coordinates"
-                          : coordinates.source === "photon"
-                          ? "Photon Search Location"
-                          : coordinates.source === "map"
-                          ? "Map-Selected Location"
-                          : "Structured Address Result"
-                        : "Location not selected"}
-                    </p>
-                    {coordinates && (
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                          isEntranceVerified
-                            ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                            : "bg-beige-sand text-beige-text border border-beige-border"
-                        }`}
+                      <h4 className="text-sm font-semibold text-neutral-200">Basic details</h4>
+                    </div>
+                    {activeCustomerTab === "basic" && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveCustomerTab("location")}
+                        className="text-xs text-[#E08A68] hover:underline flex items-center gap-1 font-medium"
                       >
-                        {isEntranceVerified ? (
-                          <>
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            Entrance Pin Adjusted & Verified
-                          </>
-                        ) : (
-                          <>
-                            <Info className="h-3.5 w-3.5" />
-                            Centroid (Verify entrance pin)
-                          </>
-                        )}
-                      </span>
+                        Next: Location details <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
                     )}
                   </div>
 
-                  {coordinates ? (
-                    <>
-                      <p className="mt-2 font-mono text-xs bg-beige-bg/70 px-2 py-1 rounded-md border border-beige-border inline-block">
-                        Lat: {coordinates.latitude.toFixed(6)} · Lng: {coordinates.longitude.toFixed(6)}
-                      </p>
-                      <p className="mt-1 text-[11px] text-beige-muted">
-                        Target Address: {address}, {[locality, state, postalCode, country].filter(Boolean).join(", ")}
-                      </p>
-                      <p className="mt-1 text-[11px] text-beige-muted">
-                        {isReverseGeocoding ? "Resolving map coordinates…" : coordinates.display_name}
-                      </p>
-
-                      <label className="mt-3.5 flex items-start gap-2.5 border-t border-beige-border/70 pt-3 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={locationConfirmed}
-                          onChange={(event) => setLocationConfirmed(event.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded accent-[#B86F52]"
-                        />
-                        <span className="font-medium text-beige-text leading-tight">
-                          I confirm these coordinates mark the customer building entrance for field agent dispatch and
-                          750m geofence validation.
-                        </span>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-customer">
+                        Customer name *
                       </label>
-                    </>
-                  ) : (
-                    <p className="mt-1">
-                      Search for the address using Photon API or select its location on the map.
-                      Coordinates must be confirmed before dispatching.
-                    </p>
+                      <input
+                        id="dispatch-customer"
+                        required
+                        maxLength={255}
+                        value={customerName}
+                        onChange={(event) => setCustomerName(event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="Enter name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-customer-type">
+                        Customer type *
+                      </label>
+                      <select
+                        id="dispatch-customer-type"
+                        value={customerType}
+                        onChange={(event) => setCustomerType(event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                      >
+                        <option value="Individual">Individual</option>
+                        <option value="Business">Business</option>
+                        <option value="Enterprise">Enterprise</option>
+                        <option value="Retail">Retail</option>
+                        <option value="Government">Government</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-phone">
+                        Phone number *
+                      </label>
+                      <input
+                        id="dispatch-phone"
+                        required
+                        type="tel"
+                        maxLength={50}
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="+91 XXXXX XXXXX"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-email">
+                        Email address
+                      </label>
+                      <input
+                        id="dispatch-email"
+                        type="email"
+                        maxLength={120}
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional Company & Contact Person row for Business/Enterprise */}
+                  {customerType !== "Individual" && (
+                    <div className="grid gap-4 sm:grid-cols-2 pt-1 border-t border-neutral-800/60">
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-company">
+                          Company / Entity name
+                        </label>
+                        <input
+                          id="dispatch-company"
+                          maxLength={255}
+                          value={company}
+                          onChange={(event) => setCompany(event.target.value)}
+                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                          placeholder="e.g. Acme Industries Ltd."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-contact">
+                          On-site Contact person
+                        </label>
+                        <input
+                          id="dispatch-contact"
+                          maxLength={255}
+                          value={contactPerson}
+                          onChange={(event) => setContactPerson(event.target.value)}
+                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                          placeholder="e.g. Ramesh Sharma (Manager)"
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Schedule & Priority */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className={labelClass} htmlFor="dispatch-date">
-                  Scheduled date *
-                </label>
-                <input
-                  id="dispatch-date"
-                  required
-                  type="date"
-                  value={scheduledDate}
-                  onChange={(event) => setScheduledDate(event.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-time">
-                  Scheduled time *
-                </label>
-                <div className="relative">
-                  <input
-                    id="dispatch-time"
-                    required
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(event) => setScheduledTime(event.target.value)}
-                    className={inputClass}
-                  />
-                  <Clock className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-beige-muted" />
+              {/* TAB 2: Location details */}
+              {(activeCustomerTab === "all" || activeCustomerTab === "location") && (
+                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        Tab 2
+                      </span>
+                      <h4 className="text-sm font-semibold text-neutral-200">Location details</h4>
+                    </div>
+                    {activeCustomerTab === "location" && (
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setActiveCustomerTab("basic")}
+                          className="text-xs text-neutral-400 hover:text-white font-medium"
+                        >
+                          ← Basic details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveCustomerTab("visit")}
+                          className="text-xs text-[#E08A68] hover:underline flex items-center gap-1 font-medium"
+                        >
+                          Next: Visit details <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Customer address */}
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-address">
+                      Customer address *
+                    </label>
+                    <PhotonAutocompleteInput
+                      id="dispatch-address"
+                      value={address}
+                      onChange={(val) => updateAddressPart(setAddress, val)}
+                      onPlaceSelect={handlePhotonPlaceSelect}
+                      placeholder="Search address or landmark"
+                      required
+                      className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                    />
+                  </div>
+
+                  {/* City & PIN code */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-locality">
+                        City *
+                      </label>
+                      <input
+                        id="dispatch-locality"
+                        required
+                        maxLength={100}
+                        value={locality}
+                        onChange={(event) => updateAddressPart(setLocality, event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="City"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-postal">
+                        PIN code *
+                      </label>
+                      <input
+                        id="dispatch-postal"
+                        required
+                        maxLength={20}
+                        value={postalCode}
+                        onChange={(event) => updateAddressPart(setPostalCode, event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="6-digit PIN"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Map location section matching template */}
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex items-start gap-2.5">
+                        <MapPin className="h-5 w-5 text-[#B86F52] shrink-0 mt-0.5" />
+                        <div>
+                          <h5 className="text-sm font-semibold text-white">Map location</h5>
+                          <p className="text-xs text-neutral-400">
+                            Latitude, longitude and location verification status
+                          </p>
+                          <p className="text-[11px] text-neutral-500 mt-0.5">
+                            Admin confirms the map pin before saving.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => void autoGeocodeFromFields()}
+                          disabled={isGeocoding || (!postalCode && !locality && !address)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#B86F52]/60 bg-[#B86F52]/20 px-3 py-1.5 text-xs font-semibold text-[#E08A68] hover:bg-[#B86F52]/30 transition disabled:opacity-50"
+                        >
+                          {isGeocoding ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Detecting…
+                            </>
+                          ) : (
+                            <>
+                              <Compass className="h-3.5 w-3.5" />
+                              Auto-detect Lat/Long
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isGeocoding || address.trim().length < 2 || locality.trim().length < 2 || !country.trim()}
+                          onClick={findCoordinatesNominatim}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white disabled:opacity-50"
+                        >
+                          {isGeocoding ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Locating…
+                            </>
+                          ) : (
+                            <>
+                              <Search className="h-3.5 w-3.5 text-[#B86F52]" />
+                              OSM Search
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMapOpen((open) => !open)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white"
+                        >
+                          <Crosshair className="h-3.5 w-3.5 text-[#B86F52]" />
+                          {mapOpen ? "Hide Map" : "Adjust on Map"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Explicit Visible Latitude and Longitude Fields */}
+                    <div className="grid gap-3 sm:grid-cols-2 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-medium text-neutral-300 mb-1" htmlFor="dispatch-manual-lat">
+                          Latitude *
+                        </label>
+                        <input
+                          id="dispatch-manual-lat"
+                          type="number"
+                          step="any"
+                          required
+                          value={coordinates?.latitude ?? ""}
+                          onChange={(e) => handleManualCoordinateChange(e.target.value, coordinates?.longitude ?? "")}
+                          placeholder="e.g. 19.172600"
+                          className="w-full text-sm font-mono rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-600 focus:outline-none focus:border-[#B86F52]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-neutral-300 mb-1" htmlFor="dispatch-manual-lng">
+                          Longitude *
+                        </label>
+                        <input
+                          id="dispatch-manual-lng"
+                          type="number"
+                          step="any"
+                          required
+                          value={coordinates?.longitude ?? ""}
+                          onChange={(e) => handleManualCoordinateChange(coordinates?.latitude ?? "", e.target.value)}
+                          placeholder="e.g. 72.956500"
+                          className="w-full text-sm font-mono rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-600 focus:outline-none focus:border-[#B86F52]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Nominatim Structured Candidate List */}
+                    {candidates.length > 0 && (
+                      <div className="space-y-2 rounded-xl border border-neutral-700 bg-neutral-900 p-3">
+                        <p className="text-xs font-semibold text-neutral-200">
+                          Choose a matching place ({candidates.length}):
+                        </p>
+                        <div className="max-h-56 space-y-2 overflow-y-auto">
+                          {candidates.map((candidate) => (
+                            <button
+                              type="button"
+                              key={candidate.place_id || `${candidate.latitude},${candidate.longitude}`}
+                              onClick={() => selectCandidate(candidate)}
+                              className={`w-full rounded-lg border p-2.5 text-left transition ${
+                                coordinates?.source === "nominatim" &&
+                                coordinates.latitude === candidate.latitude &&
+                                coordinates.longitude === candidate.longitude
+                                  ? "border-[#B86F52] bg-neutral-800 text-white"
+                                  : "border-neutral-800 bg-neutral-950 hover:bg-neutral-800 text-neutral-300"
+                              }`}
+                            >
+                              <span className="flex items-start gap-2">
+                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#B86F52]" />
+                                <span className="min-w-0">
+                                  <span className="block text-xs font-semibold text-white">{candidate.display_name}</span>
+                                  <span className="mt-0.5 block text-[10px] text-neutral-400">
+                                    {[candidate.locality, candidate.state, candidate.postal_code, candidate.country]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </span>
+                                  <span className="mt-0.5 block font-mono text-[10px] text-neutral-400">
+                                    {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)}
+                                  </span>
+                                </span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Interactive Leaflet Map */}
+                    {mapOpen && (
+                      <div className="pt-2">
+                        <div className="flex items-center justify-between text-xs pb-1.5 text-neutral-400">
+                          <span className="flex items-center gap-1 font-medium text-neutral-300">
+                            <Navigation className="h-3.5 w-3.5 text-[#B86F52]" />
+                            Drag pin to building entrance
+                          </span>
+                          <span className="text-[11px]">Zoom 17+</span>
+                        </div>
+                        <DispatchLocationMap
+                          latitude={coordinates?.latitude ?? null}
+                          longitude={coordinates?.longitude ?? null}
+                          isEntranceVerified={isEntranceVerified}
+                          placeLabel={customerName || address || null}
+                          onSelect={(lat, lng, isAdjusted) => void selectMapPoint(lat, lng, isAdjusted)}
+                        />
+                      </div>
+                    )}
+
+                    {/* Coordinates & Confirmation status */}
+                    <div className="rounded-xl border border-neutral-800/80 bg-neutral-900/60 p-3 text-xs">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-[#B86F52] shrink-0" />
+                          <span className="font-medium text-neutral-300">
+                            {coordinates ? (
+                              <span className="font-mono text-xs text-white">
+                                📍 Lat: <strong className="text-emerald-400 font-bold">{coordinates.latitude.toFixed(6)}</strong> · Lng: <strong className="text-emerald-400 font-bold">{coordinates.longitude.toFixed(6)}</strong>
+                              </span>
+                            ) : (
+                              <span className="text-amber-400 font-medium">
+                                Coordinates pending — enter values above or click "Auto-detect Lat/Long"
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {coordinates && (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                              isEntranceVerified
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : "bg-neutral-800 text-neutral-300 border border-neutral-700"
+                            }`}
+                          >
+                            {isEntranceVerified ? (
+                              <>
+                                <ShieldCheck className="h-3.5 w-3.5" />
+                                Entrance Pin Verified
+                              </>
+                            ) : (
+                              <>
+                                <Info className="h-3.5 w-3.5" />
+                                Centroid Coordinates
+                              </>
+                            )}
+                          </span>
+                        )}
+                      </div>
+
+                      {coordinates && (
+                        <label className="mt-3 flex items-start gap-2.5 border-t border-neutral-800/80 pt-2.5 text-xs cursor-pointer text-neutral-300">
+                          <input
+                            type="checkbox"
+                            checked={locationConfirmed}
+                            onChange={(event) => setLocationConfirmed(event.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded accent-[#B86F52]"
+                          />
+                          <span className="leading-tight text-neutral-200">
+                            I confirm these coordinates mark the customer building entrance for field agent dispatch and 750m geofence validation.
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="dispatch-priority">
-                  Priority *
-                </label>
-                <select
-                  id="dispatch-priority"
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value as "high" | "medium" | "low")}
-                  className={inputClass}
-                >
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </div>
-            </div>
+              )}
 
-            {/* Instructions */}
-            <div>
-              <label className={labelClass} htmlFor="dispatch-notes">
-                Visit instructions / Gate notes
-              </label>
-              <textarea
-                id="dispatch-notes"
-                rows={3}
-                maxLength={5000}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                className={inputClass}
-                placeholder="e.g. Enter via Gate 2 near the security cabin. Present visitor pass at reception."
-              />
+              {/* TAB 3: Visit details */}
+              {(activeCustomerTab === "all" || activeCustomerTab === "visit") && (
+                <div className="space-y-4 rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-4 transition">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        Tab 3
+                      </span>
+                      <h4 className="text-sm font-semibold text-neutral-200">Visit details</h4>
+                    </div>
+                    {activeCustomerTab === "visit" && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveCustomerTab("location")}
+                        className="text-xs text-neutral-400 hover:text-white font-medium"
+                      >
+                        ← Location details
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Purpose of visit */}
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-purpose">
+                      Purpose of visit *
+                    </label>
+                    <input
+                      id="dispatch-purpose"
+                      required
+                      maxLength={255}
+                      value={purpose}
+                      onChange={(event) => setPurpose(event.target.value)}
+                      className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                      placeholder="e.g. Field inspection"
+                    />
+                  </div>
+
+                  {/* Priority & Scheduled date */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-priority">
+                        Priority
+                      </label>
+                      <select
+                        id="dispatch-priority"
+                        value={priority}
+                        onChange={(event) => setPriority(event.target.value as "high" | "medium" | "low")}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                      >
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-300 mb-1.5" htmlFor="dispatch-date">
+                        Scheduled date
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="dispatch-date"
+                          required
+                          type="date"
+                          value={scheduledDate}
+                          onChange={(event) => setScheduledDate(event.target.value)}
+                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scheduled time & Gate notes */}
+                  <div className="grid gap-4 sm:grid-cols-2 pt-1 border-t border-neutral-800/60">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-time">
+                        Scheduled time
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="dispatch-time"
+                          type="time"
+                          value={scheduledTime}
+                          onChange={(event) => setScheduledTime(event.target.value)}
+                          className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        />
+                        <Clock className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-neutral-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-400 mb-1.5" htmlFor="dispatch-notes">
+                        Visit instructions / Gate notes
+                      </label>
+                      <input
+                        id="dispatch-notes"
+                        maxLength={500}
+                        value={notes}
+                        onChange={(event) => setNotes(event.target.value)}
+                        className="w-full text-sm rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-[#B86F52]"
+                        placeholder="e.g. Enter via Gate 2. Present pass."
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Modal Actions */}

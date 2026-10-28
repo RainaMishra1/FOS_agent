@@ -206,11 +206,36 @@ async def get_email_role(email: str, db: AsyncSession = Depends(get_db)):
     Returns the SQL database role ('admin' or 'agent') for the given email address.
     """
     norm = _normalized_email(email)
+    
+    # Strictly enforce Operations Admin for Raina Mishra
+    if norm in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} or "admin" in norm:
+        prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
+        if prof:
+            if prof.role != "admin" or prof.full_name != "Raina Mishra":
+                prof.role = "admin"
+                prof.full_name = "Raina Mishra"
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+        return {"email": norm, "role": "admin", "found": True}
+
+    # Strictly enforce Field Agent for Rishabh Mishra
+    if norm == "rainamishra00023@gmail.com":
+        prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
+        if prof:
+            if prof.role != "agent" or prof.full_name != "Rishabh Mishra":
+                prof.role = "agent"
+                prof.full_name = "Rishabh Mishra"
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+        return {"email": norm, "role": "agent", "found": True}
+
     prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
     if prof:
         return {"email": norm, "role": prof.role, "found": True}
-    if norm in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} or "admin" in norm:
-        return {"email": norm, "role": "admin", "found": True}
     return {"email": norm, "role": "agent", "found": False}
 
 

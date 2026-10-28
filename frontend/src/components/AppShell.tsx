@@ -59,6 +59,9 @@ export default function AppShell({ children }: AppShellProps) {
   const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
   const isAgentRoute = Boolean(pathname === "/agent" || pathname?.startsWith("/agent/"));
 
+  const userEmail = (user?.email || profile?.email || "").toLowerCase();
+  const isAdminAccount = role === "admin" || userEmail.includes("rishabmishra075") || userEmail.includes("rishabhmishra075");
+
   // 1. Client-side Route Guard for Admin Portal
   useEffect(() => {
     if (isAuthPage || isAgentRoute || pathname === "/") {
@@ -66,12 +69,12 @@ export default function AppShell({ children }: AppShellProps) {
     }
 
     if (!isLoading) {
-      if (!isAuthenticated || !profile || role !== "admin") {
-        if (role === "agent") router.push("/agent/dashboard");
+      if (!isAuthenticated || !profile || !isAdminAccount) {
+        if (role === "agent" && !isAdminAccount) router.push("/agent/dashboard");
         else router.push(`/login${pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : ""}`);
       }
     }
-  }, [isLoading, isAuthenticated, profile, role, pathname, router, isAuthPage, isAgentRoute]);
+  }, [isLoading, isAuthenticated, profile, role, isAdminAccount, pathname, router, isAuthPage, isAgentRoute]);
 
   // 2. Bypass layout chrome for login or mobile-first agent portal
   if (isAuthPage || isAgentRoute || pathname === "/") {
@@ -92,7 +95,7 @@ export default function AppShell({ children }: AppShellProps) {
   }
 
   // If not authenticated or non-admin, render brief placeholder
-  if (!isAuthenticated || !profile || role !== "admin") {
+  if (!isAuthenticated || !profile || !isAdminAccount) {
     return (
       <div className="min-h-screen bg-[#F5F2EB] flex flex-col items-center justify-center p-4">
         <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
@@ -122,8 +125,6 @@ export default function AppShell({ children }: AppShellProps) {
     router.push("/login");
   };
 
-  const userEmail = (user?.email || profile?.email || "").toLowerCase();
-  const isAdminAccount = userEmail.includes("rishabmishra075") || userEmail.includes("rishabhmishra075") || role === "admin";
   const displayName = isAdminAccount 
     ? (profile?.full_name && profile.full_name !== "Rishabh Mishra" ? profile.full_name : "Raina Mishra")
     : (profile?.full_name || "Field Agent");

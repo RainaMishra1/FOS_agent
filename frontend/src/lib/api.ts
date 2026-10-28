@@ -249,7 +249,15 @@ async function apiFetch<T>(
       }
     }
 
-    return await response.json();
+    const text = await response.text();
+    if (!text || !text.trim()) {
+      return null as any;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null as any;
+    }
   } catch (err: any) {
     if (err instanceof ApiError) {
       throw err;
@@ -444,7 +452,13 @@ export async function fetchOsrmRoadRoute(coordinates: [number, number][]): Promi
   if (!res.ok) {
     throw new Error(`OSRM road route request failed: ${res.statusText}`);
   }
-  const data = await res.json();
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid response format received from OSRM service");
+  }
   if (data.code !== "Ok" || !data.routes || !data.routes[0]) {
     throw new Error("No road route available between locations");
   }

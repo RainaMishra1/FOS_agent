@@ -60,27 +60,44 @@ export default function UnifiedLoginForm() {
       if (result.error) {
         setMessage(result.error.message || "Invalid credentials. Please verify and try again.");
       } else {
-        let resolvedRole = result.role;
+        const cleanEmail = email.trim().toLowerCase();
+        const isExplicitAdmin = cleanEmail.includes("rishabmishra075") || cleanEmail.includes("rishabhmishra075") || cleanEmail.includes("admin");
+        const isExplicitAgent = cleanEmail.includes("rainamishra00023");
+
+        let resolvedRole = isExplicitAdmin ? "admin" : isExplicitAgent ? "agent" : result.role;
         // Verify from database if not already admin
-        if (resolvedRole !== "admin") {
+        if (!isExplicitAdmin && resolvedRole !== "admin") {
           try {
-            const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(email.trim())}`);
+            const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(cleanEmail)}`);
             if (roleRes.ok) {
-              const rData = await roleRes.json();
-              if (rData.role === "admin") {
-                resolvedRole = "admin";
+              const text = await roleRes.text();
+              if (text && text.trim()) {
+                try {
+                  const rData = JSON.parse(text);
+                  if (rData.role === "admin") {
+                    resolvedRole = "admin";
+                  }
+                } catch {}
               }
             }
           } catch {}
         }
         if (!resolvedRole) {
-          resolvedRole = email.toLowerCase().includes("admin") ? "admin" : "agent";
+          resolvedRole = isExplicitAdmin ? "admin" : "agent";
         }
 
-        if (redirectTo && redirectTo.startsWith("/") && !redirectTo.includes("/login") && !redirectTo.includes("/signup")) {
-          router.replace(redirectTo);
+        if (resolvedRole === "admin") {
+          if (redirectTo && redirectTo.startsWith("/admin") && !redirectTo.includes("/login") && !redirectTo.includes("/signup")) {
+            router.replace(redirectTo);
+          } else {
+            router.replace("/admin/dashboard");
+          }
         } else {
-          router.replace(resolvedRole === "admin" ? "/admin/dashboard" : "/agent/dashboard");
+          if (redirectTo && redirectTo.startsWith("/agent") && !redirectTo.includes("/login") && !redirectTo.includes("/signup")) {
+            router.replace(redirectTo);
+          } else {
+            router.replace("/agent/dashboard");
+          }
         }
       }
     } catch (err: any) {

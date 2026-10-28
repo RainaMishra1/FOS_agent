@@ -242,7 +242,11 @@ export default function AdminRoutePlanningPage() {
     <div className="grid grid-cols-1 gap-3 rounded-2xl border border-beige-border bg-beige-card p-4 md:grid-cols-12 md:items-end">
       <label className="space-y-1.5 md:col-span-6"><span className="flex items-center gap-1.5 text-xs font-bold text-beige-text"><MapPin className="h-3.5 w-3.5 text-beige-terracotta" />Target Field Agent</span>
         <select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={loadingAgents || agents.length === 0} className="w-full rounded-xl border border-beige-border bg-beige-bg p-2.5 text-sm text-beige-text">
-          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.territory || "No territory"} ({agent.status})</option>)}
+          {agents.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.agent_code || agent.id.slice(0, 8)} · {agent.name} ({agent.territory || "No territory"})
+            </option>
+          ))}
         </select>
       </label>
       <label className="space-y-1.5 md:col-span-3"><span className="flex items-center gap-1.5 text-xs font-bold text-beige-text"><CalendarDays className="h-3.5 w-3.5 text-beige-terracotta" />Schedule Date</span>
