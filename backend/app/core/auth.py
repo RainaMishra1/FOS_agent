@@ -291,23 +291,28 @@ async def get_current_profile(
             await db.rollback()
 
     # Self-healing: If matched via legacy ID or verified email and auth_user_id is unset, link it
-    if profile and getattr(profile, "auth_user_id", None) is None:
-        try:
+    if profile:
+        meta_role = (claims.get("user_metadata", {}) or {}).get("role")
+        needs_commit = False
+        if getattr(profile, "auth_user_id", None) is None:
             profile.auth_user_id = user_uuid
-            await db.commit()
-            logger.info(
-                "Self-healed profile link: profile_id=%s permanently bound to auth_user_id=%s via strategy=%s",
-                profile.id,
-                user_uuid,
-                lookup_strategy,
-            )
-        except Exception as link_err:
-            await db.rollback()
-            logger.warning(
-                "Could not persist self-healed auth_user_id for profile_id=%s: %s",
-                profile.id,
-                link_err.__class__.__name__,
-            )
+            needs_commit = True
+        if meta_role in ("admin", "agent") and profile.role != meta_role:
+            logger.info("Syncing profile %s role from %s to %s based on claims", profile.email, profile.role, meta_role)
+            profile.role = meta_role
+            if meta_role == "admin" and getattr(profile, "agent", None):
+                try:
+                    await db.delete(profile.agent)
+                except Exception:
+                    pass
+            needs_commit = True
+
+        if needs_commit:
+            try:
+                await db.commit()
+            except Exception as link_err:
+                await db.rollback()
+                logger.warning("Could not persist self-healed profile for %s: %s", profile.email, link_err)
 
     # Strategy 4: Auto-provision profile and agent for valid Supabase authenticated user
     if not profile and user_uuid:
@@ -316,9 +321,16 @@ async def get_current_profile(
             derived_name = (
                 user_meta.get("full_name")
                 or claims.get("name")
-                or (token_email.split("@")[0].replace(".", " ").title() if token_email else "Field Agent")
+                or (token_email.split("@")[0].replace(".", " ").title() if token_email else "User")
             )
-            derived_role = user_meta.get("role") or ("admin" if "admin" in (token_email or "").lower() else "agent")
+            meta_role = user_meta.get("role")
+            if meta_role in ("admin", "agent"):
+                derived_role = meta_role
+            elif token_email in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} or "admin" in (token_email or "").lower():
+                derived_role = "admin"
+            else:
+                derived_role = "agent"
+
             profile = Profile(
                 id=user_uuid,
                 auth_user_id=user_uuid,
@@ -333,7 +345,7 @@ async def get_current_profile(
                 ag = Agent(
                     id=uuid.uuid4(),
                     profile_id=profile.id,
-                    agent_code="AGT-" + str(profile.id)[:4].upper(),
+                    agent_code=user_meta.get("employee_id") or ("AGT-" + str(profile.id)[:4].upper()),
                     status="active",
                     territory="Mumbai Zone",
                     address="Mumbai Hub",
@@ -346,7 +358,7 @@ async def get_current_profile(
                 await db.flush()
             await db.commit()
             lookup_strategy = "auto_provisioned"
-            logger.info("Auto-provisioned profile & agent for authenticated user %s (%s)", user_uuid, token_email)
+            logger.info("Auto-provisioned profile for %s with role=%s", token_email, derived_role)
         except Exception as prov_err:
             logger.warning("Auto-provision profile failed: %s", prov_err)
             await db.rollback()

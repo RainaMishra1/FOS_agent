@@ -235,7 +235,7 @@ export default function AssignWorkModal({
         console.warn("[AssignWorkModal] Supabase agents/profiles table error:", dbErr);
       }
 
-      // 4. Always register core operational agents including Malavya Mankar and Raina Mishra
+      // 4. Always register core operational agents including Malavya Mankar and Rishabh Mishra
       const operationalRoster: (Partial<AgentApiItem> & { name: string; id: string })[] = [
         {
           id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
@@ -253,7 +253,7 @@ export default function AssignWorkModal({
         {
           id: "5f926578-e5c7-40cc-ac8e-d59616be0c37",
           agent_code: "121",
-          name: "Raina Mishra",
+          name: "Rishabh Mishra",
           email: "rainamishra00023@gmail.com",
           phone: "+91 98450 12345",
           status: "active",

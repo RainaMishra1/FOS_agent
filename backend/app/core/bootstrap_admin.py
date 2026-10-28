@@ -17,7 +17,7 @@ logger = logging.getLogger("fos.bootstrap")
 async def ensure_admin_account(
     email: str = "rishabmishra075@gmail.com",
     password: str = "Rishabh@2007",
-    full_name: str = "Rishabh Mishra",
+    full_name: str = "Raina Mishra",
 ) -> Optional[uuid.UUID]:
     """
     Guarantees that the specified Admin account exists in both:
@@ -132,7 +132,7 @@ async def ensure_admin_account(
 async def ensure_agent_account(
     email: str = "rainamishra00023@gmail.com",
     password: str = "Raina@23",
-    full_name: str = "Raina Mishra",
+    full_name: str = "Rishabh Mishra",
     agent_code: str = "121",
     territory: str = "Mumbai",
 ) -> Optional[uuid.UUID]:
@@ -255,11 +255,11 @@ async def ensure_agent_account(
 
 async def bootstrap_initial_admins():
     """Ensure both admin and agent credentials are provisioned."""
-    # Primary admin email:
-    await ensure_admin_account("rishabmishra075@gmail.com", "Rishabh@2007", "Rishabh Mishra")
+    # Primary admin email (Admin: Raina Mishra):
+    await ensure_admin_account("rishabmishra075@gmail.com", "Rishabh@2007", "Raina Mishra")
     # Secondary admin variant:
-    await ensure_admin_account("rishabhmishra075@gmail.com", "Rishabh@2007", "Rishabh Mishra")
-    # Primary agent account:
-    await ensure_agent_account("rainamishra00023@gmail.com", "Raina@23", "Raina Mishra", "121", "Mumbai")
+    await ensure_admin_account("rishabhmishra075@gmail.com", "Rishabh@2007", "Raina Mishra")
+    # Primary agent account (Agent: Rishabh Mishra):
+    await ensure_agent_account("rainamishra00023@gmail.com", "Raina@23", "Rishabh Mishra", "121", "Mumbai")
     # Malavya Mankar agent account:
     await ensure_agent_account("malavya@fos.internal", "Malavya@123", "Malavya Mankar", "AGT-122", "Mumbai Zone")

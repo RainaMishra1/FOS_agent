@@ -24,6 +24,14 @@ async def lifespan(app: FastAPI):
         print(f"[Startup Seeder] Synced visits: {seed_result}")
     except Exception as exc:
         print(f"[Startup Seeder Warning] {exc}")
+
+    # Synchronize default admin and agent credentials & names
+    try:
+        from app.core.bootstrap_admin import bootstrap_initial_admins
+        await bootstrap_initial_admins()
+        print("[Startup Auth] Synchronized admin and agent profiles.")
+    except Exception as exc:
+        print(f"[Startup Auth Warning] {exc}")
     yield
     # Shutdown actions
     await engine.dispose()

@@ -41,7 +41,7 @@ export default function AgentProfilePage() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/agent/login");
+    router.push("/login");
   };
 
   const handleSupport = () => {

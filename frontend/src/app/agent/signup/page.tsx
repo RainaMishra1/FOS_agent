@@ -1,5 +1,5 @@
-import PortalSignupForm from "@/components/PortalSignupForm";
+import { redirect } from "next/navigation";
 
 export default function AgentSignupPage() {
-  return <PortalSignupForm portal="agent" />;
+  redirect("/signup?role=agent");
 }

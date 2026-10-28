@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastProfileErrorRef.current = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const resp = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: {
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(currentSession.user);
 
-    // 1. Fetch server-verified profile from FastAPI backend
+    // 1. Fetch server-verified profile from FastAPI backend (queries SQL database)
     const backendProfile = await fetchProfileFromBackend(currentSession.access_token);
     if (backendProfile) {
       setProfile(backendProfile);
@@ -122,39 +122,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             agentCode = agRow.agent_code;
             agentStatus = agRow.status;
             agentTerritory = agRow.territory;
-          } else {
-            const empCode = currentSession.user.user_metadata?.employee_id || `AGT-${(dbProfile.email || "AG").split("@")[0].slice(0, 4).toUpperCase()}`;
-            const { data: newAg } = await supabase
-              .from("agents")
-              .insert({
-                profile_id: dbProfile.id,
-                agent_code: empCode,
-                territory: "Mumbai Zone",
-                status: "active",
-                current_latitude: 19.21899,
-                current_longitude: 73.14008,
-              })
-              .select("id, agent_code, status, territory")
-              .maybeSingle();
-
-            if (newAg) {
-              agentId = newAg.id;
-              agentCode = newAg.agent_code;
-              agentStatus = newAg.status;
-              agentTerritory = newAg.territory;
-            }
           }
         }
+
+        const isExplicitAdminAccount = email.includes("rishabmishra075") || email.includes("rishabhmishra075");
+        const isExplicitAgentAccount = email.includes("rainamishra00023");
+        const resolvedName = isExplicitAdminAccount
+          ? "Raina Mishra"
+          : isExplicitAgentAccount
+          ? "Rishabh Mishra"
+          : (dbProfile.full_name || currentSession.user.user_metadata?.full_name || email.split("@")[0] || (resolvedRole === "admin" ? "Operations Admin" : "Field Agent"));
 
         const loadedProfile: UserProfile = {
           id: dbProfile.id,
           email: dbProfile.email || email,
-          full_name: dbProfile.full_name || currentSession.user.user_metadata?.full_name || email.split("@")[0] || (resolvedRole === "admin" ? "Operations Admin" : "Field Agent"),
+          full_name: resolvedName,
           role: resolvedRole,
-          agent_id: agentId,
-          agent_code: agentCode,
-          agent_status: agentStatus,
-          territory: agentTerritory,
+          agent_id: resolvedRole === "agent" ? agentId : undefined,
+          agent_code: resolvedRole === "agent" ? agentCode : undefined,
+          agent_status: resolvedRole === "agent" ? agentStatus : undefined,
+          territory: resolvedRole === "agent" ? agentTerritory : undefined,
         };
         setProfile(loadedProfile);
         setRole(resolvedRole);
@@ -164,54 +151,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn("Direct Supabase profile lookup exception:", dbErr);
     }
 
-    // 3. Resilient profile fallback so valid user is never discarded
-    const metaRole = currentSession.user.user_metadata?.role;
-    const isExplicitAdmin = metaRole === "admin" || email.includes("admin") || email === "rishabmishra075@gmail.com";
-    const isExplicitAgent = metaRole === "agent" || !isExplicitAdmin;
-    const fallbackRole: UserRole = metaRole ? (metaRole === "admin" ? "admin" : "agent") : (isExplicitAgent ? "agent" : "admin");
-    const userName = currentSession.user.user_metadata?.full_name || email.split("@")[0] || (fallbackRole === "admin" ? "Operations Admin" : "Field Agent");
-    const userEmpCode = currentSession.user.user_metadata?.employee_id || (fallbackRole === "agent" ? `AGT-${email.split("@")[0].slice(0, 4).toUpperCase()}` : undefined);
+    // 3. Resilient profile fallback checking SQL email-role endpoint & metadata
+    let detectedRole: UserRole = "agent";
+    const metaRole = currentSession.user.user_metadata?.role as UserRole | undefined;
 
-    let createdAgentId: string | undefined;
-    let createdAgentCode: string | undefined = userEmpCode;
-
-    if (fallbackRole === "agent") {
+    if (metaRole === "admin" || metaRole === "agent") {
+      detectedRole = metaRole;
+    } else {
+      // Query SQL database directly for this email's role
       try {
-        const { data: newAg } = await supabase
-          .from("agents")
-          .insert({
-            profile_id: currentSession.user.id,
-            agent_code: userEmpCode || "AGT-FIELD",
-            territory: "Mumbai Zone",
-            status: "active",
-            current_latitude: 19.21899,
-            current_longitude: 73.14008,
-          })
-          .select("id, agent_code")
-          .maybeSingle();
-
-        if (newAg) {
-          createdAgentId = newAg.id;
-          createdAgentCode = newAg.agent_code;
+        const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(email)}`);
+        if (roleRes.ok) {
+          const roleData = await roleRes.json();
+          if (roleData.role === "admin" || roleData.role === "agent") {
+            detectedRole = roleData.role;
+          }
         }
-      } catch (agErr) {
-        console.warn("Could not auto-provision agent row:", agErr);
+      } catch {}
+
+      if (detectedRole !== "admin" && (email.includes("admin") || email === "rishabmishra075@gmail.com" || email === "rishabhmishra075@gmail.com")) {
+        detectedRole = "admin";
       }
     }
+
+    const isExplicitAdminAccount = email.includes("rishabmishra075") || email.includes("rishabhmishra075");
+    const isExplicitAgentAccount = email.includes("rainamishra00023");
+    const userName = isExplicitAdminAccount
+      ? "Raina Mishra"
+      : isExplicitAgentAccount
+      ? "Rishabh Mishra"
+      : (currentSession.user.user_metadata?.full_name || email.split("@")[0] || (detectedRole === "admin" ? "Operations Admin" : "Field Agent"));
+    const userEmpCode = currentSession.user.user_metadata?.employee_id || (detectedRole === "agent" ? `AGT-${email.split("@")[0].slice(0, 4).toUpperCase()}` : undefined);
 
     const fallbackProfile: UserProfile = {
       id: currentSession.user.id,
       email: currentSession.user.email || email,
       full_name: userName,
-      role: fallbackRole,
-      agent_id: createdAgentId,
-      agent_code: createdAgentCode,
-      agent_status: fallbackRole === "agent" ? "active" : undefined,
-      territory: fallbackRole === "agent" ? "Mumbai Zone" : undefined,
+      role: detectedRole,
+      agent_id: detectedRole === "agent" ? currentSession.user.id : undefined,
+      agent_code: detectedRole === "agent" ? userEmpCode : undefined,
+      agent_status: detectedRole === "agent" ? "active" : undefined,
+      territory: detectedRole === "agent" ? "Mumbai Zone" : undefined,
     };
 
     setProfile(fallbackProfile);
-    setRole(fallbackRole);
+    setRole(detectedRole);
     return fallbackProfile;
   }, [fetchProfileFromBackend]);
 
@@ -306,9 +290,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     const normalizedEmail = email.trim().toLowerCase();
-    const isExplicitAdmin = normalizedEmail === "rishabmishra075@gmail.com" || normalizedEmail === "rishabhmishra075@gmail.com" || normalizedEmail.includes("admin");
-    const isExplicitAgent = normalizedEmail === "rainamishra00023@gmail.com" || normalizedEmail.includes("agent") || normalizedEmail.includes("rainamishra");
-    const targetRole: UserRole = isExplicitAdmin ? "admin" : (isExplicitAgent ? "agent" : "admin");
+
+    // Clear stale cached session before new login
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("fos_local_user");
+        localStorage.removeItem("fos_local_session");
+        localStorage.removeItem("fos_local_profile");
+      }
+    } catch {}
+
+    // First check SQL database for the registered role of this email
+    let targetRole: UserRole = "agent";
+    try {
+      const roleCheck = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(normalizedEmail)}`);
+      if (roleCheck.ok) {
+        const roleData = await roleCheck.json();
+        if (roleData.role === "admin" || roleData.role === "agent") {
+          targetRole = roleData.role;
+        }
+      }
+    } catch {}
+
+    if (targetRole !== "admin" && (normalizedEmail.includes("admin") || normalizedEmail === "rishabmishra075@gmail.com" || normalizedEmail === "rishabhmishra075@gmail.com")) {
+      targetRole = "admin";
+    }
 
     // 1. Try Supabase signInWithPassword if configured
     if (isConfigured) {
@@ -319,16 +325,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!authError && data.session) {
+          const metaRole = data.session.user.user_metadata?.role as UserRole | undefined;
+          if (metaRole === "admin" || metaRole === "agent") {
+            targetRole = metaRole;
+          }
+
           setSession(data.session);
           setUser(data.session.user);
           const resolved = await syncProfile(data.session);
+          const finalRole = resolved?.role || targetRole;
           setIsLoading(false);
-          return { error: null, role: resolved?.role || targetRole, profile: resolved };
+          return { error: null, role: finalRole, profile: resolved };
         }
 
-        // If user account is not registered in Supabase yet, attempt quick registration
+        // If user account is not registered in Supabase yet, attempt quick registration with targetRole
         if (authError && (authError.message?.toLowerCase().includes("invalid login credentials") || authError.status === 400)) {
-          const derivedName = normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent");
+          const isExplicitAdminAccount = normalizedEmail.includes("rishabmishra075") || normalizedEmail.includes("rishabhmishra075");
+          const isExplicitAgentAccount = normalizedEmail.includes("rainamishra00023");
+          const derivedName = isExplicitAdminAccount
+            ? "Raina Mishra"
+            : isExplicitAgentAccount
+            ? "Rishabh Mishra"
+            : (normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent"));
           const signUpRes = await supabase.auth.signUp({
             email: normalizedEmail,
             password,
@@ -344,8 +362,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSession(signUpRes.data.session);
             setUser(signUpRes.data.user);
             const resolved = await syncProfile(signUpRes.data.session);
+            const finalRole = resolved?.role || targetRole;
             setIsLoading(false);
-            return { error: null, role: resolved?.role || targetRole, profile: resolved };
+            return { error: null, role: finalRole, profile: resolved };
           }
         }
       } catch (e) {
@@ -354,7 +373,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Resilient demo/client authentication session
-    const derivedName = normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent");
+    const isExplicitAdminAccount = normalizedEmail.includes("rishabmishra075") || normalizedEmail.includes("rishabhmishra075");
+    const isExplicitAgentAccount = normalizedEmail.includes("rainamishra00023");
+    const derivedName = isExplicitAdminAccount
+      ? "Raina Mishra"
+      : isExplicitAgentAccount
+      ? "Rishabh Mishra"
+      : (normalizedEmail.split("@")[0].split(/[._-]/).map((s: string) => s ? s[0].toUpperCase() + s.slice(1) : "").join(" ") || (targetRole === "admin" ? "Operations Admin" : "Field Agent"));
     const localUser = {
       id: targetRole === "agent" ? "c53f6da2-2c6f-4d61-9388-7ca727f0dbcc" : "ac6c9f34-becc-4c84-a2d1-d99e7fa90159",
       email: normalizedEmail,

@@ -255,12 +255,12 @@ async function fetchDirectFromSupabase(
     const code = (userProfile?.agent_code || "").trim().toUpperCase();
 
     const isMalavya = name.includes("malavya") || email.includes("malavya") || code === "10051" || code === "AGT-122" || code === "122";
-    const isRaina = name.includes("raina") || email.includes("rainamishra") || code === "121" || code === "AGT-121";
+    const isRishabhAgent = name.includes("rishabh") || name.includes("raina") || email.includes("rainamishra") || code === "121" || code === "AGT-121";
 
     if (isMalavya) {
       candidateAgentIds.add("6f926578-e5c7-40cc-ac8e-d59616be0c38");
     }
-    if (isRaina) {
+    if (isRishabhAgent) {
       candidateAgentIds.add("5f926578-e5c7-40cc-ac8e-d59616be0c38");
     }
 
@@ -279,7 +279,7 @@ async function fetchDirectFromSupabase(
       orClauses.push(`agent_code.eq.10051`);
       orClauses.push(`agent_code.eq.122`);
     }
-    if (isRaina) {
+    if (isRishabhAgent) {
       orClauses.push(`id.eq.5f926578-e5c7-40cc-ac8e-d59616be0c38`);
       orClauses.push(`agent_code.eq.121`);
       orClauses.push(`agent_code.eq.AGT-121`);

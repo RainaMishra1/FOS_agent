@@ -513,7 +513,7 @@ async def list_visits(
         email_lower = (current_user.email or "").lower()
         if "malavya" in name_lower or "malavya" in email_lower:
             agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if "raina" in name_lower or "rainamishra" in email_lower:
+        if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
             agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
         for o_id in other_ag_ids:

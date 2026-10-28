@@ -1,2 +1,5 @@
-import PortalAuthForm from "@/components/PortalAuthForm";
-export default function AdminLoginPage() { return <PortalAuthForm portal="admin" />; }
+import { redirect } from "next/navigation";
+
+export default function AdminLoginPage() {
+  redirect("/login");
+}

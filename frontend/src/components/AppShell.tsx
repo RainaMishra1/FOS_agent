@@ -56,7 +56,7 @@ export default function AppShell({ children }: AppShellProps) {
     );
   }, [globalSearch, agents]);
 
-  const isAuthPage = pathname === "/login" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
+  const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
   const isAgentRoute = Boolean(pathname === "/agent" || pathname?.startsWith("/agent/"));
 
   // 1. Client-side Route Guard for Admin Portal
@@ -68,7 +68,7 @@ export default function AppShell({ children }: AppShellProps) {
     if (!isLoading) {
       if (!isAuthenticated || !profile || role !== "admin") {
         if (role === "agent") router.push("/agent/dashboard");
-        else router.push(`/admin/login${pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : ""}`);
+        else router.push(`/login${pathname && pathname !== "/" ? `?redirectTo=${encodeURIComponent(pathname)}` : ""}`);
       }
     }
   }, [isLoading, isAuthenticated, profile, role, pathname, router, isAuthPage, isAgentRoute]);
@@ -119,10 +119,14 @@ export default function AppShell({ children }: AppShellProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/admin/login");
+    router.push("/login");
   };
 
-  const displayName = profile?.full_name || (user?.email ? user.email.split("@")[0] : "Rishabh Mishra");
+  const userEmail = (user?.email || profile?.email || "").toLowerCase();
+  const isAdminAccount = userEmail.includes("rishabmishra075") || userEmail.includes("rishabhmishra075") || role === "admin";
+  const displayName = isAdminAccount 
+    ? (profile?.full_name && profile.full_name !== "Rishabh Mishra" ? profile.full_name : "Raina Mishra")
+    : (profile?.full_name || "Field Agent");
   const initials = displayName
     .split(" ")
     .map((n) => n[0])

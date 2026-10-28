@@ -1,5 +1,5 @@
-import PortalSignupForm from "@/components/PortalSignupForm";
+import { redirect } from "next/navigation";
 
 export default function AdminSignupPage() {
-  return <PortalSignupForm portal="admin" />;
+  redirect("/signup?role=admin");
 }

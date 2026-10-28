@@ -332,7 +332,7 @@ async def get_agent_dashboard(
             agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
             if not agent and "malavya" in (current_user.full_name or "").lower():
                 agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            if not agent and "raina" in (current_user.full_name or "").lower():
+            if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
                 agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
             if not agent:
                 raise HTTPException(
@@ -364,7 +364,7 @@ async def get_agent_dashboard(
     email_lower = (current_user.email or "").lower()
     if "malavya" in name_lower or "malavya" in email_lower:
         agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rainamishra" in email_lower:
+    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
         agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
     other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
     for o_id in other_ag_ids:
@@ -461,7 +461,7 @@ async def list_agent_visits(
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
         if not agent and "malavya" in (current_user.full_name or "").lower():
             agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent and "raina" in (current_user.full_name or "").lower():
+        if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
             agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
@@ -471,7 +471,7 @@ async def list_agent_visits(
     email_lower = (current_user.email or "").lower()
     if "malavya" in name_lower or "malavya" in email_lower:
         agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rainamishra" in email_lower:
+    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
         agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
     other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
     for o_id in other_ag_ids:
@@ -663,7 +663,7 @@ async def update_agent_visit_status(
     email_lower = (current_user.email or "").lower()
     if "malavya" in name_lower or "malavya" in email_lower:
         agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rainamishra" in email_lower:
+    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
         agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
     other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
     for o_id in other_ag_ids:
@@ -763,7 +763,7 @@ async def update_agent_live_location(
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
         if not agent and "malavya" in (current_user.full_name or "").lower():
             agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent and "raina" in (current_user.full_name or "").lower():
+        if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
             agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         if not agent:
             raise HTTPException(
