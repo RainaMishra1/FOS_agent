@@ -6,6 +6,7 @@ import { useAgent } from "@/context/AgentContext";
 import { supabase } from "@/lib/supabaseClient";
 import { updateAgentLocation } from "@/lib/api";
 import { Compass, Loader2, Navigation, Radio } from "lucide-react";
+import DutyToggleButton from "@/components/agent/DutyToggleButton";
 
 export default function AgentLocationSection() {
   const { session } = useAuth();
@@ -196,19 +197,9 @@ export default function AgentLocationSection() {
           </div>
         </div>
 
-        {/* Right Status Badge */}
-        <div className="shrink-0 flex items-center">
-          {isOnDuty ? (
-            <span className="inline-flex items-center gap-2 rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-4 py-2.5 text-xs font-bold text-[#1E3F35] shadow-2xs">
-              <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
-              <span>Live Tracking Active</span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#F0E4D0] bg-[#FAF3E7] px-3.5 py-2 text-xs font-semibold text-[#9E6924]">
-              <Compass className="h-4 w-4 text-[#9E6924]" />
-              <span>Off Duty (Paused)</span>
-            </span>
-          )}
+        {/* Right Status Badge & Toggle Button */}
+        <div className="shrink-0 flex items-center gap-2">
+          <DutyToggleButton size="md" />
         </div>
       </div>
     </section>

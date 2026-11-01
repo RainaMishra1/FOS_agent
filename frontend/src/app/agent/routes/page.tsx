@@ -3,6 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
+import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import { useAuth } from "@/context/AuthContext";
 import { AgentVisit } from "@/types/agent";
 import AgentRoadRouteMap, { RouteMapStop } from "@/components/agent/AgentRoadRouteMap";
@@ -35,6 +36,7 @@ import {
   ArrowRight,
   ListOrdered,
   LocateFixed,
+  Pause,
   X,
 } from "lucide-react";
 
@@ -531,6 +533,18 @@ function AgentRoutePageContent() {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
+      {!isOnDuty && (
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-[#FAF3E7] border border-[#F0E4D0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5 text-[#9E6924]">
+            <Pause className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>You are currently Off Duty.</strong> Turn On Duty to enable live GPS routing and turn-by-turn navigation.
+            </span>
+          </div>
+          <DutyToggleButton size="sm" />
+        </div>
+      )}
+
       {/* Header & Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -544,7 +558,8 @@ function AgentRoutePageContent() {
             Select nearby pending tasks, get live OSRM driving routes from your GPS, and inspect entrance destinations
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          <DutyToggleButton size="sm" />
           <button
             onClick={() => void loadRoute(true)}
             disabled={loading || routeLoading}

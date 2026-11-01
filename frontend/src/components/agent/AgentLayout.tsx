@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
+import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import { useAuth } from "@/context/AuthContext";
 import {
   Compass,
@@ -201,18 +202,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
             </div>
 
             <div className="flex items-center justify-between pt-1 border-t border-[#E6DFD3]/60">
-              <button
-                type="button"
-                onClick={toggleDuty}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition ${
-                  isOnDuty
-                    ? "bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]"
-                    : "bg-[#FAF3E7] text-[#9E6924] border border-[#F0E4D0]"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"}`} />
-                <span>{isOnDuty ? "On Duty" : "Off Duty"}</span>
-              </button>
+              <DutyToggleButton size="sm" />
               <span className="text-xs text-beige-muted font-medium">Field Agent</span>
             </div>
           </div>
@@ -309,24 +299,8 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
               <span>{currentDate}</span>
             </div>
 
-            {/* Duty Status Pill Dropdown */}
-            <button
-              type="button"
-              onClick={toggleDuty}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 border transition shadow-2xs cursor-pointer ${
-                isOnDuty
-                  ? "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2] hover:bg-[#DFEDE2]"
-                  : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0] hover:bg-[#F5ECD9]"
-              }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"
-                }`}
-              />
-              <span>{isOnDuty ? "On Duty" : "Off Duty"}</span>
-              <span className="text-[10px] opacity-70">▾</span>
-            </button>
+            {/* Duty Status Button */}
+            <DutyToggleButton size="sm" />
 
             {/* Sign Out Button */}
             <button

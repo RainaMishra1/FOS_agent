@@ -132,7 +132,6 @@ cd backend
 # Linux/macOS:
 source .venv/bin/activate
 
-7
 
 Backend URLs:
 - Health check: `http://localhost:8000/api/v1/health`

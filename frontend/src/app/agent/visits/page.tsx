@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useAgent } from "@/context/AgentContext";
+import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import { AgentVisit } from "@/types/agent";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
@@ -23,6 +24,7 @@ import {
   FileText,
   Route as RouteIcon,
   RefreshCw,
+  Pause,
 } from "lucide-react";
 
 export default function MyVisitsPage() {
@@ -194,6 +196,18 @@ export default function MyVisitsPage() {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
+      {!isOnDuty && (
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-[#FAF3E7] border border-[#F0E4D0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5 text-[#9E6924]">
+            <Pause className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>You are currently Off Duty.</strong> Turn On Duty to enable automatic GPS location tracking and geofenced visit check-ins.
+            </span>
+          </div>
+          <DutyToggleButton size="sm" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -214,6 +228,7 @@ export default function MyVisitsPage() {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
+          <DutyToggleButton size="sm" />
           {isLiveBackend && (
             <button
               type="button"
