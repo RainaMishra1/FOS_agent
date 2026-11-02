@@ -51,8 +51,6 @@ export default function CreateAgentModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
   const validate = () => {
     const errs: Record<string, string> = {};
 
@@ -231,6 +229,8 @@ export default function CreateAgentModal({
     parsedLat <= 90 &&
     parsedLng >= -180 &&
     parsedLng <= 180;
+
+  if (!isOpen) return null;
 
   return (
     <div

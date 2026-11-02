@@ -365,8 +365,6 @@ export default function AssignWorkModal({
     void loadCustomers();
   }, [loadAgents, loadCustomers]);
 
-  if (!isOpen) return null;
-
   // Handle switching to or selecting an existing customer
   const handleSelectCustomer = (customerId: string) => {
     setSelectedCustomerId(customerId);
@@ -510,6 +508,7 @@ export default function AssignWorkModal({
 
   // Auto-detect when PIN code is 6 digits or locality is filled and coordinates is null
   useEffect(() => {
+    if (!isOpen) return;
     const cleanPin = (postalCode || "").trim();
     if (cleanPin.length === 6 && /^\d{6}$/.test(cleanPin) && !coordinates) {
       const q = [locality, cleanPin, "India"].filter(Boolean).join(", ");
@@ -909,6 +908,8 @@ export default function AssignWorkModal({
   const selectedAgentInitials = selectedAgent
     ? selectedAgent.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
     : "RM";
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[10000] overflow-y-auto bg-black/40 backdrop-blur-xs px-3 py-6 sm:px-6 sm:py-8 flex justify-center items-start">
