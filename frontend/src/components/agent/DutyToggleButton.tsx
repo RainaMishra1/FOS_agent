@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useAgent } from "@/context/AgentContext";
+import React, { useState, useContext } from "react";
+import { AgentContext } from "@/context/AgentContext";
 import { Power, Check, Pause, Loader2 } from "lucide-react";
 
 interface DutyToggleButtonProps {
@@ -15,11 +15,13 @@ export default function DutyToggleButton({
   showSubtext = false,
   className = "",
 }: DutyToggleButtonProps) {
-  const { isOnDuty, toggleDuty } = useAgent();
+  const agentContext = useContext(AgentContext);
+  const isOnDuty = agentContext?.isOnDuty ?? true;
+  const toggleDuty = agentContext?.toggleDuty;
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleClick = async () => {
-    if (isUpdating) return;
+    if (isUpdating || !toggleDuty) return;
     setIsUpdating(true);
     try {
       await toggleDuty();

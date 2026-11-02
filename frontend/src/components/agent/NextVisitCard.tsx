@@ -146,105 +146,124 @@ export default function NextVisitCard({
     const L = (window as any).L;
     if (!isLeafletReady || !L || !mapContainerRef.current) return;
 
-    if (!leafletMapRef.current) {
-      const map = L.map(mapContainerRef.current, {
-        zoomControl: false,
-        attributionControl: false,
+    try {
+      if (!leafletMapRef.current) {
+        if ((mapContainerRef.current as any)._leaflet_id) {
+          delete (mapContainerRef.current as any)._leaflet_id;
+        }
+
+        const map = L.map(mapContainerRef.current, {
+          zoomControl: false,
+          attributionControl: false,
+        });
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+        }).addTo(map);
+
+        leafletMapRef.current = map;
+      }
+
+      const map = leafletMapRef.current;
+
+      // Clear previous markers / polylines / circles
+      map.eachLayer((layer: any) => {
+        if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
+          map.removeLayer(layer);
+        }
       });
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
+      const isLive = Boolean(liveGpsCoords);
+
+      // Origin "You" marker
+      const originIcon = L.divIcon({
+        className: "custom-you-marker",
+        html: `
+          <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+            <div style="background: #ffffff; border: 1.5px solid #E6DFD3; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #1E3F35; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px; white-space: nowrap;">
+              You ${isLive ? "(Live GPS)" : ""}
+            </div>
+            <div style="width: 14px; height: 14px; border-radius: 50%; background: #0284c7; border: 2.5px solid #ffffff; box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25);"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+      });
+
+      L.marker([originLat, originLng], { icon: originIcon }).addTo(map);
+
+      // Destination Pin marker
+      const destName = visit?.customerName || "Destination Site";
+      const destIcon = L.divIcon({
+        className: "custom-dest-marker",
+        html: `
+          <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+            <div style="width: 24px; height: 30px; display: flex; align-items: center; justify-content: center;">
+              <svg width="24" height="30" viewBox="0 0 24 30" fill="none">
+                <path d="M12 0C5.37258 0 0 5.37258 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37258 18.6274 0 12 0Z" fill="#dc2626"/>
+                <circle cx="12" cy="11" r="4.5" fill="#ffffff"/>
+              </svg>
+            </div>
+            <div style="background: #ffffff; border: 1px solid #E6DFD3; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px; white-space: nowrap;">
+              ${destName}
+            </div>
+          </div>
+        `,
+        iconSize: [0, 0],
+      });
+
+      L.marker([destLat, destLng], { icon: destIcon }).addTo(map);
+
+      // 750m Geofence circle around customer site
+      L.circle([destLat, destLng], {
+        radius: 750,
+        color: isWithinGeofence ? "#16a34a" : "#ca8a04",
+        fillColor: isWithinGeofence ? "#22c55e" : "#eab308",
+        fillOpacity: 0.12,
+        weight: 1.5,
+        dashArray: "4, 4",
       }).addTo(map);
 
-      leafletMapRef.current = map;
-    }
-
-    const map = leafletMapRef.current;
-
-    // Clear previous markers / polylines / circles
-    map.eachLayer((layer: any) => {
-      if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
-        map.removeLayer(layer);
+      // Dynamic Route line connecting origin and destination
+      if (distanceMeters && distanceMeters > 50) {
+        L.polyline(
+          [
+            [originLat, originLng],
+            [destLat, destLng],
+          ],
+          {
+            color: "#1E3F35",
+            weight: 3.5,
+            opacity: 0.85,
+            dashArray: "6, 8",
+            lineCap: "round",
+          }
+        ).addTo(map);
       }
-    });
 
-    const isLive = Boolean(liveGpsCoords);
-
-    // Origin "You" marker
-    const originIcon = L.divIcon({
-      className: "custom-you-marker",
-      html: `
-        <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-          <div style="background: #ffffff; border: 1.5px solid #E6DFD3; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #1E3F35; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px; white-space: nowrap;">
-            You ${isLive ? "(Live GPS)" : ""}
-          </div>
-          <div style="width: 14px; height: 14px; border-radius: 50%; background: #0284c7; border: 2.5px solid #ffffff; box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25);"></div>
-        </div>
-      `,
-      iconSize: [0, 0],
-    });
-
-    L.marker([originLat, originLng], { icon: originIcon }).addTo(map);
-
-    // Destination Pin marker
-    const destName = visit?.customerName || "Destination Site";
-    const destIcon = L.divIcon({
-      className: "custom-dest-marker",
-      html: `
-        <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-          <div style="width: 24px; height: 30px; display: flex; align-items: center; justify-content: center;">
-            <svg width="24" height="30" viewBox="0 0 24 30" fill="none">
-              <path d="M12 0C5.37258 0 0 5.37258 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37258 18.6274 0 12 0Z" fill="#dc2626"/>
-              <circle cx="12" cy="11" r="4.5" fill="#ffffff"/>
-            </svg>
-          </div>
-          <div style="background: #ffffff; border: 1px solid #E6DFD3; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px; white-space: nowrap;">
-            ${destName}
-          </div>
-        </div>
-      `,
-      iconSize: [0, 0],
-    });
-
-    L.marker([destLat, destLng], { icon: destIcon }).addTo(map);
-
-    // 750m Geofence circle around customer site
-    L.circle([destLat, destLng], {
-      radius: 750,
-      color: isWithinGeofence ? "#16a34a" : "#ca8a04",
-      fillColor: isWithinGeofence ? "#22c55e" : "#eab308",
-      fillOpacity: 0.12,
-      weight: 1.5,
-      dashArray: "4, 4",
-    }).addTo(map);
-
-    // Dynamic Route line connecting origin and destination
-    if (distanceMeters && distanceMeters > 50) {
-      L.polyline(
-        [
+      // Fit bounds with appropriate zoom
+      if (Math.abs(originLat - destLat) > 0.0005 || Math.abs(originLng - destLng) > 0.0005) {
+        const bounds = L.latLngBounds([
           [originLat, originLng],
           [destLat, destLng],
-        ],
-        {
-          color: "#1E3F35",
-          weight: 3.5,
-          opacity: 0.85,
-          dashArray: "6, 8",
-          lineCap: "round",
-        }
-      ).addTo(map);
+        ]);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      } else {
+        map.setView([destLat, destLng], 15);
+      }
+    } catch (leafletErr) {
+      console.warn("Leaflet map initialization notice:", leafletErr);
     }
 
-    // Fit bounds with appropriate zoom
-    if (Math.abs(originLat - destLat) > 0.0005 || Math.abs(originLng - destLng) > 0.0005) {
-      const bounds = L.latLngBounds([
-        [originLat, originLng],
-        [destLat, destLng],
-      ]);
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-    } else {
-      map.setView([destLat, destLng], 15);
-    }
+    return () => {
+      if (leafletMapRef.current) {
+        try {
+          leafletMapRef.current.remove();
+        } catch {
+          // ignore
+        }
+        leafletMapRef.current = null;
+      }
+    };
   }, [isLeafletReady, originLat, originLng, destLat, destLng, visit?.customerName, isWithinGeofence, distanceMeters, liveGpsCoords]);
 
   const handleZoom = (delta: number) => {

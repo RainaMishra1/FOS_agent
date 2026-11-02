@@ -7,7 +7,6 @@ import { AgentVisit } from "@/types/agent";
 import NextVisitCard from "@/components/agent/NextVisitCard";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import AgentLocationSection from "@/components/agent/AgentLocationSection";
-import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -111,7 +110,7 @@ export default function AgentDashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight">
               Welcome back, {currentAgent.name} 👋
             </h1>
-            <DutyToggleButton size="md" />
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${isOnDuty ? "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2]" : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0]"}`}><span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#1E3F35] animate-pulse" : "bg-[#9E6924]"}`} /><span>{isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}</span></span>
           </div>
           <p className="text-xs sm:text-sm text-beige-muted">
             Keep up the good work! You have {displayRemaining} pending visits remaining today ({displayCompleted} completed).

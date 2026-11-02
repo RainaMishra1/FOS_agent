@@ -64,7 +64,7 @@ interface AgentContextType {
   refreshAgentData: (showLoader?: boolean) => Promise<void>;
 }
 
-const AgentContext = createContext<AgentContextType | undefined>(undefined);
+export const AgentContext = createContext<AgentContextType | undefined>(undefined);
 
 function mapApiVisitToAgentVisit(v: VisitApiResponse): AgentVisit {
   const hasCoords = Boolean(
@@ -976,7 +976,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         const isGeofenceOrRuleError =
           statusErr?.status === 409 ||
           statusErr?.status === 400 ||
-          statusErr?.status === 403 ||
+          
           errorDetail.toLowerCase().includes("geofence") ||
           errorDetail.toLowerCase().includes("750") ||
           errorDetail.toLowerCase().includes("away from");

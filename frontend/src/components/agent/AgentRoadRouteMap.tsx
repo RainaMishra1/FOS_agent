@@ -283,22 +283,30 @@ export default function AgentRoadRouteMap({
     const L = (window as any).L;
     if (!ready || !L || !mapRef.current) return;
 
-    if (!instanceRef.current) {
-      const map = L.map(mapRef.current, {
-        zoomControl: !isNavigating,
-        attributionControl: false,
-      });
+    try {
+      if (!instanceRef.current) {
+        if ((mapRef.current as any)._leaflet_id) {
+          delete (mapRef.current as any)._leaflet_id;
+        }
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-      }).addTo(map);
+        const map = L.map(mapRef.current, {
+          zoomControl: !isNavigating,
+          attributionControl: false,
+        });
 
-      map.on("dragstart", () => {
-        if (isNavigating) setUserPannedAway(true);
-      });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+        }).addTo(map);
 
-      instanceRef.current = map;
-      layerRef.current = L.featureGroup().addTo(map);
+        map.on("dragstart", () => {
+          if (isNavigating) setUserPannedAway(true);
+        });
+
+        instanceRef.current = map;
+        layerRef.current = L.featureGroup().addTo(map);
+      }
+    } catch (err) {
+      console.warn("Leaflet AgentRoadRouteMap init warning:", err);
     }
 
     const map = instanceRef.current;
@@ -474,6 +482,17 @@ export default function AgentRoadRouteMap({
     }
 
     setTimeout(() => map.invalidateSize(), 150);
+
+    return () => {
+      if (instanceRef.current) {
+        try {
+          instanceRef.current.remove();
+        } catch {
+          // ignore
+        }
+        instanceRef.current = null;
+      }
+    };
   }, [ready, stops, routeLatLngs, isNavigating, selectedStopId, activeDestinationStop?.id]);
 
   const handleRecenter = () => {
