@@ -168,7 +168,7 @@ export default function LiveMapPage() {
       <MapView
         height="h-[650px]"
         isFullPage
-        onSelectAgent={(agent) => {
+        onSelectAgent={(agent: any) => {
           setSelectedAgent(agent);
         }}
       />

@@ -371,6 +371,23 @@ export default function AssignWorkModal({
     if (!customerId) {
       setIsExistingCustomer(false);
       setReusingVerifiedCoords(false);
+      setCustomerName("");
+      setCompany("");
+      setContactPerson("");
+      setPhone("");
+      setEmail("");
+      setAddress("");
+      setLocality("");
+      setState("");
+      setPostalCode("");
+      setCustomerType("Individual");
+      setCoordinates(null);
+      setCandidates([]);
+      setLocationConfirmed(false);
+      setIsEntranceVerified(false);
+      setMapOpen(false);
+      setActiveCustomerTab("basic");
+      setMessage("");
       return;
     }
 
@@ -1131,31 +1148,33 @@ export default function AssignWorkModal({
                 <button
                   type="button"
                   onClick={() => setActiveCustomerTab("basic")}
-                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-[#E5F0E8] text-[#1E3F35] font-semibold transition cursor-pointer"
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg transition cursor-pointer ${activeCustomerTab === "basic" ? "bg-[#E5F0E8] text-[#1E3F35] font-semibold" : "text-[#756F66] hover:text-[#1A201C] font-medium"}`}
                 >
-                  <User className="h-4 w-4 text-[#2E5A44]" />
+                  <User className={`h-4 w-4 ${activeCustomerTab === "basic" ? "text-[#2E5A44]" : "text-[#756F66]"}`} />
                   <span>Basic details</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => {
+                    setActiveCustomerTab("location");
                     const el = document.getElementById("location-details-card");
                     el?.scrollIntoView({ behavior: "smooth" });
                   }}
-                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[#756F66] hover:text-[#1A201C] transition font-medium cursor-pointer"
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg transition cursor-pointer ${activeCustomerTab === "location" ? "bg-[#E5F0E8] text-[#1E3F35] font-semibold" : "text-[#756F66] hover:text-[#1A201C] font-medium"}`}
                 >
-                  <MapPin className="h-4 w-4 text-[#756F66]" />
+                  <MapPin className={`h-4 w-4 ${activeCustomerTab === "location" ? "text-[#2E5A44]" : "text-[#756F66]"}`} />
                   <span>Location details</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => {
+                    setActiveCustomerTab("visit");
                     const el = document.getElementById("visit-details-card");
                     el?.scrollIntoView({ behavior: "smooth" });
                   }}
-                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[#756F66] hover:text-[#1A201C] transition font-medium cursor-pointer"
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg transition cursor-pointer ${activeCustomerTab === "visit" ? "bg-[#E5F0E8] text-[#1E3F35] font-semibold" : "text-[#756F66] hover:text-[#1A201C] font-medium"}`}
                 >
-                  <Calendar className="h-4 w-4 text-[#756F66]" />
+                  <Calendar className={`h-4 w-4 ${activeCustomerTab === "visit" ? "text-[#2E5A44]" : "text-[#756F66]"}`} />
                   <span>Visit details</span>
                 </button>
               </div>
