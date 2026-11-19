@@ -1,9 +1,10 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Customer, Agent, Assignment, TaskStatus } from "@/types";
 import { useAuth } from "@/context/AuthContext";
-import { fetchAgents, fetchCustomers, fetchDashboardSummary } from "@/lib/api";
+import { fetchAgents, fetchDashboardSummary } from "@/lib/api";
 
 interface AssignLeadParams {
   customerId: string;
@@ -24,6 +25,7 @@ interface OperationsContextType {
   assignLeadToAgent: (params: AssignLeadParams) => { success: boolean; message: string };
   unassignLead: (customerId: string) => { success: boolean; message: string };
   resetOperationsData: () => void;
+  loadAgents: () => Promise<void>;
   notification: { type: "success" | "error" | "info"; message: string } | null;
   clearNotification: () => void;
 }
@@ -44,6 +46,59 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [notification, setNotification] = useState<OperationsContextType["notification"]>(null);
 
+  const pathname = usePathname();
+
+  const loadAgents = useCallback(async () => {
+    if (!isAuthenticated || role !== "admin" || !session?.access_token) return;
+    try {
+      const result = await fetchAgents(session.access_token, { limit: 100, as_of_date: dateToday() });
+      setAgents(result.items.map<Agent>((item) => ({
+        id: item.id,
+        name: item.name,
+        agentCode: item.agent_code || undefined,
+        initials: item.name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase(),
+        email: item.email || "",
+        phone: item.phone || "",
+        status: item.status as Agent["status"],
+        currentTask: undefined,
+        assignedTasks: item.assigned_tasks,
+        completedVisits: item.completed_visits,
+        lastLocationUpdate: item.last_location_update || "",
+        territory: item.territory || "",
+        address: item.address || "",
+        locationSource: (item.location_source || "unknown") as Agent["locationSource"],
+        coordinates: item.current_latitude == null || item.current_longitude == null
+          ? null
+          : { lat: item.current_latitude, lng: item.current_longitude },
+        batteryLevel: item.battery_level ?? undefined,
+      })));
+    } catch {
+      setAgents([]);
+    }
+  }, [isAuthenticated, role, session?.access_token]);
+
+  const loadAssignments = useCallback(async () => {
+    if (!isAuthenticated || role !== "admin" || !session?.access_token) return;
+    try {
+      const result = await fetchDashboardSummary(session.access_token, dateToday());
+      setAssignments(result.recent_assignments.map<Assignment>((item) => ({
+        id: item.assignment_code || item.id,
+        customerName: item.customer_name,
+        customerId: item.id,
+        agentName: item.agent_name,
+        agentId: "",
+        scheduledTime: item.scheduled_time,
+        scheduledDate: item.scheduled_date,
+        priority: (item.priority || "medium") as Assignment["priority"],
+        status: (item.status || "assigned") as TaskStatus,
+        address: item.address || "",
+        estimatedDurationMinutes: 45,
+      })));
+    } catch {
+      setAssignments([]);
+    }
+  }, [isAuthenticated, role, session?.access_token]);
+
   const loadLiveOperationsData = useCallback(async () => {
     if (!isAuthenticated || role !== "admin" || !session?.access_token) {
       setCustomers([]);
@@ -52,63 +107,15 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
-    const [customerResult, agentResult, dashboardResult] = await Promise.allSettled([
-      fetchCustomers(session.access_token, { limit: 100 }),
-      fetchAgents(session.access_token, { limit: 100, as_of_date: dateToday() }),
-      fetchDashboardSummary(session.access_token, dateToday()),
-    ]);
-
-    setCustomers(customerResult.status === "fulfilled" ? customerResult.value.items.map<Customer>((item) => ({
-      id: item.id,
-      name: item.name,
-      leadId: item.customer_code || item.id,
-      company: item.company || undefined,
-      email: item.email || "",
-      phone: item.phone || "",
-      address: item.address || "",
-      city: item.city || "",
-      priority: "medium",
-      assignmentStatus: "pending",
-      coordinates: { lat: item.latitude ?? 0, lng: item.longitude ?? 0 },
-      createdDate: item.created_at || "",
-      notes: item.notes || "",
-    })) : []);
-
-    setAgents(agentResult.status === "fulfilled" ? agentResult.value.items.map<Agent>((item) => ({
-      id: item.id,
-      name: item.name,
-      agentCode: item.agent_code || undefined,
-      initials: item.name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase(),
-      email: item.email || "",
-      phone: item.phone || "",
-      status: item.status as Agent["status"],
-      currentTask: undefined,
-      assignedTasks: item.assigned_tasks,
-      completedVisits: item.completed_visits,
-      lastLocationUpdate: item.last_location_update || "",
-      territory: item.territory || "",
-      address: item.address || "",
-      locationSource: (item.location_source || "unknown") as Agent["locationSource"],
-      coordinates: item.current_latitude == null || item.current_longitude == null
-        ? null
-        : { lat: item.current_latitude, lng: item.current_longitude },
-      batteryLevel: item.battery_level ?? undefined,
-    })) : []);
-
-    setAssignments(dashboardResult.status === "fulfilled" ? dashboardResult.value.recent_assignments.map<Assignment>((item) => ({
-      id: item.assignment_code || item.id,
-      customerName: item.customer_name,
-      customerId: item.id,
-      agentName: item.agent_name,
-      agentId: "",
-      scheduledTime: item.scheduled_time,
-      scheduledDate: item.scheduled_date,
-      priority: (item.priority || "medium") as Assignment["priority"],
-      status: (item.status || "assigned") as TaskStatus,
-      address: item.address || "",
-      estimatedDurationMinutes: 45,
-    })) : []);
-  }, [isAuthenticated, role, session?.access_token]);
+    // Pages with their own data loaders should not be duplicated here.
+    if (pathname === "/analytics") {
+      await Promise.all([loadAgents(), loadAssignments()]);
+    } else if (pathname === "/territories") {
+      await loadAgents();
+    } else if (pathname === "/assignments") {
+      await loadAssignments();
+    }
+  }, [isAuthenticated, role, session?.access_token, pathname, loadAgents, loadAssignments]);
 
   useEffect(() => { void loadLiveOperationsData(); }, [loadLiveOperationsData]);
 
@@ -134,7 +141,7 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
 
   return (
     <OperationsContext.Provider value={{
-      customers, agents, assignments, maxWorkloadLimit, setMaxWorkloadLimit,
+      customers, agents, assignments, maxWorkloadLimit, setMaxWorkloadLimit, loadAgents,
       selectedLeadId, setSelectedLeadId, assignLeadToAgent, unassignLead,
       resetOperationsData, notification, clearNotification,
     }}>

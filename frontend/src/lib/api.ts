@@ -410,6 +410,7 @@ export interface RouteStep {
   distance: number;
   duration: number;
   name?: string;
+  instruction?: string;
   maneuver?: {
     type?: string;
     modifier?: string;
@@ -421,14 +422,25 @@ export interface RouteStep {
 export interface RouteLeg {
   distance: number;
   duration: number;
+  static_duration?: number;
   steps?: RouteStep[];
+}
+
+export interface TrafficSpeedInterval {
+  startPolylinePointIndex?: number;
+  endPolylinePointIndex: number;
+  speed: "NORMAL" | "SLOW" | "TRAFFIC_JAM" | string;
 }
 
 export interface RoadRouteData {
   geometry: { type: "LineString"; coordinates: [number, number][] } | null;
   distance_meters: number;
   duration_seconds: number;
+  static_duration_seconds?: number | null;
   legs: RouteLeg[];
+  traffic_aware?: boolean;
+  provider?: string;
+  traffic_speed_intervals?: TrafficSpeedInterval[];
 }
 
 export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<AgentRouteData> {
@@ -437,7 +449,7 @@ export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: str
 }
 
 export async function optimizeAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<{
-  ordered_visit_ids: string[]; optimized: boolean; cost_model?: string; detail: string;
+  ordered_visit_ids: string[]; optimized: boolean; cost_model?: string; traffic_aware?: boolean; detail: string;
 }> {
   const query = asOfDate ? `?as_of_date=${encodeURIComponent(asOfDate)}` : "";
   return await apiFetch(`/agent/routes/optimize${query}`, { method: "POST" }, token);

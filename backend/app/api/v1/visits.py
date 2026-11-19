@@ -532,12 +532,7 @@ async def list_visits(
 
     # Strict Role-based Isolation:
     if current_user.role == "agent":
-        agent_ids = set()
-        if current_user.agent:
-            agent_ids.add(current_user.agent.id)
-        other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-        for o_id in other_ag_ids:
-            agent_ids.add(o_id)
+        agent_ids = {current_user.agent.id} if current_user.agent else set()
 
         if not agent_ids:
             raise HTTPException(

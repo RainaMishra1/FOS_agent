@@ -100,6 +100,9 @@ In the Render dashboard under **Environment**, add the following variables:
 | `GEOFENCE_RADIUS_METERS` | `750.0` | No |
 | `MAX_ACCEPTABLE_GPS_ACCURACY_METERS` | `100.0` | No |
 | `LOCATION_STALE_THRESHOLD_SECONDS` | `300` | No |
+| `GOOGLE_ROUTES_API_KEY` | Optional server-only key for traffic-aware route ordering and traffic overlays | **YES** |
+
+Traffic-aware routing requires Google Routes API enabled for the Google Cloud project and billing configured. Restrict the key to the Routes API and backend server IPs. Without this key, the agent portal uses OSRM estimates and offers a Google Maps navigation link; it does not show live traffic overlays.
 
 ---
 

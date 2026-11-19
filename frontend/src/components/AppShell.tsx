@@ -34,7 +34,7 @@ export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
-  const { agents } = useOperations();
+  const { agents, loadAgents } = useOperations();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -44,6 +44,14 @@ export default function AppShell({ children }: AppShellProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(3);
   const [globalSearch, setGlobalSearch] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const agentSearchLoadedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (isSearchOpen && !agentSearchLoadedRef.current) {
+      agentSearchLoadedRef.current = true;
+      if (agents.length === 0) void loadAgents();
+    }
+  }, [isSearchOpen, agents.length, loadAgents]);
 
   const matchingAgents = React.useMemo(() => {
     if (!globalSearch.trim()) return (agents || []).slice(0, 5);

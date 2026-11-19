@@ -16,7 +16,8 @@ flowchart LR
   Web -->|JSON REST + Supabase access token| API[FastAPI service]
   API -->|async SQL| DB[(Supabase PostgreSQL + PostGIS)]
   API -->|JWKS or Auth user validation| Auth
-  API -->|HTTP route and duration requests| OSRM[OSRM routing service]
+  API -->|Traffic-aware routes when configured| GoogleRoutes[Google Routes API]
+  API -->|Road routes without traffic data| OSRM[OSRM routing service]
   Web -->|Map tiles| Tiles[OpenStreetMap tile service]
   Web -->|Address lookup| Geo[Photon / Google Places, configured UI paths]
 ```
@@ -38,11 +39,11 @@ The frontend is a separate application from the API. It calls the FastAPI JSON A
 | Database and identity | Supabase PostgreSQL, PostGIS, Supabase Auth | Durable operational records, spatial types/indexes, and user identity |
 | Schema migration | Alembic | Versioned database schema changes |
 | Token verification | `python-jose[cryptography]`, `httpx` | JWT/JWKS verification and Supabase Auth API fallback |
-| Routing | OSRM HTTP API | Driving duration matrix and road route geometry |
+| Routing | Google Routes API when `GOOGLE_ROUTES_API_KEY` is configured; OSRM otherwise | Traffic-aware route ordering and geometry, with a non-traffic road estimate fallback |
 | Deployment definition | Render Blueprint (`render.yaml`); deployment guide documents Vercel frontend | Backend service configuration and frontend hosting instructions |
 | Python quality/support dependencies | Pytest, pytest-asyncio, Gunicorn, python-dotenv | Automated tests, async test support, production server option, and local environment loading |
 
-Although OR-Tools is present in `backend/requirements.txt`, the inspected route-planning endpoint currently requests an OSRM duration matrix and applies a nearest-next-stop greedy ordering in application code. OR-Tools is not imported by the route implementation. The frontend `routeOptimizer.ts` explicitly labels its Haversine-based result as a demo estimate; it is not the source of road routes.
+The agent route planner uses Google Routes waypoint ordering and live traffic when `GOOGLE_ROUTES_API_KEY` is configured. It preserves an in-progress visit at the front of the sequence. Without that key, it falls back to OSRM duration estimates and clearly labels traffic as unavailable. The frontend `routeOptimizer.ts` Haversine-based result is not used for road routes.
 
 ## 4. Application architecture
 
@@ -88,13 +89,12 @@ The agent portal obtains location through browser/device geolocation and submits
 
 ### Route planning and dispatch
 
-1. An administrator requests a route preview for an agent and date.
-2. The API loads the agent's latest GPS record and active visits, checks location freshness, and requires coordinates for every customer destination.
-3. When optimization is requested, the API asks OSRM for a driving-duration matrix. It keeps an in-progress visit at the front (when present), then repeatedly selects the remaining stop with the lowest duration from the current stop (greedy nearest-next selection).
-4. The API asks OSRM for the road geometry and total distance/duration for the chosen sequence and returns the preview; preview does not persist the order.
-5. A separate route-order request validates the submitted visit IDs against the current active visits and persists their `order_index`. The agent route view reads that order.
+1. The agent refreshes GPS before starting route guidance; the latest device location is saved to the backend.
+2. When `GOOGLE_ROUTES_API_KEY` is configured, the API requests waypoint optimization with traffic-aware routing and receives a stop order based on travel time, distance, and turns. It keeps an in-progress visit at the front.
+3. The API requests traffic-aware road geometry and maneuver steps. Traffic intervals are drawn in green, amber, and red on the map. The route order is a navigation preview and does not persist changes to visit records.
+4. Without the Google Routes key, the API uses OSRM road-time ordering and geometry; it does not present this estimate as live traffic. Agents can open the destination in Google Maps for navigation.
 
-This is a heuristic route ordering strategy, not a global optimality guarantee, and the route preview depends on OSRM availability and coverage.
+Traffic-aware routing requires a restricted Google Routes API key and an enabled billing account. Google waypoint optimization uses the traffic-aware routing preference; the API does not combine waypoint optimization with its slower traffic-aware-optimal preference.
 
 ## 6. API capability areas
 
@@ -127,7 +127,7 @@ Database changes are managed by Alembic. The deployment guide recommends applyin
 
 ## 9. Current implementation notes
 
-- The repository contains both `visits.py` and agent-specific route handlers. Route preview uses OSRM from the backend; a separate frontend helper contains demo-only straight-line estimates.
+- The repository contains both `visits.py` and agent-specific route handlers. Agent route guidance uses Google Routes traffic data when configured and OSRM estimates otherwise.
 - OSRM's public demo endpoint is configured as the default base URL in backend settings. A production deployment should deliberately configure/operate an appropriate routing service and observe its usage policy and availability.
 - `requirements.txt` includes OR-Tools, but the current route endpoint does not use it.
 - Google Places support is present in frontend utilities/components; Photon is also present. Select and configure the intended provider per environment, including required API keys and usage limits.

@@ -167,6 +167,126 @@ async def _agent_route_origin(agent: Agent, db: AsyncSession, *, require_plannin
             "accuracy_meters": latest.gps_accuracy}
 
 
+def _decode_google_polyline(encoded: str) -> list[list[float]]:
+    """Decode Google's encoded polyline into GeoJSON [longitude, latitude] points."""
+    points: list[list[float]] = []
+    index = lat = lng = 0
+    while index < len(encoded):
+        values = []
+        for _ in range(2):
+            result = shift = 0
+            while True:
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            values.append(~(result >> 1) if result & 1 else result >> 1)
+        lat += values[0]
+        lng += values[1]
+        points.append([lng / 1e5, lat / 1e5])
+    return points
+
+
+def _duration_seconds(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return float(value.removesuffix("s"))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _google_compute_route(
+    origin: dict,
+    destination: dict,
+    intermediates: list[dict],
+    *,
+    optimize_waypoints: bool = False,
+):
+    if not settings.GOOGLE_ROUTES_API_KEY:
+        raise RuntimeError("Google Routes API is not configured.")
+
+    body = {
+        "origin": {"location": {"latLng": {"latitude": origin["latitude"], "longitude": origin["longitude"]}}},
+        "destination": {"location": {"latLng": {"latitude": destination["latitude"], "longitude": destination["longitude"]}}},
+        "intermediates": [
+            {"location": {"latLng": {"latitude": stop["customer_latitude"], "longitude": stop["customer_longitude"]}}}
+            for stop in intermediates
+        ],
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+        "departureTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "extraComputations": ["TRAFFIC_ON_POLYLINE"],
+        "optimizeWaypointOrder": optimize_waypoints,
+    }
+    field_mask = (
+        "routes.duration,routes.staticDuration,routes.distanceMeters,"
+        "routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex,"
+        "routes.travelAdvisory.speedReadingIntervals,routes.legs.duration,"
+        "routes.legs.staticDuration,routes.legs.distanceMeters,routes.legs.steps.distanceMeters,"
+        "routes.legs.steps.staticDuration,routes.legs.steps.navigationInstruction,"
+        "routes.legs.steps.polyline.encodedPolyline"
+    )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            "https://routes.googleapis.com/directions/v2:computeRoutes",
+            json=body,
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_ROUTES_API_KEY,
+                "X-Goog-FieldMask": field_mask,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+    routes = payload.get("routes") or []
+    if not routes:
+        raise ValueError("Google Routes returned no route.")
+    return routes[0]
+
+
+def _google_route_response(route: dict) -> dict:
+    encoded = (route.get("polyline") or {}).get("encodedPolyline") or ""
+    legs = []
+    for leg in route.get("legs") or []:
+        steps = []
+        for step in leg.get("steps") or []:
+            navigation = step.get("navigationInstruction") or {}
+            instruction = navigation.get("instructions") or "Continue on route"
+            maneuver = (navigation.get("maneuver") or "").lower()
+            modifier = "left" if "left" in maneuver else "right" if "right" in maneuver else ""
+            step_type = "arrive" if "destination" in maneuver or "arrive" in maneuver else "turn"
+            step_points = _decode_google_polyline(((step.get("polyline") or {}).get("encodedPolyline") or ""))
+            steps.append({
+                "distance": step.get("distanceMeters", 0),
+                "duration": _duration_seconds(step.get("staticDuration")) or 0,
+                "name": instruction,
+                "maneuver": {
+                    "type": step_type,
+                    "modifier": modifier,
+                    "instruction": instruction,
+                    "location": [step_points[0][0], step_points[0][1]] if step_points else None,
+                },
+            })
+        legs.append({
+            "distance": leg.get("distanceMeters", 0),
+            "duration": _duration_seconds(leg.get("duration")) or 0,
+            "static_duration": _duration_seconds(leg.get("staticDuration")) or 0,
+            "steps": steps,
+        })
+    return {
+        "geometry": {"type": "LineString", "coordinates": _decode_google_polyline(encoded)} if encoded else None,
+        "distance_meters": route.get("distanceMeters", 0),
+        "duration_seconds": _duration_seconds(route.get("duration")) or 0,
+        "static_duration_seconds": _duration_seconds(route.get("staticDuration")),
+        "legs": legs,
+        "traffic_aware": True,
+        "provider": "Google Routes",
+        "traffic_speed_intervals": (route.get("travelAdvisory") or {}).get("speedReadingIntervals", []),
+    }
+
+
 @router.get("/routes/today")
 async def get_today_agent_route(
     as_of_date: Optional[date] = Query(None, description="Local operational date"),
@@ -195,7 +315,7 @@ async def optimize_today_agent_route(
     as_of_date: Optional[date] = Query(None, description="Local operational date"),
     current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
 ):
-    """Preview a route order using OSRM road travel durations; this does not mutate assignments."""
+    """Preview an optimized route; use live traffic when Google Routes is configured."""
     agent = current_user.agent
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
@@ -205,7 +325,57 @@ async def optimize_today_agent_route(
     routable = [s for s in stops if s["customer_latitude"] is not None and s["customer_longitude"] is not None]
     if len(routable) < 2:
         return {"ordered_visit_ids": [s["id"] for s in stops], "optimized": False,
+                "cost_model": "Google traffic-aware routing" if settings.GOOGLE_ROUTES_API_KEY else "OSRM road travel duration",
+                "traffic_aware": bool(settings.GOOGLE_ROUTES_API_KEY),
                 "detail": "At least two assigned stops with mapped addresses are needed to optimize."}
+
+    fixed = [s for s in routable if s["status"] == "in_progress"]
+    remaining = [s for s in routable if s["status"] != "in_progress"]
+    if settings.GOOGLE_ROUTES_API_KEY and len(remaining) <= 1:
+        missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
+        ordered = fixed + remaining + missing
+        return {
+            "ordered_visit_ids": [s["id"] for s in ordered],
+            "optimized": False,
+            "cost_model": "Google Routes traffic-aware travel time",
+            "traffic_aware": True,
+            "detail": "The remaining stop order is fixed. The route will use current traffic data.",
+        }
+
+    if settings.GOOGLE_ROUTES_API_KEY:
+        # Keep an active visit first. Optimize the remaining stops using Google
+        # Routes' travel-time, distance, and turn-aware waypoint ordering.
+        route_origin = origin
+        if fixed:
+            route_origin = {
+                "latitude": fixed[-1]["customer_latitude"],
+                "longitude": fixed[-1]["customer_longitude"],
+            }
+        destination = remaining[-1]
+        intermediates = remaining[:-1]
+        try:
+            route = await _google_compute_route(
+                route_origin,
+                {"latitude": destination["customer_latitude"], "longitude": destination["customer_longitude"]},
+                intermediates,
+                optimize_waypoints=True,
+            )
+            order = route.get("optimizedIntermediateWaypointIndex") or list(range(len(intermediates)))
+            if sorted(order) != list(range(len(intermediates))):
+                raise ValueError("Google Routes returned an incomplete waypoint order.")
+            optimized_remaining = [intermediates[i] for i in order] + [destination]
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
+            raise HTTPException(status_code=502, detail="Traffic-aware route optimization is temporarily unavailable.") from exc
+        missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
+        ordered = fixed + optimized_remaining + missing
+        return {
+            "ordered_visit_ids": [s["id"] for s in ordered],
+            "optimized": True,
+            "cost_model": "Google Routes traffic-aware travel time, distance, and turns",
+            "traffic_aware": True,
+            "detail": "Route order optimized with current traffic data. The active visit remains first; assigned records were not changed.",
+        }
+
     coords = [(origin["longitude"], origin["latitude"])] + [(s["customer_longitude"], s["customer_latitude"]) for s in routable]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coords)
     try:
@@ -218,9 +388,7 @@ async def optimize_today_agent_route(
             raise ValueError("Routing matrix unavailable")
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=502, detail="Road routing is temporarily unavailable. Try again later.") from exc
-    # Existing in-progress stop remains first; reorder only pending/delayed stops using OSRM duration costs.
-    fixed = [s for s in routable if s["status"] == "in_progress"]
-    remaining = [s for s in routable if s["status"] != "in_progress"]
+    # Existing in-progress stop remains first; reorder pending stops by road time.
     ordered = list(fixed)
     current_index = routable.index(fixed[0]) + 1 if fixed else 0
     while remaining:
@@ -232,7 +400,8 @@ async def optimize_today_agent_route(
         current_index = routable.index(best) + 1
     missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
     return {"ordered_visit_ids": [s["id"] for s in ordered + missing], "optimized": True,
-            "cost_model": "OSRM road travel duration", "detail": "Preview only; assigned visit records were not changed."}
+            "cost_model": "OSRM road travel duration", "traffic_aware": False,
+            "detail": "Route order optimized by road travel time. Live traffic is unavailable until Google Routes is configured; assigned records were not changed."}
 
 
 @router.get("/routes/geometry")
@@ -254,6 +423,22 @@ async def get_agent_route_geometry(
     ordered = [by_id[item] for item in ids]
     if any(v.customer.latitude is None or v.customer.longitude is None for v in ordered):
         raise HTTPException(status_code=409, detail="One or more assigned customer addresses do not have mapped coordinates.")
+    if settings.GOOGLE_ROUTES_API_KEY:
+        route_origin = {"latitude": origin["latitude"], "longitude": origin["longitude"]}
+        destination_visit = ordered[-1]
+        try:
+            route = await _google_compute_route(
+                route_origin,
+                {"latitude": destination_visit.customer.latitude, "longitude": destination_visit.customer.longitude},
+                [
+                    {"customer_latitude": visit.customer.latitude, "customer_longitude": visit.customer.longitude}
+                    for visit in ordered[:-1]
+                ],
+            )
+            return _google_route_response(route)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=502, detail="Traffic-aware road routing is temporarily unavailable.") from exc
+
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
     try:
@@ -270,7 +455,9 @@ async def get_agent_route_geometry(
         raise HTTPException(status_code=502, detail="Road route is temporarily unavailable.") from exc
     route = result["routes"][0]
     return {"geometry": route["geometry"], "distance_meters": route["distance"],
-            "duration_seconds": route["duration"], "legs": route.get("legs", [])}
+            "duration_seconds": route["duration"], "legs": route.get("legs", []),
+            "static_duration_seconds": route["duration"], "traffic_aware": False,
+            "provider": "OSRM", "traffic_speed_intervals": []}
 
 
 @router.get("/me", response_model=AgentResponse)
@@ -358,9 +545,6 @@ async def get_agent_dashboard(
 
     # Collect all candidate agent IDs for this field agent to prevent scoping mismatches
     agent_ids = {agent.id}
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     # 1. Fetch Today's Visits for this agent (including pending rollover from earlier today / past)
     today_query = (
@@ -455,9 +639,6 @@ async def list_agent_visits(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
 
     agent_ids = {agent.id}
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     query = (
         select(Visit)
@@ -650,9 +831,6 @@ async def update_agent_visit_status(
         )
 
     agent_ids = {agent.id}
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     if visit.agent_id not in agent_ids:
         raise HTTPException(

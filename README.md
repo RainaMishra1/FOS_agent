@@ -26,7 +26,7 @@ A production-oriented web application for managing field agents, customer leads,
 - **Backend:** Python, FastAPI, Pydantic v2, Pydantic-Settings, SQLAlchemy 2.0 (asyncpg), `python-jose` (cryptography), `httpx`, Uvicorn, Pytest.
 - **Database:** Supabase PostgreSQL + PostGIS (geospatial distance and territory boundaries).
 - **Authentication:** Supabase Auth with JWT bearer tokens and server-verified profile roles.
-- **Routing & Optimization:** OSRM road distance matrix + Google OR-Tools routing engine.
+- **Routing & Optimization:** Traffic-aware Google Routes waypoint optimization when `GOOGLE_ROUTES_API_KEY` is configured, with OSRM road-time fallback.
 
 ---
 
