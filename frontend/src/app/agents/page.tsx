@@ -7,7 +7,6 @@ import AssignWorkModal from "@/components/AssignWorkModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
 import { fetchAgents, inviteAgentAccount, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
 import {
   Search,
   Filter,
@@ -116,127 +115,16 @@ export default function AgentsPage() {
         as_of_date: todayStr,
       });
 
-      let allItems = [...res.items];
-      try {
-        const { data: dbAgents } = await supabase
-          .from("agents")
-          .select("*, profile:profiles(id, full_name, email, phone)");
-        if (dbAgents && dbAgents.length > 0) {
-          for (const d of dbAgents) {
-            const dName = (d.profile?.full_name || d.name || "").trim().toLowerCase();
-            if (dName && !allItems.some((item) => item.name.toLowerCase() === dName)) {
-              allItems.push({
-                id: d.id,
-                agent_code: d.agent_code || d.id.slice(0, 8),
-                name: d.profile?.full_name || `Agent ${d.agent_code || d.id.slice(0, 4)}`,
-                email: d.profile?.email || "",
-                phone: d.profile?.phone || "",
-                status: d.status || "active",
-                territory: d.territory || "Mumbai Zone",
-                address: d.address || "",
-                location_source: d.location_source || "gps",
-                current_latitude: Number(d.current_latitude) || 19.21899,
-                current_longitude: Number(d.current_longitude) || 73.14008,
-                battery_level: 95,
-                last_location_update: d.last_location_update || new Date().toISOString(),
-                assigned_tasks: 0,
-                completed_visits: 0,
-                created_at: d.created_at || new Date().toISOString(),
-              });
-            }
-          }
-        }
-      } catch {
-        // non-fatal
-      }
-
-      // Ensure Malavya Mankar is always present in agent directory
-      if (!allItems.some((item) => item.name.toLowerCase().includes("malavya"))) {
-        allItems.push({
-          id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
-          agent_code: "AGT-122",
-          name: "Malavya Mankar",
-          email: "malavya@fos.internal",
-          phone: "+91 98450 54321",
-          status: "active",
-          territory: "Mumbai Zone",
-          address: "Navi Mumbai, Mumbai",
-          location_source: "gps",
-          current_latitude: 19.0330,
-          current_longitude: 73.0297,
-          battery_level: 90,
-          last_location_update: new Date().toISOString(),
-          assigned_tasks: 0,
-          completed_visits: 0,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      const mapped = allItems.map(mapApiAgentToModel);
+      const mapped = res.items.map(mapApiAgentToModel);
       setAgents(mapped);
-      setTotalAgents(mapped.length);
-
-      // Collect territories
-      const terrSet = new Set<string>();
-      res.items.forEach((item) => {
-        if (item.territory) terrSet.add(item.territory);
-      });
-      setAvailableTerritories((prev) => Array.from(new Set([...prev, ...Array.from(terrSet)])));
+      setTotalAgents(res.total);
+      const territories = Array.from(new Set(res.items.map((item) => item.territory).filter((item): item is string => Boolean(item))));
+      setAvailableTerritories(territories);
     } catch (err: any) {
-      console.warn("FastAPI backend unreachable, querying Supabase directly:", err);
-      try {
-        let query = supabase
-          .from("agents")
-          .select("*, profile:profiles(id, full_name, email, phone)", { count: "exact" });
-
-        if (statusFilter !== "all") {
-          query = query.eq("status", statusFilter);
-        }
-        if (territoryFilter !== "all") {
-          query = query.eq("territory", territoryFilter);
-        }
-
-        const { data: dbAgents, count } = await query.range(skip, skip + limit - 1);
-        if (dbAgents && dbAgents.length > 0) {
-          const mapped: Agent[] = dbAgents.map((a: any) => {
-            const prof = a.profile || {};
-            const name = prof.full_name || `Agent ${a.agent_code || a.id.slice(0, 4)}`;
-            const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase() || "AG";
-            return {
-              id: a.id,
-              agentCode: a.agent_code || undefined,
-              name,
-              initials,
-              email: prof.email || "No email",
-              phone: prof.phone || "No phone",
-              status: (a.status || "active") as any,
-              territory: a.territory || "Unassigned",
-              address: a.address || undefined,
-              locationSource: (a.location_source as any) || "gps",
-              currentTask: "Field Operations Active",
-              assignedTasks: 2,
-              completedVisits: 1,
-              lastLocationUpdate: a.last_location_update ? new Date(a.last_location_update).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Today",
-              authLinked: Boolean(a.profile_id),
-              coordinates: a.current_latitude && a.current_longitude ? { lat: Number(a.current_latitude), lng: Number(a.current_longitude) } : null,
-              batteryLevel: a.battery_level ?? 92,
-            };
-          });
-
-          setAgents(mapped);
-          setTotalAgents(count ?? mapped.length);
-          const terrSet = new Set<string>();
-          dbAgents.forEach((item: any) => {
-            if (item.territory) terrSet.add(item.territory);
-          });
-          setAvailableTerritories((prev) => Array.from(new Set([...prev, ...Array.from(terrSet)])));
-          setError(null);
-        } else {
-          setError(err.message || "Failed to load agent directory.");
-        }
-      } catch (sbErr: any) {
-        setError(sbErr.message || "Failed to load agent directory from database.");
-      }
+      setAgents([]);
+      setTotalAgents(0);
+      setAvailableTerritories([]);
+      setError(err?.message || "Failed to load agent directory.");
     } finally {
       setIsLoading(false);
     }

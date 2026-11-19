@@ -179,28 +179,3 @@ async def trigger_migrations():
         return {"status": "error", "error_type": exc.__class__.__name__, "message": safe_err}
 
 
-@router.get("/health/seed", tags=["Health"])
-@router.post("/health/seed", tags=["Health"])
-async def trigger_seed():
-    """Seeds real agents, customers, leads, assignments, and visits into PostgreSQL (development only)."""
-    if settings.ENVIRONMENT.lower() == "production":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Database seeding is disabled in production.",
-        )
-    try:
-        from app.db.seeder import run_seed
-        res = await run_seed()
-        return res
-    except Exception as exc:
-        safe_err = _sanitize_error(str(exc))
-        return {"status": "exception", "error_type": exc.__class__.__name__, "error": safe_err}
-
-
-
-
-
-
-
-
-

@@ -96,7 +96,7 @@ async def _register_account(
                     "email": email,
                     "password": payload.password,
                     "email_confirm": True,
-                    "user_metadata": {"full_name": full_name, "role": role},
+                    "user_metadata": {"full_name": full_name},
                 },
             )
         if response.status_code not in (200, 201):
@@ -122,7 +122,7 @@ async def _register_account(
                                 json={
                                     "password": payload.password,
                                     "email_confirm": True,
-                                    "user_metadata": {"full_name": full_name, "role": role},
+                                    "user_metadata": {"full_name": full_name},
                                 },
                             )
                 if not auth_user_id:
@@ -200,45 +200,6 @@ async def register_agent_account(payload: AccountRegistrationRequest, db: AsyncS
     return await _register_account(payload, "agent", db)
 
 
-@router.get("/email-role")
-async def get_email_role(email: str, db: AsyncSession = Depends(get_db)):
-    """
-    Returns the SQL database role ('admin' or 'agent') for the given email address.
-    """
-    norm = _normalized_email(email)
-    
-    # Strictly enforce Operations Admin for Raina Mishra
-    if norm in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} or "admin" in norm:
-        prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
-        if prof:
-            if prof.role != "admin" or prof.full_name != "Raina Mishra":
-                prof.role = "admin"
-                prof.full_name = "Raina Mishra"
-                try:
-                    await db.commit()
-                except Exception:
-                    await db.rollback()
-        return {"email": norm, "role": "admin", "found": True}
-
-    # Strictly enforce Field Agent for Rishabh Mishra
-    if norm == "rainamishra00023@gmail.com":
-        prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
-        if prof:
-            if prof.role != "agent" or prof.full_name != "Rishabh Mishra":
-                prof.role = "agent"
-                prof.full_name = "Rishabh Mishra"
-                try:
-                    await db.commit()
-                except Exception:
-                    await db.rollback()
-        return {"email": norm, "role": "agent", "found": True}
-
-    prof = await db.scalar(select(Profile).where(func.lower(Profile.email) == norm))
-    if prof:
-        return {"email": norm, "role": prof.role, "found": True}
-    return {"email": norm, "role": "agent", "found": False}
-
-
 @router.get("/me", response_model=UserProfileResponse)
 async def get_my_profile(
     profile: Profile = Depends(get_current_profile),
@@ -248,22 +209,6 @@ async def get_my_profile(
     Retrieve the verified Profile and operational details for the authenticated user.
     Accessible by any verified user with an active profile.
     """
-    norm_email = _normalized_email(profile.email or "")
-    if norm_email in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} and profile.full_name != "Raina Mishra":
-        profile.full_name = "Raina Mishra"
-        profile.role = "admin"
-        try:
-            await db.commit()
-        except Exception:
-            await db.rollback()
-    elif norm_email == "rainamishra00023@gmail.com" and profile.full_name != "Rishabh Mishra":
-        profile.full_name = "Rishabh Mishra"
-        profile.role = "agent"
-        try:
-            await db.commit()
-        except Exception:
-            await db.rollback()
-
     agent = profile.agent
     return UserProfileResponse(
         id=profile.id,
@@ -281,10 +226,11 @@ async def get_my_profile(
 
 @router.post("/bootstrap-first-admin")
 async def bootstrap_first_admin():
-    """Initial provisioning endpoint to bootstrap the administrator account."""
-    from app.core.bootstrap_admin import bootstrap_initial_admins
-    await bootstrap_initial_admins()
-    return {"status": "success", "message": "Admin account ensured successfully. You can now sign in."}
+    """Legacy public bootstrap is disabled; provision admins through the protected registration flow."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Public administrator bootstrap is disabled. Use an approved administrator provisioning flow.",
+    )
 
 
 @router.post("/provision-admin", response_model=UserProfileResponse)

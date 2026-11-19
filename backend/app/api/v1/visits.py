@@ -338,25 +338,17 @@ async def dispatch_visit(
     db: AsyncSession = Depends(get_db),
 ) -> VisitResponse:
     """Create a customer stop, lead, assignment, and scheduled visit atomically."""
-    agent = await db.get(Agent, payload.agent_id)
+    try:
+        requested_agent_id = uuid.UUID(str(payload.agent_id))
+    except (ValueError, TypeError):
+        requested_agent_id = None
+    agent = await db.get(Agent, requested_agent_id) if requested_agent_id else None
     if not agent:
-        # Check by agent_code or auto-provision active agent for dispatch
-        profile = await db.get(Profile, payload.agent_id)
-        agent = Agent(
-            id=payload.agent_id,
-            profile_id=profile.id if profile else None,
-            agent_code=f"AGT-{str(payload.agent_id)[:4].upper()}",
-            status="active",
-            territory="Mumbai Zone",
-            address="Mumbai Central",
-            current_latitude=19.21899,
-            current_longitude=73.14008,
-        )
-        db.add(agent)
-        await db.flush()
-    elif agent.status != "active":
-        agent.status = "active"
-        await db.flush()
+        agent = await db.scalar(select(Agent).where(Agent.agent_code == payload.agent_id))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Selected field agent was not found.")
+    if agent.status != "active":
+        raise HTTPException(status_code=409, detail="Selected field agent is not active and cannot receive a dispatch.")
 
     clean_name = payload.customer_name.strip()
     clean_address = payload.address.strip()
@@ -543,12 +535,6 @@ async def list_visits(
         agent_ids = set()
         if current_user.agent:
             agent_ids.add(current_user.agent.id)
-        name_lower = (current_user.full_name or "").lower()
-        email_lower = (current_user.email or "").lower()
-        if "malavya" in name_lower or "malavya" in email_lower:
-            agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-            agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
         for o_id in other_ag_ids:
             agent_ids.add(o_id)

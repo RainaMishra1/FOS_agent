@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useOperations } from "@/context/OperationsContext";
-import { Assignment, TaskStatus } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import Link from "next/link";
@@ -22,9 +21,7 @@ import {
 } from "lucide-react";
 
 export default function AssignmentsPage() {
-  const { assignments: liveAssignments } = useOperations();
-  const [localAssignments, setLocalAssignments] = useState<Assignment[]>([]);
-  const assignments = localAssignments.length > 0 ? localAssignments : liveAssignments;
+  const { assignments, resetOperationsData } = useOperations();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -44,14 +41,6 @@ export default function AssignmentsPage() {
     const matchesPriority = priorityFilter === "all" || a.priority === priorityFilter;
     return matchesSearch && matchesStatus && matchesAgent && matchesPriority;
   });
-
-  const handleUpdateStatus = (assignmentId: string, newStatus: TaskStatus) => {
-    setLocalAssignments(
-      assignments.map((a) => (a.id === assignmentId ? { ...a, status: newStatus } : a))
-    );
-    setStatusNotification(`Assignment ${assignmentId} updated to ${newStatus.toUpperCase()}`);
-    setTimeout(() => setStatusNotification(null), 3000);
-  };
 
   const uniqueAgents = Array.from(new Set(assignments.map((a) => a.agentName)));
 
@@ -221,19 +210,8 @@ export default function AssignmentsPage() {
                       <StatusBadge status={asn.status} size="sm" />
                     </td>
 
-                    {/* Action dropdown to simulate updating assignment status */}
                     <td className="py-3.5 px-4 text-right">
-                      <select
-                        value={asn.status}
-                        onChange={(e) => handleUpdateStatus(asn.id, e.target.value as TaskStatus)}
-                        className="text-[11px] font-medium rounded-lg bg-beige-sand border border-beige-border px-2 py-1 text-beige-text focus:outline-none"
-                      >
-                        <option value="pending">Mark Pending</option>
-                        <option value="assigned">Mark Assigned</option>
-                        <option value="active">Mark In Progress</option>
-                        <option value="completed">Mark Completed</option>
-                        <option value="delayed">Mark Delayed</option>
-                      </select>
+                      <span className="text-[10px] text-beige-muted">Status managed from visit workflow</span>
                     </td>
                   </tr>
                 ))
@@ -249,6 +227,7 @@ export default function AssignmentsPage() {
         onClose={() => setIsAssignModalOpen(false)}
         onSuccess={(msg) => {
           setStatusNotification(msg);
+          void resetOperationsData();
         }}
       />
     </div>

@@ -14,13 +14,9 @@ const defaultAgentProfile: AgentProfile = {
   territory: "Mumbai Zone",
   batteryLevel: 90,
   shiftHours: "09:00 - 18:00 IST",
-  currentCoordinates: {
-    lat: 19.21899,
-    lng: 73.14008,
-  },
+  currentCoordinates: { lat: 0, lng: 0 },
 };
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
 import {
   fetchAgentDashboard,
   updateAgentVisitStatus,
@@ -28,7 +24,6 @@ import {
   updateAgentLocation,
   VisitApiResponse,
   AgentApiItem,
-  ApiError,
 } from "@/lib/api";
 import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 
@@ -36,7 +31,7 @@ interface AgentContextType {
   currentAgent: AgentProfile;
   availableAgents: AgentProfile[];
   switchAgent: (agentId: string) => void | Promise<void>;
-  loadAgentData: (showLoader?: boolean, overrideAgentId?: string) => Promise<void>;
+  loadAgentData: (showLoader?: boolean) => Promise<void>;
   isOnDuty: boolean;
   toggleDuty: () => Promise<void>;
   setIsOnDuty: (onDuty: boolean) => void;
@@ -127,8 +122,8 @@ function mapApiAgentToProfile(a: AgentApiItem): AgentProfile {
     batteryLevel: a.battery_level ?? 90,
     shiftHours: "09:00 - 18:00 IST",
     currentCoordinates: {
-      lat: a.current_latitude ?? 12.9716,
-      lng: a.current_longitude ?? 77.5946,
+      lat: a.current_latitude ?? 0,
+      lng: a.current_longitude ?? 0,
     },
   };
 }
@@ -230,282 +225,6 @@ async function syncFreshGpsLocation(token: string): Promise<void> {
     gps_accuracy: position.coords.accuracy,
     location_source: "gps",
   }, token);
-}
-
-async function fetchDirectFromSupabase(
-  identifier?: string | null,
-  userProfile?: any,
-  authUser?: any
-): Promise<{
-  visits: AgentVisit[];
-  history: AgentVisit[];
-  agentProfile?: Partial<AgentProfile>;
-} | null> {
-  try {
-    const candidateAgentIds = new Set<string>();
-    let agentProfileData: Partial<AgentProfile> | undefined;
-
-    if (identifier) candidateAgentIds.add(identifier);
-    if (userProfile?.agent_id) candidateAgentIds.add(userProfile.agent_id);
-    if (userProfile?.id) candidateAgentIds.add(userProfile.id);
-    if (authUser?.id) candidateAgentIds.add(authUser.id);
-
-    const name = (userProfile?.full_name || "").trim().toLowerCase();
-    const email = (userProfile?.email || authUser?.email || "").trim().toLowerCase();
-    const code = (userProfile?.agent_code || "").trim().toUpperCase();
-
-    const isMalavya = name.includes("malavya") || email.includes("malavya") || code === "10051" || code === "AGT-122" || code === "122";
-    const isRishabhAgent = name.includes("rishabh") || name.includes("raina") || email.includes("rainamishra") || code === "121" || code === "AGT-121";
-
-    if (isMalavya) {
-      candidateAgentIds.add("6f926578-e5c7-40cc-ac8e-d59616be0c38");
-    }
-    if (isRishabhAgent) {
-      candidateAgentIds.add("5f926578-e5c7-40cc-ac8e-d59616be0c38");
-    }
-
-    // Query agents table for all matching records
-    const orClauses: string[] = [];
-    if (userProfile?.id) orClauses.push(`profile_id.eq.${userProfile.id}`);
-    if (authUser?.id) orClauses.push(`profile_id.eq.${authUser.id}`);
-    if (identifier && /^[0-9a-f-]{36}$/i.test(identifier)) {
-      orClauses.push(`id.eq.${identifier}`);
-      orClauses.push(`profile_id.eq.${identifier}`);
-    }
-    if (code) orClauses.push(`agent_code.eq.${code}`);
-    if (isMalavya) {
-      orClauses.push(`id.eq.6f926578-e5c7-40cc-ac8e-d59616be0c38`);
-      orClauses.push(`agent_code.eq.AGT-122`);
-      orClauses.push(`agent_code.eq.10051`);
-      orClauses.push(`agent_code.eq.122`);
-    }
-    if (isRishabhAgent) {
-      orClauses.push(`id.eq.5f926578-e5c7-40cc-ac8e-d59616be0c38`);
-      orClauses.push(`agent_code.eq.121`);
-      orClauses.push(`agent_code.eq.AGT-121`);
-    }
-
-    let agentRow: any = null;
-    if (orClauses.length > 0) {
-      const { data: matchedAgents } = await supabase
-        .from("agents")
-        .select(`
-          id,
-          agent_code,
-          territory,
-          status,
-          current_latitude,
-          current_longitude,
-          profile_id,
-          profiles (
-            id,
-            full_name,
-            email,
-            phone
-          )
-        `)
-        .or(orClauses.join(","));
-
-      if (matchedAgents && matchedAgents.length > 0) {
-        for (const ag of matchedAgents) {
-          candidateAgentIds.add(ag.id);
-          if (ag.profile_id) candidateAgentIds.add(ag.profile_id);
-          if (!agentRow) agentRow = ag;
-        }
-      }
-    }
-
-    // Direct profile lookup fallback if agent not resolved
-    if (!agentRow && (email || identifier)) {
-      let profQuery = supabase
-        .from("profiles")
-        .select(`
-          id,
-          full_name,
-          email,
-          phone,
-          agents (
-            id,
-            agent_code,
-            status,
-            territory,
-            current_latitude,
-            current_longitude
-          )
-        `);
-
-      if (email) {
-        profQuery = profQuery.eq("email", email);
-      } else if (identifier && /^[0-9a-f-]{36}$/i.test(identifier)) {
-        profQuery = profQuery.or(`id.eq.${identifier},auth_user_id.eq.${identifier}`);
-      }
-
-      const { data: profData } = await profQuery.maybeSingle();
-      if (profData) {
-        candidateAgentIds.add(profData.id);
-        const linkedAgent = Array.isArray(profData.agents) ? profData.agents[0] : profData.agents;
-        if (linkedAgent) {
-          candidateAgentIds.add(linkedAgent.id);
-          agentRow = {
-            ...linkedAgent,
-            profiles: {
-              id: profData.id,
-              full_name: profData.full_name,
-              email: profData.email,
-              phone: profData.phone,
-            },
-          };
-        }
-      }
-    }
-
-    if (agentRow) {
-      const prof = (agentRow as any).profiles || {};
-      agentProfileData = {
-        id: agentRow.id,
-        dbId: agentRow.id,
-        agentCode: agentRow.agent_code || code || agentRow.id.slice(0, 8),
-        name: prof.full_name || userProfile?.full_name || `Agent ${agentRow.agent_code || agentRow.id.slice(0, 4)}`,
-        status: agentRow.status || "active",
-        email: prof.email || userProfile?.email || "agent@fos.internal",
-        phone: prof.phone || userProfile?.phone || "+91 98800 12345",
-        territory: agentRow.territory || userProfile?.territory || "Mumbai Zone",
-        currentCoordinates: {
-          lat: Number(agentRow.current_latitude) || 19.21899,
-          lng: Number(agentRow.current_longitude) || 73.14008,
-        },
-      };
-
-      // Keep operational seed agent record linked to this user's profile in the background
-      if (userProfile?.id && isMalavya) {
-        supabase
-          .from("agents")
-          .update({ profile_id: userProfile.id })
-          .eq("id", "6f926578-e5c7-40cc-ac8e-d59616be0c38")
-          .is("profile_id", null)
-          .then(() => {});
-      }
-    }
-
-    const idList = Array.from(candidateAgentIds).filter(Boolean);
-    if (idList.length === 0) {
-      return {
-        visits: [],
-        history: [],
-        agentProfile: agentProfileData,
-      };
-    }
-
-    const { data: dbVisits } = await supabase
-      .from("visits")
-      .select(`
-        id,
-        visit_code,
-        agent_id,
-        scheduled_date,
-        scheduled_time,
-        status,
-        geofence_verified,
-        purpose,
-        order_index,
-        completion_notes,
-        customer_id,
-        customers (
-          id,
-          name,
-          company,
-          address,
-          latitude,
-          longitude,
-          phone,
-          notes
-        )
-      `)
-      .in("agent_id", idList)
-      .order("order_index", { ascending: true });
-
-    if (!dbVisits) {
-      return {
-        visits: [],
-        history: [],
-        agentProfile: agentProfileData,
-      };
-    }
-
-    // If any visits were saved under another candidate ID, align them to the primary agent ID
-    if (agentRow?.id && dbVisits.length > 0) {
-      const visitsToSync = dbVisits.filter((v: any) => v.agent_id && v.agent_id !== agentRow.id);
-      if (visitsToSync.length > 0) {
-        const idsToUpdate = visitsToSync.map((v: any) => v.id);
-        supabase
-          .from("visits")
-          .update({ agent_id: agentRow.id })
-          .in("id", idsToUpdate)
-          .then(() => {});
-      }
-    }
-
-    const mapped: AgentVisit[] = dbVisits.map((row: any) => {
-      const cust = Array.isArray(row.customers) ? row.customers[0] : row.customers || {};
-      const lat = Number(cust.latitude) || 19.21899;
-      const lng = Number(cust.longitude) || 73.14008;
-      return {
-        id: row.id,
-        assignmentId: row.visit_code || row.id.slice(0, 8),
-        customerId: cust.id || row.customer_id,
-        visitCode: row.visit_code || "VST-LIVE",
-        customerName: cust.name || "Customer",
-        customerCompany: cust.company || undefined,
-        company: cust.company || undefined,
-        contactPerson: cust.name || "Authorized Representative",
-        address: cust.address || "Field Location",
-        city: "Mumbai",
-        latitude: lat,
-        longitude: lng,
-        coordinates: { lat, lng },
-        hasCoordinates: Boolean(cust.latitude && cust.longitude),
-        scheduledDate: row.scheduled_date,
-        scheduledTime: row.scheduled_time || "10:00 AM",
-        estimatedDuration: "45 mins",
-        status: (row.status || "pending") as any,
-        geofenceVerified: Boolean(row.geofence_verified),
-        purpose: row.purpose || "On-site customer visit",
-        orderIndex: row.order_index || 1,
-        priority: "medium",
-        completionNotes: row.completion_notes || undefined,
-        contactPhone: cust.phone || "+91 98765 43210",
-        phone: cust.phone || "+91 98765 43210",
-        email: "operations@client.internal",
-        notes: cust.notes || row.purpose,
-      };
-    });
-
-    // Deduplicate any duplicate visits created for the same customer and scheduled date
-    const seenVisitKeys = new Set<string>();
-    const deduplicatedMapped: AgentVisit[] = [];
-    for (const v of mapped) {
-      const cName = (v.customerName || "").trim().toLowerCase();
-      const sDate = v.scheduledDate || "";
-      const sTime = (v.scheduledTime || "").replace(/\s+/g, "").toLowerCase();
-      const key = `${cName}_${sDate}_${sTime}`;
-      if (!seenVisitKeys.has(key)) {
-        seenVisitKeys.add(key);
-        deduplicatedMapped.push(v);
-      }
-    }
-
-    const active = deduplicatedMapped.filter((v) => v.status !== "completed");
-    const history = deduplicatedMapped.filter((v) => v.status === "completed");
-
-    return {
-      visits: active.length > 0 ? active : deduplicatedMapped,
-      history,
-      agentProfile: agentProfileData,
-    };
-  } catch (e) {
-    console.warn("Direct Supabase query exception:", e);
-    return null;
-  }
 }
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
@@ -623,172 +342,46 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
   }, [profile]);
 
-  // Load available live agents from database
   useEffect(() => {
-    async function loadAgents() {
-      try {
-        const { data: dbAgents } = await supabase
-          .from("agents")
-          .select(`
-            id,
-            agent_code,
-            territory,
-            status,
-            current_latitude,
-            current_longitude,
-            battery_level,
-            profiles (
-              full_name,
-              email,
-              phone
-            )
-          `);
-
-        if (dbAgents && dbAgents.length > 0) {
-          const mapped: AgentProfile[] = dbAgents.map((ag: any) => {
-            const prof = ag.profiles || {};
-            const name = prof.full_name || `Agent ${ag.agent_code || ag.id.slice(0, 4)}`;
-            const parts = name.trim().split(" ");
-            const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.slice(0, 2).toUpperCase();
-            return {
-              id: ag.id,
-              dbId: ag.id,
-              agentCode: ag.agent_code || ag.id.slice(0, 8),
-              name,
-              initials,
-              role: "Field Specialist",
-              status: ag.status || "active",
-              email: prof.email || "agent@fos.internal",
-              phone: prof.phone || "+91 98800 12345",
-              territory: ag.territory || "Mumbai Zone",
-              batteryLevel: ag.battery_level ?? 90,
-              shiftHours: "09:00 - 18:00 IST",
-              currentCoordinates: {
-                lat: Number(ag.current_latitude) || 19.21899,
-                lng: Number(ag.current_longitude) || 73.14008,
-              },
-            };
-          });
-          setAvailableAgentsList(mapped);
-        }
-      } catch (err) {
-        console.warn("Could not fetch agents from Supabase:", err);
+    if (!profile) return;
+    const mapped: AgentProfile = {
+      ...defaultAgentProfile,
+      id: profile.agent_code || profile.agent_id || profile.id,
+      dbId: profile.agent_id,
+      agentCode: profile.agent_code,
+      name: profile.full_name || "Field Agent",
+      email: profile.email || "",
+      territory: profile.territory || "",
+      status: profile.agent_status || "active",
+    };
+    setAvailableAgentsList([mapped]);
+  }, [profile]);
+  const loadAgentData = useCallback(async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
+    setError(null);
+    try {
+      if (!session?.access_token) throw new Error("Your secure session is unavailable. Sign in again.");
+      const data = await fetchAgentDashboard(session.access_token, localDateString());
+      setIsLiveBackend(true);
+      if (data.agent) {
+        setCurrentAgent(mapApiAgentToProfile(data.agent));
+        setIsOnDuty(data.agent.status === "active");
       }
+      const activeVisits = [...(data.today_visits || []), ...(data.upcoming_visits || [])].map(mapApiVisitToAgentVisit);
+      const mappedHistory = (data.recent_history || []).map(mapApiVisitToAgentVisit);
+      setVisits(activeVisits);
+      setHistoryVisits(mappedHistory);
+      setSelectedVisit((previous) => previous ? activeVisits.find((visit) => visit.id === previous.id) || activeVisits[0] || null : activeVisits[0] || null);
+    } catch (err: any) {
+      setIsLiveBackend(false);
+      setVisits([]);
+      setHistoryVisits([]);
+      setSelectedVisit(null);
+      setError(extractErrorMessage(err, "Could not load your field dashboard."));
+    } finally {
+      if (showLoader) setIsLoading(false);
     }
-    loadAgents();
-  }, []);
-
-  // Fetch real agent dashboard from live Supabase database or FastAPI backend
-  const loadAgentData = useCallback(
-    async (showLoader = true, overrideAgentId?: string) => {
-      if (showLoader) setIsLoading(true);
-      setError(null);
-
-      const targetIdentifier =
-        overrideAgentId ||
-        profile?.agent_id ||
-        profile?.id ||
-        session?.user?.id ||
-        currentAgent?.dbId ||
-        (currentAgent?.id && currentAgent.id !== "AGT-121" ? currentAgent.id : undefined);
-
-      // Priority 1: Query live Supabase database directly (immediate & 100% real)
-      try {
-        if (typeof navigator !== "undefined" && navigator.geolocation && isOnDuty) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              setCurrentAgent((prev) => ({
-                ...prev,
-                currentCoordinates: {
-                  lat: pos.coords.latitude,
-                  lng: pos.coords.longitude,
-                },
-              }));
-            },
-            () => {},
-            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
-          );
-        }
-
-        const liveDbData = await fetchDirectFromSupabase(targetIdentifier, profile, session?.user);
-        if (liveDbData) {
-          setVisits(liveDbData.visits);
-          setHistoryVisits(liveDbData.history);
-          setSelectedVisit(liveDbData.visits[0] || null);
-          if (liveDbData.agentProfile) {
-            setCurrentAgent((prev) => ({
-              ...prev,
-              ...liveDbData.agentProfile,
-              currentCoordinates: liveGpsCoordsRef.current
-                ? { lat: liveGpsCoordsRef.current.lat, lng: liveGpsCoordsRef.current.lng }
-                : {
-                    ...prev.currentCoordinates,
-                    ...liveDbData.agentProfile?.currentCoordinates,
-                  },
-            }));
-            if (liveDbData.agentProfile.status) {
-              setIsOnDuty(liveDbData.agentProfile.status === "active");
-            }
-          }
-          setIsLiveBackend(true);
-          setError(null);
-          if (showLoader) setIsLoading(false);
-          return;
-        }
-      } catch (sbErr) {
-        console.warn("Supabase direct query failed:", sbErr);
-      }
-
-      // Priority 2: Fetch from FastAPI backend
-      try {
-        const data = await fetchAgentDashboard(session?.access_token, localDateString());
-        setIsLiveBackend(true);
-        setError(null);
-
-        if (data.agent) {
-          const mappedProfile = mapApiAgentToProfile(data.agent);
-          setCurrentAgent(mappedProfile);
-          setIsOnDuty(data.agent.status === "active");
-        }
-
-        const mappedToday = (data.today_visits || []).map(mapApiVisitToAgentVisit);
-        const mappedUpcoming = (data.upcoming_visits || []).map(mapApiVisitToAgentVisit);
-        const mappedHistory = (data.recent_history || []).map(mapApiVisitToAgentVisit);
-
-        const allActive = [...mappedToday, ...mappedUpcoming];
-        setVisits(allActive);
-        setHistoryVisits(mappedHistory);
-        if (allActive.length > 0) {
-          setSelectedVisit((prev) => (prev ? allActive.find((v) => v.id === prev.id) || allActive[0] : allActive[0]));
-        } else {
-          setSelectedVisit(null);
-        }
-      } catch (err: any) {
-        console.warn("FastAPI unreachable, loading direct from Supabase:", err);
-        const liveDbData = await fetchDirectFromSupabase(targetIdentifier);
-        if (liveDbData) {
-          setVisits(liveDbData.visits);
-          setHistoryVisits(liveDbData.history);
-          setSelectedVisit(liveDbData.visits[0] || null);
-          if (liveDbData.agentProfile) {
-            setCurrentAgent((prev) => ({
-              ...prev,
-              ...liveDbData.agentProfile,
-            }));
-          }
-          setIsLiveBackend(true);
-          setError(null);
-        } else {
-          setIsLiveBackend(false);
-          setError(null);
-        }
-      } finally {
-        if (showLoader) setIsLoading(false);
-      }
-    },
-    [session?.access_token, profile, isOnDuty, currentAgent?.dbId, currentAgent?.id]
-  );
-
+  }, [session?.access_token]);
   // Sync data whenever authenticated session is established
   useEffect(() => {
     if (isAuthenticated) {
@@ -800,32 +393,16 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const toggleDuty = async () => {
     const nextStatus = isOnDuty ? "off_duty" : "active";
-    // 1. Instant optimistic state update with 0ms UI delay
-    setIsOnDuty(!isOnDuty);
-    setCurrentAgent((prev) => ({ ...prev, status: nextStatus }));
-    showNotification(
-      !isOnDuty ? "success" : "info",
-      !isOnDuty
-        ? "You are now ON DUTY. Field tracking active."
-        : "You are now OFF DUTY. Location updates paused."
-    );
-
-    // 2. Non-blocking direct Supabase background sync
     try {
-      const code = currentAgent?.dbId || currentAgent?.id || currentAgent?.agentCode;
-      if (code) {
-        await supabase
-          .from("agents")
-          .update({ status: nextStatus })
-          .or(`agent_code.eq.${code},id.eq.${code}`);
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3. Non-blocking FastAPI sync
-    if (session?.access_token) {
-      updateAgentDutyStatus(nextStatus, session.access_token).catch(() => {});
+      if (!session?.access_token) throw new Error("Your secure session is unavailable. Sign in again.");
+      await updateAgentDutyStatus(nextStatus, session.access_token);
+      setIsOnDuty(!isOnDuty);
+      setCurrentAgent((prev) => ({ ...prev, status: nextStatus }));
+      showNotification(!isOnDuty ? "success" : "info", !isOnDuty
+        ? "You are now ON DUTY. Field tracking active."
+        : "You are now OFF DUTY. Location updates paused.");
+    } catch (err: any) {
+      showNotification("error", extractErrorMessage(err, "Could not update duty status."));
     }
   };
 
@@ -837,7 +414,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setCurrentAgent(found);
       setIsOnDuty(found.status === "active");
       showNotification("info", `Switched agent profile to ${found.name}`);
-      await loadAgentData(true, found.dbId || found.id);
+      await loadAgentData(true);
     }
   };
 
@@ -931,7 +508,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Your secure session is unavailable. Sign in again to check in.");
       }
 
-      // 3. Sync verified location to backend (non-blocking with direct Supabase fallback)
+      // 3. Save the verified location through the backend
       if (targetLat != null && targetLng != null) {
         try {
           await updateAgentLocation({
@@ -941,18 +518,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             location_source: "gps",
           }, session.access_token);
         } catch (locErr) {
-          console.warn("Backend location update warning:", locErr);
-          const agId = currentAgent.dbId || currentAgent.id;
-          if (agId) {
-            await supabase
-              .from("agents")
-              .update({
-                current_latitude: targetLat,
-                current_longitude: targetLng,
-                last_location_update: new Date().toISOString(),
-              })
-              .or(`id.eq.${agId},agent_code.eq.${currentAgent.agentCode || agId}`);
-          }
+          throw new Error(extractErrorMessage(locErr, "Could not save your GPS location. Try again."));
         }
 
         setCurrentAgent((prev) => ({
@@ -961,46 +527,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         }));
       }
 
-      // 4. Send verified check-in to FastAPI backend or fallback to Supabase direct
-      let mapped: AgentVisit;
-      try {
-        const updatedApi = await updateAgentVisitStatus(
-          visitId,
-          "in_progress",
-          undefined,
-          session.access_token
-        );
-        mapped = mapApiVisitToAgentVisit(updatedApi);
-      } catch (statusErr: any) {
-        const errorDetail = extractErrorMessage(statusErr, "Check-in failed on server.");
-        const isGeofenceOrRuleError =
-          statusErr?.status === 409 ||
-          statusErr?.status === 400 ||
-          
-          errorDetail.toLowerCase().includes("geofence") ||
-          errorDetail.toLowerCase().includes("750") ||
-          errorDetail.toLowerCase().includes("away from");
-
-        if (isGeofenceOrRuleError) {
-          throw new Error(errorDetail);
-        }
-
-        console.warn("FastAPI visit status update failed, updating Supabase directly:", statusErr);
-        await supabase
-          .from("visits")
-          .update({
-            status: "in_progress",
-            geofence_verified: true,
-            check_in_time: new Date().toISOString(),
-          })
-          .eq("id", visitId);
-
-        mapped = {
-          ...visit,
-          status: "in_progress",
-          geofenceVerified: true,
-        };
-      }
+      const updatedApi = await updateAgentVisitStatus(visitId, "in_progress", undefined, session.access_token);
+      const mapped = mapApiVisitToAgentVisit(updatedApi);
 
       setVisits((prev) => prev.map((v) => (v.id === visitId ? mapped : v)));
       if (selectedVisit?.id === visitId) {
@@ -1122,47 +650,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         console.warn("GPS sync notice on completion:", gpsErr);
       }
 
-      // Send verified completion to FastAPI backend or Supabase direct
-      let mapped: AgentVisit;
-      try {
-        const updatedApi = await updateAgentVisitStatus(
-          visitId,
-          "completed",
-          notes,
-          session.access_token
-        );
-        mapped = mapApiVisitToAgentVisit(updatedApi);
-      } catch (statusErr: any) {
-        const errorDetail = extractErrorMessage(statusErr, "Failed to complete visit on server.");
-        const isGeofenceOrRuleError =
-          statusErr?.status === 409 ||
-          statusErr?.status === 400 ||
-          statusErr?.status === 403 ||
-          errorDetail.toLowerCase().includes("geofence") ||
-          errorDetail.toLowerCase().includes("750") ||
-          errorDetail.toLowerCase().includes("away from");
-
-        if (isGeofenceOrRuleError) {
-          throw new Error(errorDetail);
-        }
-
-        console.warn("FastAPI visit complete failed, updating Supabase directly:", statusErr);
-        await supabase
-          .from("visits")
-          .update({
-            status: "completed",
-            completion_notes: notes || "Completed",
-            completed_time: new Date().toISOString(),
-          })
-          .eq("id", visitId);
-
-        mapped = {
-          ...visit,
-          status: "completed",
-          completionNotes: notes || "Completed",
-        };
-      }
-
+      const updatedApi = await updateAgentVisitStatus(visitId, "completed", notes, session.access_token);
+      const mapped = mapApiVisitToAgentVisit(updatedApi);
       setVisits((prev) => prev.map((v) => (v.id === visitId ? mapped : v)));
       setHistoryVisits((prev) => [mapped, ...prev.filter((h) => h.id !== visitId)]);
 

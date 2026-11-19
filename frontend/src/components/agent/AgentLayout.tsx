@@ -35,12 +35,11 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { currentAgent, isOnDuty, toggleDuty, stats, notification, clearNotification } = useAgent();
-  const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
+  const { profile, role, isAuthenticated, isLoading, signOut } = useAuth();
   const isAgentAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/agent/login" || pathname === "/agent/signup";
 
   // Route protection for Field Agent Portal
-  const email = (user?.email || profile?.email || "").toLowerCase();
-  const isAdminUser = role === "admin" || email.includes("rishabmishra075") || email.includes("rishabhmishra075");
+  const isAdminUser = role === "admin";
 
   useEffect(() => {
     if (isAgentAuthPage) return;

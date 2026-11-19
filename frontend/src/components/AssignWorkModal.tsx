@@ -39,7 +39,6 @@ import DispatchLocationMap from "@/components/DispatchLocationMap";
 import PhotonAutocompleteInput from "@/components/PhotonAutocompleteInput";
 import { ParsedPhotonPlace, searchPhotonAddress } from "@/lib/photon";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
 
 interface AssignWorkModalProps {
   isOpen: boolean;
@@ -135,170 +134,19 @@ export default function AssignWorkModal({
     if (isOpen && preselectedDate) setScheduledDate(preselectedDate);
   }, [isOpen, preselectedDate]);
 
-  // Load Active Agents by combining all sources (FastAPI backend + Supabase agents table + Supabase profiles + operational roster)
+  // Load active agents from the authenticated backend only.
   const loadAgents = useCallback(async () => {
     if (!isOpen) return;
     setAgentsLoading(true);
     try {
-      const agentMap = new Map<string, AgentApiItem>();
-
-      const registerAgent = (item: Partial<AgentApiItem> & { name: string; id: string }, isFallback = false) => {
-        if (!item || !item.name) return;
-        const normalizedName = item.name.trim().toLowerCase();
-        const existing = agentMap.get(normalizedName) || agentMap.get(item.id);
-        const resolvedId = isFallback && existing?.id ? existing.id : item.id || existing?.id || item.name.toLowerCase().replace(/\s+/g, "-");
-        const merged: AgentApiItem = {
-          id: resolvedId,
-          agent_code: existing?.agent_code || item.agent_code || "AGT-" + resolvedId.slice(0, 4).toUpperCase(),
-          name: item.name.trim(),
-          email: item.email || existing?.email || "",
-          phone: item.phone || existing?.phone || "+91 98450 00000",
-          status: item.status || existing?.status || "active",
-          territory: item.territory || existing?.territory || "Mumbai Zone",
-          address: item.address || existing?.address || "Field Center",
-          location_source: item.location_source || existing?.location_source || "gps",
-          current_latitude: Number(item.current_latitude) || existing?.current_latitude || 19.21899,
-          current_longitude: Number(item.current_longitude) || existing?.current_longitude || 73.14008,
-          battery_level: 95,
-          last_location_update: item.last_location_update || existing?.last_location_update || new Date().toISOString(),
-          assigned_tasks: item.assigned_tasks ?? existing?.assigned_tasks ?? 0,
-          completed_visits: item.completed_visits ?? existing?.completed_visits ?? 0,
-          created_at: item.created_at || existing?.created_at || new Date().toISOString(),
-        };
-
-        const st = (merged.status || "").toLowerCase();
-        if (!["inactive", "suspended", "terminated"].includes(st)) {
-          agentMap.set(normalizedName, merged);
-          agentMap.set(merged.id, merged);
-        }
-      };
-
-      // 1. Fetch from FastAPI backend
-      try {
-        const result = await fetchAgents(session?.access_token, { limit: 100 });
-        if (result && Array.isArray(result.items)) {
-          for (const ag of result.items) {
-            registerAgent(ag);
-          }
-        }
-      } catch (apiErr) {
-        console.warn("[AssignWorkModal] FastAPI fetchAgents error:", apiErr);
-      }
-
-      // 2. Query Supabase direct agents and profiles tables independently
-      try {
-        const { data: dbAgents } = await supabase.from("agents").select("*");
-        const { data: dbProfiles } = await supabase.from("profiles").select("*");
-
-        const profileMap = new Map<string, any>();
-        if (dbProfiles) {
-          for (const p of dbProfiles) {
-            profileMap.set(p.id, p);
-            if (p.auth_user_id) profileMap.set(p.auth_user_id, p);
-          }
-        }
-
-        if (dbAgents && dbAgents.length > 0) {
-          for (const a of dbAgents) {
-            const prof = (a.profile_id ? profileMap.get(a.profile_id) : null) || {};
-            const name = prof.full_name || a.name || `Agent ${a.agent_code || a.id.slice(0, 4)}`;
-            registerAgent({
-              id: a.id,
-              agent_code: a.agent_code,
-              name,
-              email: prof.email || a.email,
-              phone: prof.phone || a.phone,
-              status: a.status,
-              territory: a.territory,
-              address: a.address,
-              location_source: a.location_source,
-              current_latitude: a.current_latitude,
-              current_longitude: a.current_longitude,
-              created_at: a.created_at,
-            });
-          }
-        }
-
-        if (dbProfiles && dbProfiles.length > 0) {
-          for (const p of dbProfiles) {
-            const role = (p.role || "").toLowerCase();
-            const email = (p.email || "").toLowerCase();
-            if (role === "agent" || (!role && !email.includes("admin"))) {
-              const name = p.full_name || email.split("@")[0] || "Field Agent";
-              const linkedAg = dbAgents?.find((a) => a.profile_id === p.id);
-              registerAgent({
-                id: linkedAg?.id || p.agent_id || p.id,
-                agent_code: linkedAg?.agent_code || p.agent_code || "AGT-" + p.id.slice(0, 4).toUpperCase(),
-                name,
-                email: p.email,
-                phone: p.phone,
-                status: linkedAg?.status || p.agent_status || "active",
-                territory: linkedAg?.territory || p.territory || "Mumbai Zone",
-                created_at: p.created_at,
-              });
-            }
-          }
-        }
-      } catch (dbErr) {
-        console.warn("[AssignWorkModal] Supabase agents/profiles table error:", dbErr);
-      }
-
-      // 4. Always register core operational agents including Malavya Mankar and Rishabh Mishra
-      const operationalRoster: (Partial<AgentApiItem> & { name: string; id: string })[] = [
-        {
-          id: "6f926578-e5c7-40cc-ac8e-d59616be0c38",
-          agent_code: "10051",
-          name: "Malavya Mankar",
-          email: "malavya@fos.internal",
-          phone: "+91 98450 54321",
-          status: "active",
-          territory: "Mumbai Zone",
-          address: "Navi Mumbai, Mumbai",
-          location_source: "gps",
-          current_latitude: 19.0330,
-          current_longitude: 73.0297,
-        },
-        {
-          id: "5f926578-e5c7-40cc-ac8e-d59616be0c37",
-          agent_code: "121",
-          name: "Rishabh Mishra",
-          email: "rainamishra00023@gmail.com",
-          phone: "+91 98450 12345",
-          status: "active",
-          territory: "Mumbai",
-          address: "Mumbai Central",
-          location_source: "gps",
-          current_latitude: 19.21899,
-          current_longitude: 73.14008,
-        },
-      ];
-
-      for (const opAg of operationalRoster) {
-        registerAgent(opAg, true);
-      }
-
-      // Deduplicate unique list by agent ID and normalized name
-      const seenKeys = new Set<string>();
-      const uniqueList: AgentApiItem[] = [];
-      agentMap.forEach((ag) => {
-        const nameKey = (ag.name || "").trim().toLowerCase();
-        const idKey = ag.id;
-        if (!seenKeys.has(nameKey) && !seenKeys.has(idKey)) {
-          seenKeys.add(nameKey);
-          seenKeys.add(idKey);
-          uniqueList.push(ag);
-        }
-      });
-      uniqueList.sort((a, b) =>
-        (a.agent_code || a.name).localeCompare(b.agent_code || b.name, undefined, { numeric: true })
-      );
-
-      setAgents(uniqueList);
+      const result = await fetchAgents(session?.access_token, { limit: 100 });
+      const activeAgents = result.items.filter((agent) => agent.status === "active");
+      setAgents(activeAgents);
       setSelectedAgentId((current) => {
-        if (current && uniqueList.some((agent) => agent.id === current)) return current;
-        if (preselectedAgentId && uniqueList.some((agent) => agent.id === preselectedAgentId)) return preselectedAgentId;
-        if (preselectedAgent && uniqueList.some((agent) => agent.id === preselectedAgent.id)) return preselectedAgent.id;
-        return uniqueList[0]?.id || "";
+        if (current && activeAgents.some((agent) => agent.id === current)) return current;
+        if (preselectedAgentId && activeAgents.some((agent) => agent.id === preselectedAgentId)) return preselectedAgentId;
+        if (preselectedAgent && activeAgents.some((agent) => agent.id === preselectedAgent.id)) return preselectedAgent.id;
+        return activeAgents[0]?.id || "";
       });
     } catch (err) {
       console.error("[AssignWorkModal] Unexpected error in loadAgents:", err);
@@ -314,45 +162,8 @@ export default function AssignWorkModal({
     if (!isOpen) return;
     setCustomersLoading(true);
     try {
-      let custs: CustomerApiItem[] = [];
-
-      try {
-        const result = await fetchCustomers(session?.access_token, { limit: 100 });
-        if (result && Array.isArray(result.items) && result.items.length > 0) {
-          custs = result.items;
-        }
-      } catch (apiErr) {
-        console.warn("[AssignWorkModal] FastAPI fetchCustomers error, falling back to Supabase direct:", apiErr);
-      }
-
-      if (custs.length === 0) {
-        try {
-          const { data: dbCustomers } = await supabase
-            .from("customers")
-            .select("*")
-            .order("name", { ascending: true });
-
-          if (dbCustomers && dbCustomers.length > 0) {
-            custs = dbCustomers.map((c: any) => ({
-              id: c.id,
-              name: c.name,
-              company: c.company || undefined,
-              contact_person: c.contact_person || undefined,
-              phone: c.phone || undefined,
-              email: c.email || undefined,
-              address: c.address || "",
-              city: c.city || "",
-              latitude: Number(c.latitude) || 0,
-              longitude: Number(c.longitude) || 0,
-              created_at: c.created_at || new Date().toISOString(),
-            }));
-          }
-        } catch (dbErr) {
-          console.warn("[AssignWorkModal] Supabase customers table query error:", dbErr);
-        }
-      }
-
-      setExistingCustomers(custs);
+      const result = await fetchCustomers(session?.access_token, { limit: 100 });
+      setExistingCustomers(result.items);
     } catch {
       setExistingCustomers([]);
     } finally {
@@ -675,228 +486,30 @@ export default function AssignWorkModal({
 
     setIsSubmitting(true);
     try {
-      let validAgentId = selectedAgentId;
       const selectedAgentObj = agents.find((agent) => agent.id === selectedAgentId);
-
-      // Verify or upsert agent record in Supabase to guarantee foreign key integrity
-      try {
-        const { data: dbAgent } = await supabase
-          .from("agents")
-          .select("id, profile_id")
-          .eq("id", selectedAgentId)
-          .maybeSingle();
-
-        if (dbAgent) {
-          validAgentId = dbAgent.id;
-        } else {
-          // Look up matching profile by name or email
-          const agentNameClean = (selectedAgentObj?.name || "").trim();
-          const { data: prof } = await supabase
-            .from("profiles")
-            .select("id, full_name, email")
-            .ilike("full_name", agentNameClean)
-            .maybeSingle();
-
-          let existingAgForProf: any = null;
-          if (prof) {
-            const { data: agRow } = await supabase
-              .from("agents")
-              .select("id, profile_id")
-              .eq("profile_id", prof.id)
-              .maybeSingle();
-            existingAgForProf = agRow;
-          }
-
-          if (existingAgForProf) {
-            validAgentId = existingAgForProf.id;
-          } else {
-            // Check by agent_code
-            const { data: dbAgByCode } = await supabase
-              .from("agents")
-              .select("id")
-              .in("agent_code", [selectedAgentObj?.agent_code || "", "10051", "AGT-122", "121", "AGT-121"])
-              .maybeSingle();
-
-            if (dbAgByCode) {
-              validAgentId = dbAgByCode.id;
-            } else {
-              const fallbackEmpCode = agentNameClean.toLowerCase().includes("malavya")
-                ? "10051"
-                : selectedAgentObj?.agent_code || "AGT-" + selectedAgentId.slice(0, 4).toUpperCase();
-
-              const { data: newAg } = await supabase
-                .from("agents")
-                .upsert({
-                  id: selectedAgentId,
-                  profile_id: prof?.id || null,
-                  agent_code: fallbackEmpCode,
-                  status: "active",
-                  territory: selectedAgentObj?.territory || "Mumbai Zone",
-                  address: selectedAgentObj?.address || "Mumbai Central Hub",
-                  location_source: "gps",
-                  current_latitude: selectedAgentObj?.current_latitude || 19.21899,
-                  current_longitude: selectedAgentObj?.current_longitude || 73.14008,
-                })
-                .select("id")
-                .maybeSingle();
-
-              if (newAg) {
-                validAgentId = newAg.id;
-              }
-            }
-          }
-        }
-      } catch (ensureErr) {
-        console.warn("[AssignWorkModal] Ensure agent row warning:", ensureErr);
-      }
-
-      let visit: any = null;
       const combinedNotes = [purpose ? `Purpose: ${purpose.trim()}` : "", notes ? notes.trim() : ""].filter(Boolean).join(" · ");
-      try {
-        visit = await createDispatchedVisit(
-          {
-            customer_id: selectedCustomerId || undefined,
-            agent_id: validAgentId,
-            customer_name: customerName.trim(),
-            company: company.trim() || undefined,
-            contact_person: contactPerson.trim() || undefined,
-            phone: phone.trim() || undefined,
-            email: email.trim() || undefined,
-            address: address.trim(),
-            city: persistedCity,
-            latitude: coordinates.latitude,
-            longitude: coordinates.longitude,
-            scheduled_date: scheduledDate || today(),
-            scheduled_time: scheduledTime || "10:30 AM",
-            priority,
-            notes: combinedNotes || undefined,
-          },
-          session?.access_token
-        );
-      } catch (apiErr) {
-        console.warn("[AssignWorkModal] Backend dispatch call threw error, verifying if record already saved:", apiErr);
+      const visit = await createDispatchedVisit(
+        {
+          customer_id: selectedCustomerId || undefined,
+          agent_id: selectedAgentId,
+          customer_name: customerName.trim(),
+          company: company.trim() || undefined,
+          contact_person: contactPerson.trim() || undefined,
+          phone: phone.trim() || undefined,
+          email: email.trim() || undefined,
+          address: address.trim(),
+          city: persistedCity,
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+          scheduled_date: scheduledDate || today(),
+          scheduled_time: scheduledTime || "10:30 AM",
+          priority,
+          notes: combinedNotes || undefined,
+        },
+        session?.access_token
+      );
 
-        // Safety check: verify if the visit was already committed in database before doing direct fallback
-        const { data: recentCandidateVisits } = await supabase
-          .from("visits")
-          .select("id, visit_code, scheduled_date, scheduled_time, customers(name, address)")
-          .eq("agent_id", validAgentId)
-          .eq("scheduled_date", scheduledDate || today())
-          .order("created_at", { ascending: false })
-          .limit(5);
-
-        const alreadySaved = recentCandidateVisits?.find((v: any) => {
-          const c = Array.isArray(v.customers) ? v.customers[0] : v.customers;
-          const matchName = (c?.name || "").toLowerCase().trim();
-          return matchName === customerName.toLowerCase().trim();
-        });
-
-        if (alreadySaved) {
-          console.info("[AssignWorkModal] Visit was already persisted by backend, skipping fallback insert to prevent duplicates:", alreadySaved.id);
-          visit = {
-            id: alreadySaved.id,
-            visit_code: alreadySaved.visit_code,
-            customer_latitude: coordinates.latitude,
-            customer_longitude: coordinates.longitude,
-          };
-        } else {
-          let targetCustomerId: string | undefined = selectedCustomerId || undefined;
-          if (targetCustomerId) {
-            const { data: custExists } = await supabase
-              .from("customers")
-              .select("id")
-              .eq("id", targetCustomerId)
-              .maybeSingle();
-
-            if (!custExists) {
-              targetCustomerId = undefined;
-            }
-          }
-
-          if (!targetCustomerId) {
-            const newCustId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "cust-" + Date.now();
-            const { data: newCust, error: custErr } = await supabase
-              .from("customers")
-              .insert({
-                id: newCustId,
-                name: customerName.trim(),
-                company: company.trim() || null,
-                contact_person: contactPerson.trim() || null,
-                phone: phone.trim() || null,
-                email: email.trim().toLowerCase() || null,
-                address: address.trim(),
-                city: persistedCity,
-                latitude: coordinates.latitude,
-                longitude: coordinates.longitude,
-              })
-              .select()
-              .single();
-
-            if (custErr && !newCust) {
-              const errText = custErr?.message || JSON.stringify(custErr);
-              throw new Error(errText);
-            }
-            targetCustomerId = newCust?.id || newCustId;
-          }
-
-          // Compute order index dynamically
-          const { count: existingVisitCount } = await supabase
-            .from("visits")
-            .select("id", { count: "exact", head: true })
-            .eq("agent_id", validAgentId)
-            .eq("scheduled_date", scheduledDate || today());
-
-          const nextOrder = (existingVisitCount || 0) + 1;
-          const visitId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "vst-" + Date.now();
-          const visitCode = "VST-" + Math.floor(100000 + Math.random() * 900000);
-          const { data: newVisit, error: visitErr } = await supabase
-            .from("visits")
-            .insert({
-              id: visitId,
-              customer_id: targetCustomerId,
-              agent_id: validAgentId,
-              visit_code: visitCode,
-              scheduled_date: scheduledDate || today(),
-              scheduled_time: scheduledTime || "10:30 AM",
-              status: "pending",
-              order_index: nextOrder,
-              estimated_duration_minutes: 45,
-              purpose: purpose.trim() || notes.trim() || "Field Inspection",
-              geofence_verified: false,
-            })
-            .select()
-            .single();
-
-          if (visitErr && !newVisit) {
-            const errText = visitErr?.message || JSON.stringify(visitErr);
-            throw new Error(errText);
-          }
-
-          visit = {
-            id: newVisit?.id || visitId,
-            visit_code: newVisit?.visit_code || visitCode,
-            customer_latitude: coordinates.latitude,
-            customer_longitude: coordinates.longitude,
-          };
-
-          // Also sync assignments table
-          try {
-            const assignId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "asn-" + Date.now();
-            await supabase.from("assignments").insert({
-              id: assignId,
-              agent_id: validAgentId,
-              status: "assigned",
-              scheduled_date: scheduledDate || today(),
-              scheduled_time: scheduledTime || "10:30 AM",
-              notes: notes.trim() || undefined,
-            });
-          } catch {
-            // non-fatal
-          }
-        }
-      }
-
-      const selectedAgent = agents.find((agent) => agent.id === validAgentId) || selectedAgentObj;
+      const selectedAgent = selectedAgentObj;
       const entranceStatus = isEntranceVerified ? "Entrance-verified" : "Centroid";
       const summary = `Visit ${visit.visit_code || visit.id.slice(0, 8)} assigned to ${
         selectedAgent?.name || "agent"

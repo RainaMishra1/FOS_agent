@@ -33,9 +33,12 @@ export default function AgentMapPreview({
   const [zoomLevel, setZoomLevel] = useState(1);
   const [hoveredStop, setHoveredStop] = useState<AgentVisit | null>(null);
 
+  const today = new Date();
+  const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
   // Today's stops
   const todayVisits = visits.filter(
-    (v) => v.scheduledDate === "2026-10-18" || v.status === "completed" || v.status === "in_progress"
+    (v) => v.scheduledDate === todayDate || v.status === "completed" || v.status === "in_progress"
   );
 
   // Map center coordinates around Bangalore Central (12.97, 77.60)
@@ -84,7 +87,7 @@ export default function AgentMapPreview({
             <span>{currentAgent.territory.split("(")[0].trim()}</span>
           </div>
           <span className="text-[10px] px-2 py-0.5 rounded-lg bg-beige-card/80 backdrop-blur-xs text-beige-muted border border-beige-border">
-            Demo Map Preview
+            Schematic preview
           </span>
         </div>
 

@@ -34,24 +34,17 @@ export default function AnalyticsPage() {
   const activeCount = assignments.filter((a) => a.status === "active").length;
   const assignedCount = assignments.filter((a) => a.status === "assigned").length;
   const pendingCount = assignments.filter((a) => a.status === "pending").length;
-  const totalCount = assignments.length || 1;
+  const totalCount = assignments.length;
+  const percentage = (count: number) => totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
 
   const statusBreakdown = [
-    { label: "Completed", count: completedCount, color: "#687653", pct: Math.round((completedCount / totalCount) * 100) },
-    { label: "Active Visits", count: activeCount, color: "#B76E52", pct: Math.round((activeCount / totalCount) * 100) },
-    { label: "Assigned & En Route", count: assignedCount, color: "#C48A3F", pct: Math.round((assignedCount / totalCount) * 100) },
-    { label: "Pending in Queue", count: pendingCount, color: "#9E8C78", pct: Math.round((pendingCount / totalCount) * 100) },
+    { label: "Completed", count: completedCount, color: "#687653", pct: percentage(completedCount) },
+    { label: "Active Visits", count: activeCount, color: "#B76E52", pct: percentage(activeCount) },
+    { label: "Assigned & En Route", count: assignedCount, color: "#C48A3F", pct: percentage(assignedCount) },
+    { label: "Pending in Queue", count: pendingCount, color: "#9E8C78", pct: percentage(pendingCount) },
   ];
 
-  const weeklyActivity = [
-    { day: "Mon", scheduled: Math.round(totalCount * 0.12), completed: Math.round(completedCount * 0.1), rate: 80 },
-    { day: "Tue", scheduled: Math.round(totalCount * 0.18), completed: Math.round(completedCount * 0.2), rate: 85 },
-    { day: "Wed", scheduled: Math.round(totalCount * 0.15), completed: Math.round(completedCount * 0.18), rate: 82 },
-    { day: "Thu", scheduled: Math.round(totalCount * 0.2), completed: Math.round(completedCount * 0.22), rate: 75 },
-    { day: "Fri", scheduled: Math.round(totalCount * 0.22), completed: Math.round(completedCount * 0.2), rate: 70 },
-    { day: "Sat", scheduled: Math.round(totalCount * 0.1), completed: Math.round(completedCount * 0.08), rate: 90 },
-    { day: "Sun", scheduled: Math.round(totalCount * 0.03), completed: Math.round(completedCount * 0.02), rate: 95 },
-  ];
+  const weeklyActivity: { day: string; scheduled: number; completed: number; rate: number }[] = [];
 
   return (
     <div className="space-y-6">
@@ -153,8 +146,11 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* SVG Visual Bar Chart */}
-          <div className="py-2">
+          {weeklyActivity.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-beige-border bg-beige-bg p-8 text-center text-xs text-beige-muted">
+              Weekly activity is not available from the current backend data.
+            </div>
+          ) : <div className="py-2">
             <div className="h-64 w-full flex items-end justify-between gap-2 pt-6 pb-2">
               {weeklyActivity.map((d) => {
                 const maxVal = 90;
@@ -186,7 +182,7 @@ export default function AnalyticsPage() {
                 );
               })}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Task Status Distribution Donut Breakdown (4 Cols) */}

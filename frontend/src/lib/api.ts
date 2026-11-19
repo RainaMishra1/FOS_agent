@@ -443,52 +443,12 @@ export async function optimizeAgentTodayRoute(token?: string | null, asOfDate?: 
   return await apiFetch(`/agent/routes/optimize${query}`, { method: "POST" }, token);
 }
 
-export async function fetchOsrmRoadRoute(coordinates: [number, number][]): Promise<RoadRouteData> {
-  const coordPath = coordinates.map(([lon, lat]) => `${lon},${lat}`).join(";");
-  const res = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordPath}?overview=full&geometries=geojson&steps=true`,
-    { headers: { Accept: "application/json" } }
-  );
-  if (!res.ok) {
-    throw new Error(`OSRM road route request failed: ${res.statusText}`);
-  }
-  const text = await res.text();
-  let data: any = null;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("Invalid response format received from OSRM service");
-  }
-  if (data.code !== "Ok" || !data.routes || !data.routes[0]) {
-    throw new Error("No road route available between locations");
-  }
-  const route = data.routes[0];
-  return {
-    geometry: route.geometry,
-    distance_meters: route.distance,
-    duration_seconds: route.duration,
-    legs: route.legs || [],
-  };
-}
-
 export async function fetchAgentRouteGeometry(
   visitIds: string[],
-  token?: string | null,
-  fallbackCoords?: [number, number][]
+  token?: string | null
 ): Promise<RoadRouteData> {
-  try {
-    const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
-    return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
-  } catch (err) {
-    if (fallbackCoords && fallbackCoords.length >= 2) {
-      try {
-        return await fetchOsrmRoadRoute(fallbackCoords);
-      } catch (osrmErr) {
-        console.warn("Direct OSRM fallback notice:", osrmErr);
-      }
-    }
-    throw err;
-  }
+  const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
+  return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
 }
 
 export interface VisitListApiResponse {

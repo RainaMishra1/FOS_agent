@@ -16,7 +16,7 @@ FOS_agent/
 ├── backend/                   # Python FastAPI Backend
 │   ├── app/
 │   │   ├── api/v1/            # REST API endpoints (health, auth, agents, visits)
-│   │   ├── core/              # Security, JWT auth, and bootstrap utilities
+│   │   ├── core/              # Security and JWT authentication
 │   │   ├── db/                # SQLAlchemy session & database engine
 │   │   ├── models/            # SQLAlchemy ORM models (PostGIS Geography)
 │   │   ├── schemas/           # Pydantic validation schemas

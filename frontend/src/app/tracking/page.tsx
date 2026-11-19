@@ -11,7 +11,6 @@ import {
   VisitApiResponse,
   AdminRoutePreview,
 } from "@/lib/api";
-import { supabase } from "@/lib/supabaseClient";
 import AgentRoadRouteMap, { RouteMapStop } from "@/components/agent/AgentRoadRouteMap";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import StatusBadge from "@/components/StatusBadge";
@@ -92,172 +91,82 @@ export default function AgentTrackingPage() {
   const [copiedGps, setCopiedGps] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Load agents from live API (falling back to mockAgents if empty or offline)
   const loadAgents = useCallback(async () => {
     setIsLoadingAgents(true);
     setErrorMessage(null);
     try {
-      const res = await fetchAgents(session?.access_token, { limit: 100 });
-      if (res.items && res.items.length > 0) {
-        setAgents(res.items);
-        setSelectedAgentId((current) => {
-          if (queryAgentId && res.items.some((a) => a.id === queryAgentId)) {
-            return queryAgentId;
-          }
-          if (current && res.items.some((a) => a.id === current)) return current;
-          return res.items[0]?.id || "";
-        });
-      } else {
-        void fallbackToLiveAgents();
-      }
+      const result = await fetchAgents(session?.access_token, { limit: 100 });
+      setAgents(result.items);
+      setSelectedAgentId((current) => {
+        if (queryAgentId && result.items.some((agent) => agent.id === queryAgentId)) return queryAgentId;
+        if (current && result.items.some((agent) => agent.id === current)) return current;
+        return result.items[0]?.id || "";
+      });
     } catch (err: any) {
-      console.warn("Could not load agents from live server, using Supabase data:", err);
-      void fallbackToLiveAgents();
+      setAgents([]);
+      setSelectedAgentId("");
+      setErrorMessage(err?.message || "Could not load field agents.");
     } finally {
       setIsLoadingAgents(false);
     }
   }, [session?.access_token, queryAgentId]);
 
-  const fallbackToLiveAgents = async () => {
-    try {
-      const { data: dbAgents } = await supabase
-        .from("agents")
-        .select("*, profile:profiles(id, full_name, email, phone)");
-
-      if (dbAgents && dbAgents.length > 0) {
-        const converted: AgentApiItem[] = dbAgents.map((a: any) => ({
-          id: a.id,
-          agent_code: a.agent_code || a.id.slice(0, 8),
-          name: a.profile?.full_name || "Field Agent",
-          email: a.profile?.email || "",
-          phone: a.profile?.phone || "+91 98450 00000",
-          status: a.status || "active",
-          territory: a.territory || "Field Hub",
-          address: a.address || "Field Center",
-          location_source: a.location_source || "gps",
-          current_latitude: Number(a.current_latitude) || 12.9716,
-          current_longitude: Number(a.current_longitude) || 77.5946,
-          battery_level: a.battery_level ?? 90,
-          last_location_update: a.last_location_update || new Date().toISOString(),
-          assigned_tasks: 2,
-          completed_visits: 1,
-          created_at: a.created_at || new Date().toISOString(),
-        }));
-        setAgents(converted);
-        setSelectedAgentId((current) => {
-          if (queryAgentId && converted.some((a) => a.id === queryAgentId)) {
-            return queryAgentId;
-          }
-          if (current && converted.some((a) => a.id === current)) return current;
-          return converted[0]?.id || "";
-        });
-      }
-    } catch (err) {
-      console.warn("Supabase live agent fallback exception:", err);
-    }
-  };
-
-  useEffect(() => {
-    loadAgents();
-  }, [loadAgents]);
-
+  useEffect(() => { void loadAgents(); }, [loadAgents]);
   // Current selected agent object
   const selectedAgent = useMemo(() => {
     return agents.find((a) => a.id === selectedAgentId) || null;
   }, [agents, selectedAgentId]);
 
-  // Load visits and route geometry for selected agent
   const loadVisitsAndRoute = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId) {
+      setVisits([]);
+      setRoutePreview(null);
+      setIsRefreshing(false);
+      return;
+    }
     setIsLoadingVisits(true);
     setRoutePreview(null);
     setErrorMessage(null);
-
     try {
-      // 1. Try fetching from live backend
-      const visitRes = await fetchScheduledVisits(
-        selectedAgentId,
-        scheduledDate,
-        session?.access_token
-      );
-
-      if (visitRes.items && visitRes.items.length > 0) {
-        setVisits(visitRes.items);
-        // Preview road route via OSRM
+      const visitRes = await fetchScheduledVisits(selectedAgentId, scheduledDate, session?.access_token);
+      setVisits(visitRes.items);
+      if (visitRes.items.length > 0) {
         try {
-          const preview = await previewAdminRoute(
-            {
-              agent_id: selectedAgentId,
-              scheduled_date: scheduledDate,
-              visit_ids: visitRes.items.map((v) => v.id),
-            },
-            session?.access_token
-          );
+          const preview = await previewAdminRoute({
+            agent_id: selectedAgentId,
+            scheduled_date: scheduledDate,
+            visit_ids: visitRes.items.map((visit) => visit.id),
+          }, session?.access_token);
           setRoutePreview(preview);
-        } catch (routeErr) {
-          console.warn("OSRM road route preview failed:", routeErr);
+        } catch (routeErr: any) {
+          setErrorMessage(routeErr?.message || "Route preview is currently unavailable.");
         }
-      } else {
-        // Fallback to live Supabase database visits for this agent
-        void loadLiveVisitsForAgent(selectedAgentId);
       }
     } catch (err: any) {
-      console.warn("Live visits fetch failed, loading Supabase database data:", err);
-      void loadLiveVisitsForAgent(selectedAgentId);
+      setVisits([]);
+      setErrorMessage(err?.message || "Could not load scheduled visits.");
     } finally {
       setIsLoadingVisits(false);
       setIsRefreshing(false);
     }
   }, [selectedAgentId, scheduledDate, session?.access_token]);
-
-  const loadLiveVisitsForAgent = async (agentId: string) => {
-    try {
-      const { data: dbVisits } = await supabase
-        .from("visits")
-        .select("*, customer:customers(*)")
-        .eq("agent_id", agentId);
-
-      if (dbVisits && dbVisits.length > 0) {
-        const converted: VisitApiResponse[] = dbVisits.map((v: any) => ({
-          id: v.id,
-          visit_code: v.visit_code || `VIS-${v.id.slice(0, 6)}`,
-          customer_id: v.customer_id,
-          agent_id: agentId,
-          customer_name: v.customer?.name || "Customer Site",
-          customer_company: v.customer?.company || "Enterprise Client",
-          customer_address: v.customer?.address || "Field Operations Site",
-          customer_latitude: Number(v.customer?.latitude) || 12.9716,
-          customer_longitude: Number(v.customer?.longitude) || 77.5946,
-          scheduled_date: v.scheduled_date || scheduledDate,
-          scheduled_time: v.scheduled_time || "10:30 AM",
-          status: v.status || "pending",
-          geofence_verified: Boolean(v.geofence_verified),
-          accuracy_meters: 15.0,
-          purpose: v.purpose || "Field inspection",
-          order_index: v.order_index || 1,
-          estimated_duration_minutes: 45,
-          created_at: v.created_at || new Date().toISOString(),
-        }));
-        setVisits(converted);
-      } else {
-        setVisits([]);
-      }
-    } catch (err) {
-      console.warn("Could not query visits from Supabase:", err);
-      setVisits([]);
-    }
-  };
-
   useEffect(() => {
     if (selectedAgentId) {
       loadVisitsAndRoute();
+    } else {
+      setVisits([]);
+      setRoutePreview(null);
     }
   }, [selectedAgentId, loadVisitsAndRoute]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await loadAgents();
-    await loadVisitsAndRoute();
+    try {
+      await loadAgents();
+      await loadVisitsAndRoute();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleCopyGps = () => {

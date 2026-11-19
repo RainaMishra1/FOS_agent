@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { UserRole } from "@/types";
 import { getApiBaseUrl } from "@/lib/api";
-import { supabase } from "@/lib/supabaseClient";
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -77,81 +76,25 @@ export default function UnifiedSignupForm() {
     setBusy(true);
 
     try {
-      let registered = false;
-
-      // 1. Attempt server-side API registration with FastAPI backend
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-        const response = await fetch(`${API_BASE_URL}/auth/signup/${selectedRole}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            full_name: fullName.trim(),
-            email: email.trim(),
-            password,
-            secret_key: secretKey.trim(),
-            ...(isAdmin ? {} : { employee_id: employeeId.trim() }),
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          registered = true;
-        } else {
-          const data = await response.json().catch(() => ({}));
-          if (response.status === 409 || response.status === 403 || response.status === 422 || response.status === 404) {
-            throw new Error(data.detail || "Unable to register account. Please check your credentials.");
-          }
-        }
-      } catch (err: any) {
-        if (err.message && !err.message.includes("fetch") && !err.message.includes("abort")) {
-          throw err;
-        }
-      }
-
-      // 2. Direct Supabase registration fallback if backend is offline
-      if (!registered) {
-        const { data: sbData, error: sbError } = await supabase.auth.signUp({
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(`${API_BASE_URL}/auth/signup/${selectedRole}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fullName.trim(),
           email: email.trim(),
           password,
-          options: {
-            data: {
-              full_name: fullName.trim(),
-              role: selectedRole,
-              employee_id: employeeId.trim(),
-            },
-          },
-        });
-        if (sbError && !sbError.message.toLowerCase().includes("already registered")) {
-          throw new Error(sbError.message);
-        }
-
-        // Ensure SQL database has the profile with the selected role
-        try {
-          const authUid = sbData?.user?.id;
-          await supabase.from("profiles").upsert(
-            {
-              ...(authUid ? { auth_user_id: authUid } : {}),
-              email: email.trim().toLowerCase(),
-              full_name: fullName.trim(),
-              role: selectedRole,
-            },
-            { onConflict: "email" }
-          );
-        } catch {}
+          secret_key: secretKey.trim(),
+          ...(isAdmin ? {} : { employee_id: employeeId.trim() }),
+        }),
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeoutId);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || `Registration failed (${response.status}).`);
       }
-
-      // Clear any previous stale session from storage
-      try {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("fos_local_user");
-          localStorage.removeItem("fos_local_session");
-          localStorage.removeItem("fos_local_profile");
-        }
-      } catch {}
 
       setSuccess(true);
       setMessage(`Account created successfully as ${roleTitle}! Redirecting to login…`);

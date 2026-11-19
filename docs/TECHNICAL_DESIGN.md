@@ -106,7 +106,7 @@ The v1 router includes health, authentication/provisioning, dashboard summary, a
 - Customer listing, detail, and updates.
 - Visit scheduling/dispatch, listing, status changes, and route preview/order persistence.
 - Agent dashboard, own profile/visits/history, duty state, location updates, and route views.
-- Admin bootstrap for the first administrator, subsequent admin provisioning, and signup routes.
+- Protected admin provisioning and registration routes; public bootstrap is disabled.
 
 The generated OpenAPI specification is the authoritative detail for request and response shapes.
 
@@ -116,7 +116,7 @@ The generated OpenAPI specification is the authoritative detail for request and 
 - The browser should receive only public Supabase configuration (project URL and anon key). Service-role credentials, JWT secrets, registration keys, and database URLs belong only in backend secrets.
 - CORS origins and optional preview-origin regex are configured from backend settings.
 - Database connections use asyncpg through SQLAlchemy and enable TLS for non-local database hosts.
-- First-admin bootstrap is intended to work only while there are no administrator profiles; subsequent admin provisioning is role-protected.
+- Public first-admin bootstrap is disabled. Admin registration requires a server-side key and production email allowlist; subsequent admin provisioning is role-protected.
 - Environment templates are in `backend/.env.example` and `frontend/.env.example`; actual secret values must be supplied by the deployment environment.
 
 ## 8. Deployment shape

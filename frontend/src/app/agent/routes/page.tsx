@@ -61,8 +61,8 @@ function AgentRoutePageContent() {
   const searchParams = useSearchParams();
   const preselectedVisitId = searchParams.get("visitId");
 
-  const { session, profile } = useAuth();
-  const { checkInVisit, isOnDuty, visits, currentAgent } = useAgent();
+  const { session } = useAuth();
+  const { checkInVisit, isOnDuty } = useAgent();
 
   const [routeData, setRouteData] = useState<AgentRouteData | null>(null);
   const [roadRoute, setRoadRoute] = useState<RoadRouteData | null>(null);
@@ -147,91 +147,15 @@ function AgentRoutePageContent() {
         );
       }
 
-      // 2. Load route from server or synthesize immediately from AgentContext visits
+      // Route data must come from the backend so route order and coordinates stay authoritative.
       try {
-        let result: AgentRouteData;
-        try {
-          result = await fetchAgentTodayRoute(session?.access_token, localDateString());
-          if (!result.completed) {
-            result.completed = [];
-          }
-          if (!result.stops) {
-            result.stops = [];
-          }
-          if (liveGpsCoords && result.origin) {
-            result.origin.latitude = liveGpsCoords.latitude;
-            result.origin.longitude = liveGpsCoords.longitude;
-            result.origin.accuracy_meters = liveGpsCoords.accuracy;
-          }
-        } catch {
-          const originLat = liveGpsCoords?.latitude || currentAgent.currentCoordinates?.lat || 19.2403;
-          const originLng = liveGpsCoords?.longitude || currentAgent.currentCoordinates?.lng || 73.1305;
-          const activeStops = visits.filter((v) => v.status !== "completed");
-          const completedStops = visits.filter((v) => v.status === "completed");
-
-          result = {
-            date: localDateString(),
-            origin: {
-              latitude: originLat,
-              longitude: originLng,
-              source: "gps",
-              accuracy_meters: liveGpsCoords?.accuracy ?? 10,
-              updated_at: new Date().toISOString(),
-            },
-            origin_error: null,
-            stops: activeStops.map((v, i) => {
-              const visitAny = v as any;
-              return {
-                id: v.id,
-                customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
-                visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
-                customer_name: v.customerName,
-                customer_company: v.company,
-                customer_address: v.address,
-                customer_city: v.city,
-                customer_latitude: v.coordinates?.lat ?? visitAny.latitude ?? 19.2403,
-                customer_longitude: v.coordinates?.lng ?? visitAny.longitude ?? 73.1305,
-                customer_phone: v.phone,
-                customer_email: v.email,
-                purpose: v.purpose,
-                priority: v.priority,
-                status: v.status,
-                geofence_verified: Boolean(v.geofenceVerified),
-                order_index: v.orderIndex || i + 1,
-                scheduled_time: v.scheduledTime || "10:00 AM",
-                scheduled_date: v.scheduledDate || localDateString(),
-                estimated_duration_minutes: 45,
-                created_at: new Date().toISOString(),
-              };
-            }),
-            completed: completedStops.map((v, i) => {
-              const visitAny = v as any;
-              return {
-                id: v.id,
-                customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
-                visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
-                customer_name: v.customerName,
-                customer_company: v.company,
-                customer_address: v.address,
-                customer_city: v.city,
-                customer_latitude: v.coordinates?.lat ?? visitAny.latitude ?? 19.2403,
-                customer_longitude: v.coordinates?.lng ?? visitAny.longitude ?? 73.1305,
-                customer_phone: v.phone,
-                customer_email: v.email,
-                purpose: v.purpose,
-                priority: v.priority,
-                status: v.status,
-                geofence_verified: Boolean(v.geofenceVerified),
-                order_index: v.orderIndex || i + 1,
-                scheduled_time: v.scheduledTime || "10:00 AM",
-                scheduled_date: v.scheduledDate || localDateString(),
-                estimated_duration_minutes: 45,
-                created_at: new Date().toISOString(),
-              };
-            }),
-          };
+        const result = await fetchAgentTodayRoute(session?.access_token, localDateString());
+        if (!result.completed) result.completed = [];
+        if (!result.stops) result.stops = [];
+        if (liveGpsCoords && result.origin) {
+          result.origin.latitude = liveGpsCoords.latitude;
+          result.origin.longitude = liveGpsCoords.longitude;
+          result.origin.accuracy_meters = liveGpsCoords.accuracy;
         }
 
         setRouteData(result);
@@ -251,14 +175,7 @@ function AgentRoutePageContent() {
           setIsSingleTaskRoute(true);
           const stop = (result.stops || []).find((s) => s.id === targetId);
           try {
-            const fallbackCoords: [number, number][] =
-              result.origin && stop?.customer_latitude != null && stop?.customer_longitude != null
-                ? [
-                    [result.origin.longitude, result.origin.latitude],
-                    [stop.customer_longitude, stop.customer_latitude],
-                  ]
-                : [];
-            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token, fallbackCoords);
+            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token);
             setRoadRoute(geom);
             if (autoStart) {
               setIsNavigating(true);
@@ -274,14 +191,7 @@ function AgentRoutePageContent() {
 
           if (geometryIds.length > 0 && result.origin) {
             try {
-              const fallbackCoords: [number, number][] = [
-                [result.origin.longitude, result.origin.latitude],
-                ...geometryIds.map((id) => {
-                  const s = result.stops.find((v) => v.id === id)!;
-                  return [s.customer_longitude!, s.customer_latitude!] as [number, number];
-                }),
-              ];
-              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
+              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
               setRoadRoute(geom);
             } catch {
               setRoadRoute(null);
@@ -292,17 +202,21 @@ function AgentRoutePageContent() {
         }
       } catch (err: any) {
         console.warn("Route load notice:", err);
+        setRouteData(null);
+        setOrderedIds([]);
+        setRoadRoute(null);
+        setError(err?.detail || err?.message || "Could not load today's route. Please try again.");
       } finally {
         setLoading(false);
       }
     },
-    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, syncLocationIfMoved, visits, currentAgent, searchParams]
+    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, syncLocationIfMoved, searchParams]
   );
 
   useEffect(() => {
     void loadRoute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, currentAgent.id, currentAgent.dbId, visits]);
+  }, [session?.access_token]);
 
   // Compute straight-line distances from agent origin to each pending stop and locate the nearest pending task
   const stopsWithDistances = useMemo(() => {
@@ -398,13 +312,8 @@ function AgentRoutePageContent() {
     setRouteLoading(true);
     setError(null);
 
-    const fallbackCoords: [number, number][] = [
-      [originLng, originLat],
-      [taskStop.customer_longitude!, taskStop.customer_latitude!],
-    ];
-
     try {
-      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token, fallbackCoords);
+      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token);
       setRoadRoute(geom);
       lastRoutedLocationRef.current = { lat: originLat, lng: originLng };
       lastRoutedTargetRef.current = taskStop.id;
@@ -453,14 +362,7 @@ function AgentRoutePageContent() {
       });
 
       if (geometryIds.length > 0) {
-        const fallbackCoords: [number, number][] = [
-          [routeData.origin.longitude, routeData.origin.latitude],
-          ...geometryIds.map((id) => {
-            const s = routeData.stops?.find((v) => v.id === id)!;
-            return [s.customer_longitude!, s.customer_latitude!] as [number, number];
-          }),
-        ];
-        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
+        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
         setRoadRoute(geom);
       } else {
         setRoadRoute(null);

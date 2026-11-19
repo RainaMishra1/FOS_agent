@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
 import AgentRoadRouteMap from "@/components/agent/AgentRoadRouteMap";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import StatusBadge from "@/components/StatusBadge";
@@ -41,130 +40,55 @@ export default function AdminRoutePlanningPage() {
 
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true);
+    setError(null);
     try {
-      if (session?.access_token) {
-        const result = await fetchAgents(session.access_token, { limit: 100 });
-        if (result.items?.length) {
-          setAgents(result.items);
-          setAgentId((current) => current && result.items.some((agent) => agent.id === current)
-            ? current : result.items[0]?.id || "");
-          setError(null);
-          setLoadingAgents(false);
-          return;
-        }
-      }
+      if (!session?.access_token) throw new Error("Your secure session is unavailable. Sign in again.");
+      const result = await fetchAgents(session.access_token, { limit: 100 });
+      setAgents(result.items);
+      setAgentId((current) => current && result.items.some((agent) => agent.id === current)
+        ? current : result.items[0]?.id || "");
     } catch (err: any) {
-      console.warn("FastAPI unreachable, loading agents directly from Supabase:", err);
-    }
-
-    try {
-      const { data: dbAgents } = await supabase
-        .from("agents")
-        .select("*, profile:profiles(id, full_name, email, phone)");
-
-      if (dbAgents && dbAgents.length > 0) {
-        const mapped: AgentApiItem[] = dbAgents.map((a: any) => ({
-          id: a.id,
-          agent_code: a.agent_code || a.id.slice(0, 8),
-          name: a.profile?.full_name || "Field Agent",
-          email: a.profile?.email || "",
-          phone: a.profile?.phone || "+91 98450 00000",
-          status: a.status || "active",
-          territory: a.territory || "Field Hub",
-          address: a.address || "Field Center",
-          location_source: a.location_source || "gps",
-          current_latitude: Number(a.current_latitude) || 19.21899,
-          current_longitude: Number(a.current_longitude) || 73.14006,
-          battery_level: a.battery_level ?? 90,
-          last_location_update: a.last_location_update || new Date().toISOString(),
-          assigned_tasks: 2,
-          completed_visits: 1,
-          created_at: a.created_at || new Date().toISOString(),
-        }));
-        setAgents(mapped);
-        setAgentId((current) => current && mapped.some((agent) => agent.id === current)
-          ? current : mapped[0]?.id || "");
-        setError(null);
-      }
-    } catch (sbErr) {
-      setError("Could not load field agents from database.");
+      setAgents([]);
+      setAgentId("");
+      setError(err?.message || "Could not load field agents.");
     } finally {
       setLoadingAgents(false);
     }
   }, [session?.access_token]);
-
   useEffect(() => { void loadAgents(); }, [loadAgents]);
 
   const selectedAgent = useMemo(() => agents.find((agent) => agent.id === agentId) || null, [agents, agentId]);
 
   const loadVisits = useCallback(async () => {
-    if (!agentId) return;
+    if (!agentId) { setVisits([]); setPreview(null); return; }
     setLoadingVisits(true);
     setError(null);
     setMessage(null);
     setPreview(null);
     try {
-      if (session?.access_token) {
-        const result = await fetchScheduledVisits(agentId, scheduledDate, session.access_token);
-        const activeVisits = result.items.filter((visit) => visit.status !== "completed");
-        setVisits(activeVisits);
-        if (activeVisits.length) {
-          try {
-            const route = await previewAdminRoute({
-              agent_id: agentId,
-              scheduled_date: scheduledDate,
-              visit_ids: activeVisits.map((visit) => visit.id),
-            }, session.access_token);
-            setPreview(route);
-          } catch (err: any) {
-            setError(err?.detail || err?.message || "Stops loaded, but OSRM could not build the road route.");
-          }
+      if (!session?.access_token) throw new Error("Your secure session is unavailable. Sign in again.");
+      const result = await fetchScheduledVisits(agentId, scheduledDate, session.access_token);
+      const activeVisits = result.items.filter((visit) => visit.status !== "completed");
+      setVisits(activeVisits);
+      if (activeVisits.length > 0) {
+        try {
+          const route = await previewAdminRoute({
+            agent_id: agentId,
+            scheduled_date: scheduledDate,
+            visit_ids: activeVisits.map((visit) => visit.id),
+          }, session.access_token);
+          setPreview(route);
+        } catch (err: any) {
+          setError(err?.detail || err?.message || "Stops loaded, but a road route is unavailable.");
         }
-        setLoadingVisits(false);
-        return;
       }
     } catch (err: any) {
-      console.warn("FastAPI unreachable, loading visits directly from Supabase:", err);
-    }
-
-    try {
-      const { data: dbVisits } = await supabase
-        .from("visits")
-        .select("*, customer:customers(name, company, address, latitude, longitude, phone)")
-        .eq("agent_id", agentId)
-        .order("order_index", { ascending: true });
-
-      if (dbVisits) {
-        const mapped: VisitApiResponse[] = dbVisits.map((v: any) => ({
-          id: v.id,
-          visit_code: v.visit_code || "VST-LIVE",
-          agent_id: v.agent_id,
-          customer_id: v.customer_id,
-          customer_name: v.customer?.name || "Customer Site",
-          customer_company: v.customer?.company || undefined,
-          customer_address: v.customer?.address || "Field Location",
-          customer_latitude: Number(v.customer?.latitude) || 19.21899,
-          customer_longitude: Number(v.customer?.longitude) || 73.14008,
-          customer_phone: v.customer?.phone || "+91 98765 43210",
-          scheduled_date: v.scheduled_date || scheduledDate,
-          scheduled_time: v.scheduled_time || "10:30 AM",
-          estimated_duration_minutes: 45,
-          status: v.status || "pending",
-          geofence_verified: Boolean(v.geofence_verified),
-          purpose: v.purpose || "On-site Verification",
-          order_index: v.order_index || 1,
-          created_at: v.created_at || new Date().toISOString(),
-        }));
-        setVisits(mapped.filter((visit) => visit.status !== "completed"));
-      }
-    } catch (sbErr) {
-      setError("Could not load assigned visits from database.");
       setVisits([]);
+      setError(err?.message || "Could not load scheduled visits.");
     } finally {
       setLoadingVisits(false);
     }
   }, [session?.access_token, agentId, scheduledDate]);
-
   useEffect(() => { void loadVisits(); }, [loadVisits]);
 
   const optimizeRoute = async () => {
