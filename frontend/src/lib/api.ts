@@ -615,27 +615,25 @@ export interface AgentSuggestionItem {
   agent_id: string;
   agent_code?: string | null;
   name: string;
-  location_source: string;
-  distance_to_area_meters: number;
-  distance_to_agent_meters: number;
-  area_center_latitude: number;
-  area_center_longitude: number;
-  area_visit_count: number;
+  territory_id: string;
+  territory_name: string;
+  inside_territory: boolean;
+  distance_to_territory_meters: number;
   open_visits: number;
-  in_lead_cluster: boolean;
 }
 
 export interface AgentSuggestionResponse {
   recommended_agent_id: string | null;
   method: string;
   detail: string;
+  inside_territory: boolean;
+  territory_name?: string | null;
   agents_considered: number;
-  work_points_used: number;
-  skipped_agents_without_location: number;
+  skipped_agents_without_territory: number;
   suggestions: AgentSuggestionItem[];
 }
 
-/** Suggest the agent whose work area (k-means cluster) contains the lead location. */
+/** Suggest the agent whose assigned territory contains the lead location. */
 export async function suggestAgentForLead(
   params: { latitude: number; longitude: number; scheduled_date?: string },
   token?: string | null
@@ -800,3 +798,144 @@ export async function updateAgentLocation(
   );
 }
 
+// ---------------------------------------------------------------- territories
+export interface TerritoryApiItem {
+  id: string;
+  name: string;
+  color: string;
+  agent_id: string;
+  agent_name?: string | null;
+  agent_code?: string | null;
+  area_sq_km?: number | null;
+  /** Outline as [latitude, longitude] points (not closed). */
+  points: number[][];
+  lead_count: number;
+  created_at: string;
+}
+
+export interface TerritoryPayload {
+  name: string;
+  agent_id: string;
+  color: string;
+  points: number[][];
+}
+
+export async function fetchTerritories(token?: string | null): Promise<TerritoryApiItem[]> {
+  const result = await apiFetch<{ items: TerritoryApiItem[] }>("/territories", {}, token);
+  return result?.items || [];
+}
+
+export async function createTerritory(payload: TerritoryPayload, token?: string | null): Promise<TerritoryApiItem> {
+  return await apiFetch<TerritoryApiItem>("/territories", { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function updateTerritory(
+  id: string,
+  payload: Partial<TerritoryPayload>,
+  token?: string | null
+): Promise<TerritoryApiItem> {
+  return await apiFetch<TerritoryApiItem>(`/territories/${id}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+}
+
+export async function deleteTerritory(id: string, token?: string | null): Promise<void> {
+  await apiFetch<null>(`/territories/${id}`, { method: "DELETE" }, token);
+}
+
+export async function fetchMyTerritories(token?: string | null): Promise<TerritoryApiItem[]> {
+  const result = await apiFetch<{ items: TerritoryApiItem[] }>("/agent/territories", {}, token);
+  return result?.items || [];
+}
+
+// ---------------------------------------------------------------- lead verification
+export type LeadVerificationStatus = "pending" | "approved" | "rejected";
+
+export interface LeadReviewItem {
+  id: string;
+  lead_code?: string | null;
+  source: string;
+  verification_status: LeadVerificationStatus;
+  assignment_status: string;
+  priority: "high" | "medium" | "low" | string;
+  notes?: string | null;
+  customer_id: string;
+  customer_name: string;
+  company?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  created_by_agent_id?: string | null;
+  created_by_agent_name?: string | null;
+  created_by_agent_code?: string | null;
+  assigned_agent_id?: string | null;
+  territory_id?: string | null;
+  territory_name?: string | null;
+  captured_latitude?: number | null;
+  captured_longitude?: number | null;
+  captured_accuracy_meters?: number | null;
+  captured_distance_meters?: number | null;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  rejection_reason?: string | null;
+  created_at: string;
+}
+
+export interface LeadReviewList {
+  total: number;
+  pending: number;
+  items: LeadReviewItem[];
+}
+
+export async function fetchLeadsForReview(
+  params: { verification_status?: LeadVerificationStatus | "all"; agent_id?: string; limit?: number },
+  token?: string | null
+): Promise<LeadReviewList> {
+  const query = new URLSearchParams();
+  query.set("verification_status", params.verification_status || "pending");
+  query.set("source", "agent");
+  if (params.agent_id) query.set("agent_id", params.agent_id);
+  query.set("limit", String(params.limit ?? 100));
+  return await apiFetch<LeadReviewList>(`/leads?${query.toString()}`, {}, token);
+}
+
+export async function approveLead(
+  id: string,
+  payload: { schedule_visit: boolean; scheduled_date?: string; scheduled_time?: string; priority?: "high" | "medium" | "low" },
+  token?: string | null
+): Promise<LeadReviewItem> {
+  return await apiFetch<LeadReviewItem>(`/leads/${id}/approve`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function rejectLead(id: string, reason: string, token?: string | null): Promise<LeadReviewItem> {
+  return await apiFetch<LeadReviewItem>(`/leads/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, token);
+}
+
+export interface AgentLeadPayload {
+  customer_name: string;
+  phone: string;
+  email?: string;
+  company?: string;
+  address: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  priority: "high" | "medium" | "low";
+  notes?: string;
+}
+
+export async function fetchMyLeads(token?: string | null): Promise<LeadReviewList> {
+  return await apiFetch<LeadReviewList>("/agent/leads?limit=100", {}, token);
+}
+
+export async function createAgentLead(payload: AgentLeadPayload, token?: string | null): Promise<LeadReviewItem> {
+  return await apiFetch<LeadReviewItem>("/agent/leads", { method: "POST", body: JSON.stringify(payload) }, token, 20000);
+}
+
+/** Best human-readable message from an API error (server detail first). */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.detail || err.message || fallback;
+  if (err instanceof Error) return err.message || fallback;
+  return fallback;
+}

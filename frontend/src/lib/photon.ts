@@ -209,3 +209,16 @@ export async function searchPhotonAddress(
 
   return parsed;
 }
+
+/** Reverse lookup: nearest address for a GPS point (Photon / OpenStreetMap). */
+export async function reversePhotonAddress(latitude: number, longitude: number): Promise<ParsedPhotonPlace | null> {
+  try {
+    const response = await fetch(`https://photon.komoot.io/reverse?lat=${latitude}&lon=${longitude}&limit=1`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const feature = data?.features?.[0];
+    return feature ? parsePhotonFeature(feature) : null;
+  } catch {
+    return null;
+  }
+}

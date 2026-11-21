@@ -1,6 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import String, Text, ForeignKey
+from datetime import datetime
+from sqlalchemy import DateTime, Float, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.customer import Customer
     from app.models.agent import Agent
     from app.models.assignment import Assignment
+    from app.models.territory import Territory
 
 
 class Lead(Base, TimestampMixin):
@@ -59,9 +61,42 @@ class Lead(Base, TimestampMixin):
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # --- Agent-generated leads and admin verification -----------------------
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="admin", server_default="admin",
+        comment="Who created the lead: admin (dispatch) or agent (field)",
+    )
+    verification_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="approved", server_default="approved", index=True,
+        comment="pending, approved or rejected. Admin-created leads are approved on creation.",
+    )
+    created_by_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    territory_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("territories.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    # GPS evidence captured when the agent submitted the lead
+    captured_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    captured_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    captured_accuracy_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    captured_distance_meters: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, comment="Agent GPS to lead location at submission",
+    )
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True,
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", back_populates="leads")
-    assigned_agent: Mapped[Optional["Agent"]] = relationship("Agent", back_populates="leads")
+    assigned_agent: Mapped[Optional["Agent"]] = relationship(
+        "Agent", back_populates="leads", foreign_keys=[assigned_agent_id]
+    )
+    created_by_agent: Mapped[Optional["Agent"]] = relationship("Agent", foreign_keys=[created_by_agent_id])
+    territory: Mapped[Optional["Territory"]] = relationship("Territory")
     assignments: Mapped[List["Assignment"]] = relationship(
         "Assignment",
         back_populates="lead",

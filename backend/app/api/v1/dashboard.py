@@ -46,7 +46,7 @@ async def get_dashboard_summary(
             select(func.count(Agent.id)).scalar_subquery().label("total_agents"),
             select(func.count(Agent.id)).where(Agent.status == "active").scalar_subquery().label("active_agents"),
             select(func.count(Customer.id)).scalar_subquery().label("total_customers"),
-            select(func.count(Lead.id)).scalar_subquery().label("total_leads"),
+            select(func.count(Lead.id)).where(Lead.verification_status == "approved").scalar_subquery().label("total_leads"),
             select(func.count(Visit.id)).where(
                 or_(
                     Visit.scheduled_date == ref_date,

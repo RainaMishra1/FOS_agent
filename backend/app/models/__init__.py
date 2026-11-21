@@ -7,6 +7,7 @@ from app.models.visit import Visit
 from app.models.assignment import Assignment
 from app.models.agent_location import AgentLocation
 from app.models.visit_location_log import VisitLocationLog
+from app.models.territory import Territory
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "Assignment",
     "AgentLocation",
     "VisitLocationLog",
+    "Territory",
 ]

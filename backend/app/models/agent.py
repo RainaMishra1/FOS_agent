@@ -73,7 +73,9 @@ class Agent(Base, TimestampMixin):
 
     # Relationships
     profile: Mapped["Profile"] = relationship("Profile", back_populates="agent")
-    leads: Mapped[List["Lead"]] = relationship("Lead", back_populates="assigned_agent")
+    leads: Mapped[List["Lead"]] = relationship(
+        "Lead", back_populates="assigned_agent", foreign_keys="Lead.assigned_agent_id"
+    )
     visits: Mapped[List["Visit"]] = relationship("Visit", back_populates="agent")
     assignments: Mapped[List["Assignment"]] = relationship("Assignment", back_populates="agent")
     location_logs: Mapped[List["AgentLocation"]] = relationship(

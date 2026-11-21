@@ -173,3 +173,18 @@ export function rankAgentsForLead(
     reasonIfNone,
   };
 }
+
+/**
+ * Ray-casting point-in-polygon test. `points` are [latitude, longitude].
+ * Used for instant feedback only; the server decides with PostGIS.
+ */
+export function isPointInPolygon(latitude: number, longitude: number, points: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [yi, xi] = points[i];
+    const [yj, xj] = points[j];
+    const crosses = yi > latitude !== yj > latitude && longitude < ((xj - xi) * (latitude - yi)) / (yj - yi) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}

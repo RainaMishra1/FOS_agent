@@ -87,23 +87,21 @@ class AgentSuggestionItem(BaseModel):
     agent_id: uuid.UUID
     agent_code: Optional[str] = None
     name: str
-    location_source: str
-    distance_to_area_meters: float
-    distance_to_agent_meters: float
-    area_center_latitude: float
-    area_center_longitude: float
-    area_visit_count: int
+    territory_id: uuid.UUID
+    territory_name: str
+    inside_territory: bool
+    distance_to_territory_meters: float
     open_visits: int
-    in_lead_cluster: bool
 
 
 class AgentSuggestionResponse(BaseModel):
     recommended_agent_id: Optional[uuid.UUID] = None
     method: str
     detail: str
+    inside_territory: bool
+    territory_name: Optional[str] = None
     agents_considered: int
-    work_points_used: int
-    skipped_agents_without_location: int
+    skipped_agents_without_territory: int
     suggestions: List[AgentSuggestionItem]
 
 

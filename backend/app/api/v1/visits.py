@@ -26,7 +26,10 @@ from app.schemas.visit import (
     AdminRoutePlanRequest, AdminRouteOrderRequest,
     AgentSuggestionRequest, AgentSuggestionItem, AgentSuggestionResponse,
 )
-from app.services.lead_clustering import AgentAnchor, WorkPoint, suggest_agent_for_lead
+from app.models.territory import Territory
+from app.services.territory_rules import TerritoryMatch, rank_by_territory
+from geoalchemy2 import Geography
+from sqlalchemy import cast
 from app.core.auth import require_authenticated, require_admin
 
 router = APIRouter(prefix="/visits", tags=["Visits"])
@@ -337,7 +340,11 @@ async def save_admin_route_order(
 
 
 OPEN_VISIT_STATUSES = ("pending", "in_progress", "delayed")
-SUGGESTION_HISTORY_DAYS = 30
+
+
+def lead_point(latitude: float, longitude: float):
+    """PostGIS point for a lead location (longitude first, SRID 4326)."""
+    return func.ST_SetSRID(func.ST_MakePoint(longitude, latitude), 4326)
 
 
 @router.post("/suggest-agent", response_model=AgentSuggestionResponse)
@@ -346,94 +353,93 @@ async def suggest_agent_for_new_lead(
     current_admin: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AgentSuggestionResponse:
-    """Suggest the agent whose work area the new lead falls in (anchored k-means).
+    """Suggest the agent whose assigned territory contains the lead location.
 
-    k = number of active agents with a known location. Each cluster starts at
-    the agent's location and absorbs the customer sites of visits from the last
-    30 days onward, so its centre reflects where that agent actually works.
-    The lead goes to the cluster whose centre is nearest. Nothing is saved; the
-    admin can still pick a different agent before dispatching.
+    Territories are admin-drawn polygons, one agent each, and never overlap,
+    so at most one agent's area contains a point. If the lead is outside every
+    territory, the agent with the nearest territory is suggested and flagged.
+    Nothing is saved; the admin can still choose another agent.
     """
-    from datetime import timedelta
+    point = lead_point(payload.latitude, payload.longitude)
+    rows = (await db.execute(
+        select(
+            Territory.id,
+            Territory.name,
+            Territory.agent_id,
+            Agent.status,
+            Agent.agent_code,
+            Profile.full_name,
+            func.ST_Covers(Territory.boundary, point).label("covers"),
+            func.ST_Distance(cast(Territory.boundary, Geography), cast(point, Geography)).label("distance_m"),
+        )
+        .join(Agent, Agent.id == Territory.agent_id)
+        .outerjoin(Profile, Profile.id == Agent.profile_id)
+        .where(Territory.is_active.is_(True))
+    )).all()
 
-    ref_date = payload.scheduled_date or datetime.now(timezone.utc).date()
-    active_agents = (await db.execute(
-        select(Agent).options(joinedload(Agent.profile)).where(Agent.status == "active")
-    )).unique().scalars().all()
+    agent_info = {}
+    matches = []
+    for t_id, t_name, agent_id, agent_status, agent_code, full_name, covers, distance in rows:
+        agent_info[str(agent_id)] = (agent_id, agent_code, full_name or agent_code or "Field Agent")
+        matches.append(TerritoryMatch(
+            agent_id=str(agent_id),
+            agent_active=agent_status == "active",
+            territory_id=str(t_id),
+            territory_name=t_name,
+            covers_point=bool(covers),
+            distance_m=float(distance or 0.0),
+        ))
+    recommended, inside, ranked = rank_by_territory(matches)
 
-    located = [
-        a for a in active_agents
-        if a.current_latitude is not None and a.current_longitude is not None
-        and math.isfinite(a.current_latitude) and math.isfinite(a.current_longitude)
-        and not (a.current_latitude == 0 and a.current_longitude == 0)
-    ]
-    skipped = len(active_agents) - len(located)
-    if not located:
+    active_agents = await db.scalar(select(func.count(Agent.id)).where(Agent.status == "active")) or 0
+    skipped = max(0, active_agents - len(ranked))
+
+    if not ranked:
         return AgentSuggestionResponse(
             recommended_agent_id=None,
-            method="anchored_kmeans",
-            detail="No active agent has a known location yet, so choose an agent manually.",
+            method="territory",
+            detail="No active agent has an assigned territory yet. Draw territories on the Territories page, or choose an agent manually.",
+            inside_territory=False,
             agents_considered=0,
-            work_points_used=0,
-            skipped_agents_without_location=skipped,
+            skipped_agents_without_territory=skipped,
             suggestions=[],
         )
 
-    agent_ids = [a.id for a in located]
-    rows = (await db.execute(
-        select(Visit.agent_id, Visit.status, Customer.latitude, Customer.longitude)
-        .join(Customer, Visit.customer_id == Customer.id)
-        .where(
-            Visit.agent_id.in_(agent_ids),
-            Visit.scheduled_date >= ref_date - timedelta(days=SUGGESTION_HISTORY_DAYS),
-            Customer.latitude.is_not(None),
-            Customer.longitude.is_not(None),
+    agent_uuids = [agent_info[f.agent_id][0] for f in ranked]
+    open_counts = dict((await db.execute(
+        select(Visit.agent_id, func.count(Visit.id))
+        .where(Visit.agent_id.in_(agent_uuids), Visit.status.in_(OPEN_VISIT_STATUSES))
+        .group_by(Visit.agent_id)
+    )).all())
+
+    suggestions = [
+        AgentSuggestionItem(
+            agent_id=agent_info[f.agent_id][0],
+            agent_code=agent_info[f.agent_id][1],
+            name=agent_info[f.agent_id][2],
+            territory_id=uuid.UUID(f.territory_id),
+            territory_name=f.territory_name,
+            inside_territory=f.inside,
+            distance_to_territory_meters=round(f.distance_m, 1),
+            open_visits=open_counts.get(agent_info[f.agent_id][0], 0),
         )
-    )).all()
-
-    open_counts: dict = {}
-    work_points = []
-    for agent_id, visit_status, lat, lng in rows:
-        if visit_status in OPEN_VISIT_STATUSES:
-            open_counts[agent_id] = open_counts.get(agent_id, 0) + 1
-        if math.isfinite(lat) and math.isfinite(lng):
-            work_points.append(WorkPoint(lat, lng))
-
-    result = suggest_agent_for_lead(
-        [AgentAnchor(str(a.id), a.current_latitude, a.current_longitude) for a in located],
-        work_points,
-        payload.latitude,
-        payload.longitude,
-    )
-    by_id = {str(a.id): a for a in located}
-    suggestions = []
-    for cluster in result.clusters:
-        agent = by_id[cluster.agent_id]
-        suggestions.append(AgentSuggestionItem(
-            agent_id=agent.id,
-            agent_code=agent.agent_code,
-            name=agent.profile.full_name if agent.profile else (agent.agent_code or "Field Agent"),
-            location_source=agent.location_source or "unknown",
-            distance_to_area_meters=round(cluster.distance_to_centroid_m, 1),
-            distance_to_agent_meters=round(cluster.distance_to_agent_m, 1),
-            area_center_latitude=cluster.centroid_latitude,
-            area_center_longitude=cluster.centroid_longitude,
-            area_visit_count=cluster.point_count,
-            open_visits=open_counts.get(agent.id, 0),
-            in_lead_cluster=cluster.contains_lead,
-        ))
-
+        for f in ranked
+    ]
     best = suggestions[0]
+    detail = (
+        f"Inside {best.territory_name}, assigned to {best.name}."
+        if inside
+        else f"Outside every territory. Nearest is {best.territory_name} ({best.name}), "
+             f"{best.distance_to_territory_meters / 1000:.1f} km away."
+    )
     return AgentSuggestionResponse(
-        recommended_agent_id=uuid.UUID(result.recommended_agent_id),
-        method="anchored_kmeans",
-        detail=(
-            f"{best.name} covers this area: {best.distance_to_area_meters / 1000:.1f} km from the centre "
-            f"of their work area ({len(located)} active agents clustered)."
-        ),
-        agents_considered=len(located),
-        work_points_used=len(work_points),
-        skipped_agents_without_location=skipped,
+        recommended_agent_id=best.agent_id,
+        method="territory",
+        detail=detail,
+        inside_territory=inside,
+        territory_name=best.territory_name,
+        agents_considered=len(suggestions),
+        skipped_agents_without_territory=skipped,
         suggestions=suggestions,
     )
 
