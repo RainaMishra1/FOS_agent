@@ -18,10 +18,7 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
-import { getApiBaseUrl } from "@/lib/api";
-
-const API_BASE_URL = getApiBaseUrl();
+import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 export default function UnifiedLoginForm() {
   const router = useRouter();
@@ -63,33 +60,7 @@ export default function UnifiedLoginForm() {
       if (result.error) {
         setMessage(result.error.message || "Invalid credentials. Please verify and try again.");
       } else {
-        const cleanEmail = email.trim().toLowerCase();
-        const isExplicitAdmin = cleanEmail.includes("rishabmishra075") || cleanEmail.includes("rishabhmishra075") || cleanEmail.includes("admin");
-        const isExplicitAgent = cleanEmail.includes("rainamishra00023");
-
-        let resolvedRole = isExplicitAdmin ? "admin" : isExplicitAgent ? "agent" : result.role;
-        // Verify from database if not already admin
-        if (!isExplicitAdmin && resolvedRole !== "admin") {
-          try {
-            const roleRes = await fetch(`${API_BASE_URL}/auth/email-role?email=${encodeURIComponent(cleanEmail)}`);
-            if (roleRes.ok) {
-              const text = await roleRes.text();
-              if (text && text.trim()) {
-                try {
-                  const rData = JSON.parse(text);
-                  if (rData.role === "admin") {
-                    resolvedRole = "admin";
-                  }
-                } catch {}
-              }
-            }
-          } catch {}
-        }
-        if (!resolvedRole) {
-          resolvedRole = isExplicitAdmin ? "admin" : "agent";
-        }
-
-        if (resolvedRole === "admin") {
+        if (result.role === "admin") {
           if (redirectTo && redirectTo.startsWith("/admin") && !redirectTo.includes("/login") && !redirectTo.includes("/signup")) {
             router.replace(redirectTo);
           } else {
@@ -120,6 +91,7 @@ export default function UnifiedLoginForm() {
 
     setBusy(true);
     try {
+      if (!isSupabaseConfigured()) throw new Error("Authentication is not configured. Please contact your administrator.");
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
       if (error) {
         setMessage(error.message);

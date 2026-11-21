@@ -40,6 +40,8 @@ import {
   X,
 } from "lucide-react";
 
+const EMPTY_ROUTE_GEOMETRY: [number, number][] = [];
+
 function formatDistance(meters: number) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
 }
@@ -61,8 +63,8 @@ function AgentRoutePageContent() {
   const searchParams = useSearchParams();
   const preselectedVisitId = searchParams.get("visitId");
 
-  const { session, profile } = useAuth();
-  const { checkInVisit, isOnDuty, visits, currentAgent } = useAgent();
+  const { session } = useAuth();
+  const { checkInVisit, isOnDuty } = useAgent();
 
   const [routeData, setRouteData] = useState<AgentRouteData | null>(null);
   const [roadRoute, setRoadRoute] = useState<RoadRouteData | null>(null);
@@ -147,96 +149,26 @@ function AgentRoutePageContent() {
         );
       }
 
-      // 2. Load route from server or synthesize immediately from AgentContext visits
+      // Route data must come from the backend so route order and coordinates stay authoritative.
       try {
-        let result: AgentRouteData;
-        try {
-          result = await fetchAgentTodayRoute(session?.access_token, localDateString());
-          if (!result.completed) {
-            result.completed = [];
-          }
-          if (!result.stops) {
-            result.stops = [];
-          }
-          if (liveGpsCoords && result.origin) {
-            result.origin.latitude = liveGpsCoords.latitude;
-            result.origin.longitude = liveGpsCoords.longitude;
-            result.origin.accuracy_meters = liveGpsCoords.accuracy;
-          }
-        } catch {
-          const originLat = liveGpsCoords?.latitude || currentAgent.currentCoordinates?.lat || 19.2403;
-          const originLng = liveGpsCoords?.longitude || currentAgent.currentCoordinates?.lng || 73.1305;
-          const activeStops = visits.filter((v) => v.status !== "completed");
-          const completedStops = visits.filter((v) => v.status === "completed");
-
-          result = {
-            date: localDateString(),
-            origin: {
-              latitude: originLat,
-              longitude: originLng,
-              source: "gps",
-              accuracy_meters: liveGpsCoords?.accuracy ?? 10,
-              updated_at: new Date().toISOString(),
-            },
-            origin_error: null,
-            stops: activeStops.map((v, i) => {
-              const visitAny = v as any;
-              return {
-                id: v.id,
-                customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
-                visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
-                customer_name: v.customerName,
-                customer_company: v.company,
-                customer_address: v.address,
-                customer_city: v.city,
-                customer_latitude: v.coordinates?.lat ?? visitAny.latitude ?? 19.2403,
-                customer_longitude: v.coordinates?.lng ?? visitAny.longitude ?? 73.1305,
-                customer_phone: v.phone,
-                customer_email: v.email,
-                purpose: v.purpose,
-                priority: v.priority,
-                status: v.status,
-                geofence_verified: Boolean(v.geofenceVerified),
-                order_index: v.orderIndex || i + 1,
-                scheduled_time: v.scheduledTime || "10:00 AM",
-                scheduled_date: v.scheduledDate || localDateString(),
-                estimated_duration_minutes: 45,
-                created_at: new Date().toISOString(),
-              };
-            }),
-            completed: completedStops.map((v, i) => {
-              const visitAny = v as any;
-              return {
-                id: v.id,
-                customer_id: v.customerId || v.id,
-                agent_id: currentAgent?.dbId || currentAgent?.id || profile?.agent_id || profile?.id || "",
-                visit_code: visitAny.visitCode || visitAny.visit_code || v.assignmentId || v.id.slice(0, 8),
-                customer_name: v.customerName,
-                customer_company: v.company,
-                customer_address: v.address,
-                customer_city: v.city,
-                customer_latitude: v.coordinates?.lat ?? visitAny.latitude ?? 19.2403,
-                customer_longitude: v.coordinates?.lng ?? visitAny.longitude ?? 73.1305,
-                customer_phone: v.phone,
-                customer_email: v.email,
-                purpose: v.purpose,
-                priority: v.priority,
-                status: v.status,
-                geofence_verified: Boolean(v.geofenceVerified),
-                order_index: v.orderIndex || i + 1,
-                scheduled_time: v.scheduledTime || "10:00 AM",
-                scheduled_date: v.scheduledDate || localDateString(),
-                estimated_duration_minutes: 45,
-                created_at: new Date().toISOString(),
-              };
-            }),
-          };
+        const result = await fetchAgentTodayRoute(session?.access_token, localDateString());
+        if (!result.completed) result.completed = [];
+        if (!result.stops) result.stops = [];
+        if (liveGpsCoords && result.origin) {
+          result.origin.latitude = liveGpsCoords.latitude;
+          result.origin.longitude = liveGpsCoords.longitude;
+          result.origin.accuracy_meters = liveGpsCoords.accuracy;
         }
 
         setRouteData(result);
 
-        const ids = keepOrder && orderedIds.length ? orderedIds : (result.stops || []).map((v) => v.id);
+        const currentStopIds = new Set((result.stops || []).map((stop) => stop.id));
+        const preservedOrder = keepOrder && orderedIds.length
+          ? orderedIds.filter((id) => currentStopIds.has(id))
+          : [];
+        const ids = preservedOrder.length
+          ? [...preservedOrder, ...(result.stops || []).map((stop) => stop.id).filter((id) => !preservedOrder.includes(id))]
+          : (result.stops || []).map((v) => v.id);
         setOrderedIds(ids);
 
         if (!result.origin) {
@@ -246,19 +178,13 @@ function AgentRoutePageContent() {
 
         const autoStart = searchParams.get("start") === "true";
         const targetId = selectedTaskStopId || preselectedVisitId;
-        if (targetId && (result.stops || []).some((s) => s.id === targetId)) {
+        const shouldLoadSingleTask = Boolean(isSingleTaskRoute || (preselectedVisitId && targetId === preselectedVisitId));
+        if (targetId && shouldLoadSingleTask && (result.stops || []).some((s) => s.id === targetId)) {
           setSelectedTaskStopId(targetId);
           setIsSingleTaskRoute(true);
           const stop = (result.stops || []).find((s) => s.id === targetId);
           try {
-            const fallbackCoords: [number, number][] =
-              result.origin && stop?.customer_latitude != null && stop?.customer_longitude != null
-                ? [
-                    [result.origin.longitude, result.origin.latitude],
-                    [stop.customer_longitude, stop.customer_latitude],
-                  ]
-                : [];
-            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token, fallbackCoords);
+            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token);
             setRoadRoute(geom);
             if (autoStart) {
               setIsNavigating(true);
@@ -272,16 +198,14 @@ function AgentRoutePageContent() {
             return stop?.customer_latitude != null && stop?.customer_longitude != null;
           });
 
+          if (targetId) {
+            setSelectedTaskStopId(geometryIds[0] || null);
+            setIsSingleTaskRoute(false);
+          }
+
           if (geometryIds.length > 0 && result.origin) {
             try {
-              const fallbackCoords: [number, number][] = [
-                [result.origin.longitude, result.origin.latitude],
-                ...geometryIds.map((id) => {
-                  const s = result.stops.find((v) => v.id === id)!;
-                  return [s.customer_longitude!, s.customer_latitude!] as [number, number];
-                }),
-              ];
-              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
+              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
               setRoadRoute(geom);
             } catch {
               setRoadRoute(null);
@@ -292,17 +216,21 @@ function AgentRoutePageContent() {
         }
       } catch (err: any) {
         console.warn("Route load notice:", err);
+        setRouteData(null);
+        setOrderedIds([]);
+        setRoadRoute(null);
+        setError(err?.detail || err?.message || "Could not load today's route. Please try again.");
       } finally {
         setLoading(false);
       }
     },
-    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, syncLocationIfMoved, visits, currentAgent, searchParams]
+    [session?.access_token, orderedIds, selectedTaskStopId, preselectedVisitId, isSingleTaskRoute, syncLocationIfMoved, searchParams]
   );
 
   useEffect(() => {
     void loadRoute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, currentAgent.id, currentAgent.dbId, visits]);
+  }, [session?.access_token]);
 
   // Compute straight-line distances from agent origin to each pending stop and locate the nearest pending task
   const stopsWithDistances = useMemo(() => {
@@ -355,10 +283,15 @@ function AgentRoutePageContent() {
 
   // Filter pending / active tasks for the agent map (excluding completed/cancelled)
   const pendingTasksList = useMemo(() => {
-    return stopsWithDistances.filter(
+    const active = stopsWithDistances.filter(
       (s) => s.status === "pending" || s.status === "in_progress" || s.status === "delayed"
     );
-  }, [stopsWithDistances]);
+    if (!orderedIds.length) return active;
+    const rank = new Map(orderedIds.map((id, index) => [id, index]));
+    return active
+      .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+      .map((stop, index) => ({ ...stop, order_index: index + 1 }));
+  }, [stopsWithDistances, orderedIds]);
 
   // Currently active destination stop
   const activeDestinationStop = useMemo(() => {
@@ -367,22 +300,22 @@ function AgentRoutePageContent() {
   }, [stopsWithDistances, selectedTaskStopId]);
 
   // Fetch or refresh road route for a specific selected task
-  const handleGetRouteForTask = async (taskStop: RouteMapStop) => {
-    if (!routeData?.origin) {
+  const handleGetRouteForTask = async (taskStop: RouteMapStop, forceRefresh = false): Promise<boolean> => {
+    if (!forceRefresh && !routeData?.origin) {
       setError("Your current GPS location is required to calculate the road route. Please enable location permissions.");
-      return;
+      return false;
     }
     if (taskStop.customer_latitude == null || taskStop.customer_longitude == null) {
       setError("This customer does not have mapped entrance coordinates. Please ask an admin to pin the location.");
-      return;
+      return false;
     }
 
     // Check if we already have this route loaded to avoid redundant OSRM calls
-    const originLat = routeData.origin.latitude;
-    const originLng = routeData.origin.longitude;
+    const originLat = routeData?.origin?.latitude ?? liveGpsCoords?.latitude ?? 0;
+    const originLng = routeData?.origin?.longitude ?? liveGpsCoords?.longitude ?? 0;
     const last = lastRoutedLocationRef.current;
     if (
-      last &&
+      !forceRefresh && last &&
       lastRoutedTargetRef.current === taskStop.id &&
       Math.abs(last.lat - originLat) < 0.0002 &&
       Math.abs(last.lng - originLng) < 0.0002 &&
@@ -390,7 +323,7 @@ function AgentRoutePageContent() {
     ) {
       setSelectedTaskStopId(taskStop.id);
       setIsSingleTaskRoute(true);
-      return;
+      return true;
     }
 
     setSelectedTaskStopId(taskStop.id);
@@ -398,31 +331,77 @@ function AgentRoutePageContent() {
     setRouteLoading(true);
     setError(null);
 
-    const fallbackCoords: [number, number][] = [
-      [originLng, originLat],
-      [taskStop.customer_longitude!, taskStop.customer_latitude!],
-    ];
-
     try {
-      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token, fallbackCoords);
+      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token);
       setRoadRoute(geom);
       lastRoutedLocationRef.current = { lat: originLat, lng: originLng };
       lastRoutedTargetRef.current = taskStop.id;
+      return true;
     } catch (err: any) {
       setError(err?.detail || err?.message || "Could not calculate the road route to this customer.");
       setRoadRoute(null);
+      return false;
     } finally {
       setRouteLoading(false);
     }
   };
 
-  // Start active Google Maps style navigation for a task
+  const syncCurrentGpsForRoute = async () => {
+    if (!session?.access_token || typeof navigator === "undefined" || !navigator.geolocation) {
+      throw new Error("Allow location access before starting navigation.");
+    }
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        resolve,
+        () => reject(new Error("Could not get your current GPS location. Check location permission and try again.")),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+      );
+    });
+    const coords = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+    };
+    await updateAgentLocation({
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      gps_accuracy: coords.accuracy,
+      location_source: "gps",
+    }, session.access_token);
+    setLiveGpsCoords(coords);
+    setRouteData((previous) => previous ? {
+      ...previous,
+      origin: {
+        ...(previous.origin || {}),
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy_meters: coords.accuracy,
+        source: "gps",
+        updated_at: new Date().toISOString(),
+      },
+    } : previous);
+  };
+
+  // Start guidance only after the road route has loaded successfully.
   const handleStartNavigation = async (taskStop?: RouteMapStop | null) => {
     const target = taskStop || activeDestinationStop || nearestPendingTask;
     if (!target) return;
-    if (selectedTaskStopId !== target.id || !roadRoute) {
-      await handleGetRouteForTask(target);
+    if (!isOnDuty) {
+      setError("Turn on duty to start GPS navigation and keep your location current.");
+      return;
     }
+    setRouteLoading(true);
+    setError(null);
+    let routeReady = false;
+    try {
+      await syncCurrentGpsForRoute();
+      routeReady = await handleGetRouteForTask(target, true);
+    } catch (err: any) {
+      setError(err?.detail || err?.message || "Could not refresh your GPS location.");
+    } finally {
+      setRouteLoading(false);
+    }
+    if (!routeReady) return;
     setIsNavigating(true);
 
     // Smooth scroll up to navigation map so the user immediately sees the driving guidance
@@ -453,14 +432,7 @@ function AgentRoutePageContent() {
       });
 
       if (geometryIds.length > 0) {
-        const fallbackCoords: [number, number][] = [
-          [routeData.origin.longitude, routeData.origin.latitude],
-          ...geometryIds.map((id) => {
-            const s = routeData.stops?.find((v) => v.id === id)!;
-            return [s.customer_longitude!, s.customer_latitude!] as [number, number];
-          }),
-        ];
-        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, fallbackCoords);
+        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
         setRoadRoute(geom);
       } else {
         setRoadRoute(null);
@@ -507,10 +479,15 @@ function AgentRoutePageContent() {
   // Optimize sequence
   const optimize = async () => {
     if (!routeData) return;
+    if (!isOnDuty) {
+      setError("Turn on duty before starting GPS navigation.");
+      return;
+    }
     setOptimizing(true);
     setError(null);
     setNotice(null);
     try {
+      await syncCurrentGpsForRoute();
       const result = await optimizeAgentTodayRoute(session?.access_token, localDateString());
       const ids = result.ordered_visit_ids;
       setOrderedIds(ids);
@@ -520,10 +497,15 @@ function AgentRoutePageContent() {
         const stop = routeData.stops?.find((v) => v.id === id);
         return stop?.customer_latitude != null && stop?.customer_longitude != null;
       });
-      setRoadRoute(null);
-      setRoadRoute(await fetchAgentRouteGeometry(geometryIds, session?.access_token));
+      if (!geometryIds.length) {
+        throw new Error("Your visits need saved map locations before a route can be started.");
+      }
+      const geometry = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+      setRoadRoute(geometry);
       setIsSingleTaskRoute(false);
-      setSelectedTaskStopId(null);
+      setSelectedTaskStopId(geometryIds[0]);
+      setIsNavigating(true);
+      setTimeout(() => document.getElementById("agent-navigation-map-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     } catch (err: any) {
       setError(err?.detail || err?.message || "Route optimization failed.");
     } finally {
@@ -551,11 +533,11 @@ function AgentRoutePageContent() {
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-beige-text sm:text-xl">Field Road Routing &amp; Tasks</h2>
             <span className="rounded-full border border-beige-border bg-beige-sand px-2 py-0.5 text-[10px] font-bold text-beige-muted">
-              OSRM + Leaflet
+              Road routing
             </span>
           </div>
           <p className="text-xs text-beige-muted">
-            Select nearby pending tasks, get live OSRM driving routes from your GPS, and inspect entrance destinations
+            Plan your visit order, then follow the route from your current GPS location.
           </p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
@@ -574,7 +556,7 @@ function AgentRoutePageContent() {
             className="flex items-center gap-1.5 rounded-xl bg-beige-terracotta px-3 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-50 hover:bg-beige-terracotta/90 transition"
           >
             <Sparkles className={`h-3.5 w-3.5 ${optimizing ? "animate-spin" : ""}`} />
-            {optimizing ? "Optimizing…" : "Optimize Sequence"}
+            {optimizing ? "Finding best route…" : "Optimize & Navigate"}
           </button>
         </div>
       </div>
@@ -598,7 +580,7 @@ function AgentRoutePageContent() {
       {notice && (
         <div className="flex items-start gap-2 rounded-xl border border-beige-olive/30 bg-beige-olive-subtle p-3 text-xs text-beige-olive">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          {notice} Route order is a preview and does not alter customer records.
+          {notice}
         </div>
       )}
 
@@ -634,14 +616,14 @@ function AgentRoutePageContent() {
               <strong className="font-mono text-base text-beige-text">
                 {roadRoute ? formatDistance(roadRoute.distance_meters) : "—"}
               </strong>
-              <span className="mt-0.5 block text-[10px] text-beige-muted">OSRM driving network</span>
+              <span className="mt-0.5 block text-[10px] text-beige-muted">{roadRoute?.traffic_aware ? "Current traffic included" : "Road estimate · no live traffic"}</span>
             </div>
             <div className="rounded-2xl border border-beige-border bg-beige-card p-3">
               <span className="block text-[10px] text-beige-muted">Estimated Drive Time</span>
               <strong className="font-mono text-base text-beige-olive">
                 {roadRoute ? `${Math.round(roadRoute.duration_seconds / 60)} min` : "—"}
               </strong>
-              <span className="mt-0.5 block text-[10px] text-beige-muted">Real road network ETA</span>
+              <span className="mt-0.5 block text-[10px] text-beige-muted">{roadRoute?.traffic_aware ? "Traffic-aware ETA" : "Traffic data unavailable"}</span>
             </div>
             <div className="rounded-2xl border border-beige-border bg-beige-card p-3">
               <span className="block text-[10px] text-beige-muted">Agent GPS Position</span>
@@ -679,7 +661,7 @@ function AgentRoutePageContent() {
                       {nearestPendingTask.customer_address}
                     </p>
                     <p className="font-semibold text-beige-olive text-[11px] mt-0.5">
-                      Straight-line distance:{" "}
+                      Direct distance (not road distance):{" "}
                       {nearestPendingTask.distance_meters != null
                         ? formatDistance(nearestPendingTask.distance_meters)
                         : "Distance calculating…"}
@@ -735,7 +717,7 @@ function AgentRoutePageContent() {
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-beige-text">
                 <Compass className="h-3.5 w-3.5 text-[#1E3F35]" />
-                {isNavigating ? "Google Maps Driving Navigation" : "Road Route & Pending Tasks Map"}
+                {isNavigating ? "Turn-by-turn navigation" : "Route map"}
               </h3>
               {isSingleTaskRoute && !isNavigating && (
                 <button
@@ -749,9 +731,11 @@ function AgentRoutePageContent() {
             </div>
 
             <AgentRoadRouteMap
-              origin={routeData.origin}
+              origin={liveGpsCoords
+                ? { latitude: liveGpsCoords.latitude, longitude: liveGpsCoords.longitude }
+                : routeData.origin}
               stops={pendingTasksList}
-              geometry={roadRoute?.geometry?.coordinates || []}
+              geometry={roadRoute?.geometry?.coordinates || EMPTY_ROUTE_GEOMETRY}
               selectedStopId={selectedTaskStopId}
               onSelectStop={(stop) => {
                 setSelectedTaskStopId(stop.id);
@@ -760,6 +744,8 @@ function AgentRoutePageContent() {
               singleDestinationMode={isSingleTaskRoute}
               activeDestinationStop={activeDestinationStop}
               legs={roadRoute?.legs || []}
+              trafficAware={Boolean(roadRoute?.traffic_aware)}
+              trafficSpeedIntervals={roadRoute?.traffic_speed_intervals}
               isNavigating={isNavigating}
               onStartNavigation={handleStartNavigation}
               onStopNavigation={handleStopNavigation}
@@ -782,7 +768,7 @@ function AgentRoutePageContent() {
                 Select Pending Task for Road Routing ({pendingTasksList.length})
               </h3>
               <span className="text-[11px] text-beige-muted">
-                Click “Get Route” or marker on map to navigate
+                Choose a stop to preview its route, or optimize the full route above
               </span>
             </div>
 

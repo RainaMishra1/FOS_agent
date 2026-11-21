@@ -410,6 +410,7 @@ export interface RouteStep {
   distance: number;
   duration: number;
   name?: string;
+  instruction?: string;
   maneuver?: {
     type?: string;
     modifier?: string;
@@ -421,14 +422,25 @@ export interface RouteStep {
 export interface RouteLeg {
   distance: number;
   duration: number;
+  static_duration?: number;
   steps?: RouteStep[];
+}
+
+export interface TrafficSpeedInterval {
+  startPolylinePointIndex?: number;
+  endPolylinePointIndex: number;
+  speed: "NORMAL" | "SLOW" | "TRAFFIC_JAM" | string;
 }
 
 export interface RoadRouteData {
   geometry: { type: "LineString"; coordinates: [number, number][] } | null;
   distance_meters: number;
   duration_seconds: number;
+  static_duration_seconds?: number | null;
   legs: RouteLeg[];
+  traffic_aware?: boolean;
+  provider?: string;
+  traffic_speed_intervals?: TrafficSpeedInterval[];
 }
 
 export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<AgentRouteData> {
@@ -437,58 +449,18 @@ export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: str
 }
 
 export async function optimizeAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<{
-  ordered_visit_ids: string[]; optimized: boolean; cost_model?: string; detail: string;
+  ordered_visit_ids: string[]; optimized: boolean; cost_model?: string; traffic_aware?: boolean; detail: string;
 }> {
   const query = asOfDate ? `?as_of_date=${encodeURIComponent(asOfDate)}` : "";
   return await apiFetch(`/agent/routes/optimize${query}`, { method: "POST" }, token);
 }
 
-export async function fetchOsrmRoadRoute(coordinates: [number, number][]): Promise<RoadRouteData> {
-  const coordPath = coordinates.map(([lon, lat]) => `${lon},${lat}`).join(";");
-  const res = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordPath}?overview=full&geometries=geojson&steps=true`,
-    { headers: { Accept: "application/json" } }
-  );
-  if (!res.ok) {
-    throw new Error(`OSRM road route request failed: ${res.statusText}`);
-  }
-  const text = await res.text();
-  let data: any = null;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("Invalid response format received from OSRM service");
-  }
-  if (data.code !== "Ok" || !data.routes || !data.routes[0]) {
-    throw new Error("No road route available between locations");
-  }
-  const route = data.routes[0];
-  return {
-    geometry: route.geometry,
-    distance_meters: route.distance,
-    duration_seconds: route.duration,
-    legs: route.legs || [],
-  };
-}
-
 export async function fetchAgentRouteGeometry(
   visitIds: string[],
-  token?: string | null,
-  fallbackCoords?: [number, number][]
+  token?: string | null
 ): Promise<RoadRouteData> {
-  try {
-    const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
-    return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
-  } catch (err) {
-    if (fallbackCoords && fallbackCoords.length >= 2) {
-      try {
-        return await fetchOsrmRoadRoute(fallbackCoords);
-      } catch (osrmErr) {
-        console.warn("Direct OSRM fallback notice:", osrmErr);
-      }
-    }
-    throw err;
-  }
+  const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
+  return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
 }
 
 export interface VisitListApiResponse {
@@ -636,6 +608,41 @@ export async function createDispatchedVisit(payload: VisitDispatchPayload, token
   return await apiFetch<VisitApiResponse>("/visits/dispatch", {
     method: "POST",
     body: JSON.stringify(payload),
+  }, token);
+}
+
+export interface AgentSuggestionItem {
+  agent_id: string;
+  agent_code?: string | null;
+  name: string;
+  location_source: string;
+  distance_to_area_meters: number;
+  distance_to_agent_meters: number;
+  area_center_latitude: number;
+  area_center_longitude: number;
+  area_visit_count: number;
+  open_visits: number;
+  in_lead_cluster: boolean;
+}
+
+export interface AgentSuggestionResponse {
+  recommended_agent_id: string | null;
+  method: string;
+  detail: string;
+  agents_considered: number;
+  work_points_used: number;
+  skipped_agents_without_location: number;
+  suggestions: AgentSuggestionItem[];
+}
+
+/** Suggest the agent whose work area (k-means cluster) contains the lead location. */
+export async function suggestAgentForLead(
+  params: { latitude: number; longitude: number; scheduled_date?: string },
+  token?: string | null
+): Promise<AgentSuggestionResponse> {
+  return await apiFetch<AgentSuggestionResponse>("/visits/suggest-agent", {
+    method: "POST",
+    body: JSON.stringify(params),
   }, token);
 }
 

@@ -49,8 +49,19 @@ def _distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 
 
 async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
+    """Check the agent's latest real GPS reading against the customer location.
+
+    The reading must exist, come from device GPS (manual entries carry no
+    accuracy), be fresh, and be within the configured accuracy and radius.
+    Nothing is synthesized or re-timestamped here.
+    """
     customer = visit.customer
-    if not customer or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180):
+    if (
+        not customer
+        or customer.latitude is None
+        or customer.longitude is None
+        or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180)
+    ):
         raise HTTPException(status_code=409, detail="This visit has no valid saved customer location.")
 
     location = await db.scalar(
@@ -59,32 +70,33 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
         .order_by(AgentLocation.recorded_at.desc())
         .limit(1)
     )
-
-    # If no recorded log exists, but agent has current coordinates, create a fresh reading
-    if not location and agent.current_latitude is not None and agent.current_longitude is not None:
-        location = AgentLocation(
-            agent_id=agent.id,
-            latitude=agent.current_latitude,
-            longitude=agent.current_longitude,
-            location=WKTElement(f"POINT({agent.current_longitude} {agent.current_latitude})", srid=4326),
-            gps_accuracy=15.0,
-            battery_level=agent.battery_level,
-        )
-        agent.location_source = "gps"
-        db.add(location)
-        await db.flush()
-
     if not location:
         raise HTTPException(status_code=409, detail="No GPS reading is available. Allow location and try again.")
 
-    # If the reading is older than stale threshold, refresh recorded_at so active check-in isn't rejected
+    # Manual entries are stored with gps_accuracy=None; only device GPS counts.
+    if location.gps_accuracy is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Your latest location was entered manually. Share live GPS location to check in.",
+        )
+    if location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"GPS accuracy is \u00b1{location.gps_accuracy:.0f}m; it must be "
+                f"{settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:.0f}m or better. Move outdoors and try again."
+            ),
+        )
+
     recorded_at = location.recorded_at
     if recorded_at.tzinfo is None:
         recorded_at = recorded_at.replace(tzinfo=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
     if age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
-        location.recorded_at = datetime.now(timezone.utc)
-        await db.flush()
+        raise HTTPException(
+            status_code=409,
+            detail="Your GPS location is out of date. Allow location access and try again.",
+        )
 
     distance = _distance_meters(
         location.latitude, location.longitude, customer.latitude, customer.longitude
@@ -167,6 +179,126 @@ async def _agent_route_origin(agent: Agent, db: AsyncSession, *, require_plannin
             "accuracy_meters": latest.gps_accuracy}
 
 
+def _decode_google_polyline(encoded: str) -> list[list[float]]:
+    """Decode Google's encoded polyline into GeoJSON [longitude, latitude] points."""
+    points: list[list[float]] = []
+    index = lat = lng = 0
+    while index < len(encoded):
+        values = []
+        for _ in range(2):
+            result = shift = 0
+            while True:
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            values.append(~(result >> 1) if result & 1 else result >> 1)
+        lat += values[0]
+        lng += values[1]
+        points.append([lng / 1e5, lat / 1e5])
+    return points
+
+
+def _duration_seconds(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return float(value.removesuffix("s"))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _google_compute_route(
+    origin: dict,
+    destination: dict,
+    intermediates: list[dict],
+    *,
+    optimize_waypoints: bool = False,
+):
+    if not settings.GOOGLE_ROUTES_API_KEY:
+        raise RuntimeError("Google Routes API is not configured.")
+
+    body = {
+        "origin": {"location": {"latLng": {"latitude": origin["latitude"], "longitude": origin["longitude"]}}},
+        "destination": {"location": {"latLng": {"latitude": destination["latitude"], "longitude": destination["longitude"]}}},
+        "intermediates": [
+            {"location": {"latLng": {"latitude": stop["customer_latitude"], "longitude": stop["customer_longitude"]}}}
+            for stop in intermediates
+        ],
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+        "departureTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "extraComputations": ["TRAFFIC_ON_POLYLINE"],
+        "optimizeWaypointOrder": optimize_waypoints,
+    }
+    field_mask = (
+        "routes.duration,routes.staticDuration,routes.distanceMeters,"
+        "routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex,"
+        "routes.travelAdvisory.speedReadingIntervals,routes.legs.duration,"
+        "routes.legs.staticDuration,routes.legs.distanceMeters,routes.legs.steps.distanceMeters,"
+        "routes.legs.steps.staticDuration,routes.legs.steps.navigationInstruction,"
+        "routes.legs.steps.polyline.encodedPolyline"
+    )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            "https://routes.googleapis.com/directions/v2:computeRoutes",
+            json=body,
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_ROUTES_API_KEY,
+                "X-Goog-FieldMask": field_mask,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+    routes = payload.get("routes") or []
+    if not routes:
+        raise ValueError("Google Routes returned no route.")
+    return routes[0]
+
+
+def _google_route_response(route: dict) -> dict:
+    encoded = (route.get("polyline") or {}).get("encodedPolyline") or ""
+    legs = []
+    for leg in route.get("legs") or []:
+        steps = []
+        for step in leg.get("steps") or []:
+            navigation = step.get("navigationInstruction") or {}
+            instruction = navigation.get("instructions") or "Continue on route"
+            maneuver = (navigation.get("maneuver") or "").lower()
+            modifier = "left" if "left" in maneuver else "right" if "right" in maneuver else ""
+            step_type = "arrive" if "destination" in maneuver or "arrive" in maneuver else "turn"
+            step_points = _decode_google_polyline(((step.get("polyline") or {}).get("encodedPolyline") or ""))
+            steps.append({
+                "distance": step.get("distanceMeters", 0),
+                "duration": _duration_seconds(step.get("staticDuration")) or 0,
+                "name": instruction,
+                "maneuver": {
+                    "type": step_type,
+                    "modifier": modifier,
+                    "instruction": instruction,
+                    "location": [step_points[0][0], step_points[0][1]] if step_points else None,
+                },
+            })
+        legs.append({
+            "distance": leg.get("distanceMeters", 0),
+            "duration": _duration_seconds(leg.get("duration")) or 0,
+            "static_duration": _duration_seconds(leg.get("staticDuration")) or 0,
+            "steps": steps,
+        })
+    return {
+        "geometry": {"type": "LineString", "coordinates": _decode_google_polyline(encoded)} if encoded else None,
+        "distance_meters": route.get("distanceMeters", 0),
+        "duration_seconds": _duration_seconds(route.get("duration")) or 0,
+        "static_duration_seconds": _duration_seconds(route.get("staticDuration")),
+        "legs": legs,
+        "traffic_aware": True,
+        "provider": "Google Routes",
+        "traffic_speed_intervals": (route.get("travelAdvisory") or {}).get("speedReadingIntervals", []),
+    }
+
+
 @router.get("/routes/today")
 async def get_today_agent_route(
     as_of_date: Optional[date] = Query(None, description="Local operational date"),
@@ -195,7 +327,7 @@ async def optimize_today_agent_route(
     as_of_date: Optional[date] = Query(None, description="Local operational date"),
     current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
 ):
-    """Preview a route order using OSRM road travel durations; this does not mutate assignments."""
+    """Preview an optimized route; use live traffic when Google Routes is configured."""
     agent = current_user.agent
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
@@ -205,7 +337,57 @@ async def optimize_today_agent_route(
     routable = [s for s in stops if s["customer_latitude"] is not None and s["customer_longitude"] is not None]
     if len(routable) < 2:
         return {"ordered_visit_ids": [s["id"] for s in stops], "optimized": False,
+                "cost_model": "Google traffic-aware routing" if settings.GOOGLE_ROUTES_API_KEY else "OSRM road travel duration",
+                "traffic_aware": bool(settings.GOOGLE_ROUTES_API_KEY),
                 "detail": "At least two assigned stops with mapped addresses are needed to optimize."}
+
+    fixed = [s for s in routable if s["status"] == "in_progress"]
+    remaining = [s for s in routable if s["status"] != "in_progress"]
+    if settings.GOOGLE_ROUTES_API_KEY and len(remaining) <= 1:
+        missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
+        ordered = fixed + remaining + missing
+        return {
+            "ordered_visit_ids": [s["id"] for s in ordered],
+            "optimized": False,
+            "cost_model": "Google Routes traffic-aware travel time",
+            "traffic_aware": True,
+            "detail": "The remaining stop order is fixed. The route will use current traffic data.",
+        }
+
+    if settings.GOOGLE_ROUTES_API_KEY:
+        # Keep an active visit first. Optimize the remaining stops using Google
+        # Routes' travel-time, distance, and turn-aware waypoint ordering.
+        route_origin = origin
+        if fixed:
+            route_origin = {
+                "latitude": fixed[-1]["customer_latitude"],
+                "longitude": fixed[-1]["customer_longitude"],
+            }
+        destination = remaining[-1]
+        intermediates = remaining[:-1]
+        try:
+            route = await _google_compute_route(
+                route_origin,
+                {"latitude": destination["customer_latitude"], "longitude": destination["customer_longitude"]},
+                intermediates,
+                optimize_waypoints=True,
+            )
+            order = route.get("optimizedIntermediateWaypointIndex") or list(range(len(intermediates)))
+            if sorted(order) != list(range(len(intermediates))):
+                raise ValueError("Google Routes returned an incomplete waypoint order.")
+            optimized_remaining = [intermediates[i] for i in order] + [destination]
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
+            raise HTTPException(status_code=502, detail="Traffic-aware route optimization is temporarily unavailable.") from exc
+        missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
+        ordered = fixed + optimized_remaining + missing
+        return {
+            "ordered_visit_ids": [s["id"] for s in ordered],
+            "optimized": True,
+            "cost_model": "Google Routes traffic-aware travel time, distance, and turns",
+            "traffic_aware": True,
+            "detail": "Route order optimized with current traffic data. The active visit remains first; assigned records were not changed.",
+        }
+
     coords = [(origin["longitude"], origin["latitude"])] + [(s["customer_longitude"], s["customer_latitude"]) for s in routable]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coords)
     try:
@@ -218,9 +400,7 @@ async def optimize_today_agent_route(
             raise ValueError("Routing matrix unavailable")
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=502, detail="Road routing is temporarily unavailable. Try again later.") from exc
-    # Existing in-progress stop remains first; reorder only pending/delayed stops using OSRM duration costs.
-    fixed = [s for s in routable if s["status"] == "in_progress"]
-    remaining = [s for s in routable if s["status"] != "in_progress"]
+    # Existing in-progress stop remains first; reorder pending stops by road time.
     ordered = list(fixed)
     current_index = routable.index(fixed[0]) + 1 if fixed else 0
     while remaining:
@@ -232,7 +412,8 @@ async def optimize_today_agent_route(
         current_index = routable.index(best) + 1
     missing = [s for s in stops if s["customer_latitude"] is None or s["customer_longitude"] is None]
     return {"ordered_visit_ids": [s["id"] for s in ordered + missing], "optimized": True,
-            "cost_model": "OSRM road travel duration", "detail": "Preview only; assigned visit records were not changed."}
+            "cost_model": "OSRM road travel duration", "traffic_aware": False,
+            "detail": "Route order optimized by road travel time. Live traffic is unavailable until Google Routes is configured; assigned records were not changed."}
 
 
 @router.get("/routes/geometry")
@@ -254,6 +435,22 @@ async def get_agent_route_geometry(
     ordered = [by_id[item] for item in ids]
     if any(v.customer.latitude is None or v.customer.longitude is None for v in ordered):
         raise HTTPException(status_code=409, detail="One or more assigned customer addresses do not have mapped coordinates.")
+    if settings.GOOGLE_ROUTES_API_KEY:
+        route_origin = {"latitude": origin["latitude"], "longitude": origin["longitude"]}
+        destination_visit = ordered[-1]
+        try:
+            route = await _google_compute_route(
+                route_origin,
+                {"latitude": destination_visit.customer.latitude, "longitude": destination_visit.customer.longitude},
+                [
+                    {"customer_latitude": visit.customer.latitude, "customer_longitude": visit.customer.longitude}
+                    for visit in ordered[:-1]
+                ],
+            )
+            return _google_route_response(route)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=502, detail="Traffic-aware road routing is temporarily unavailable.") from exc
+
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
     coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
     try:
@@ -270,7 +467,9 @@ async def get_agent_route_geometry(
         raise HTTPException(status_code=502, detail="Road route is temporarily unavailable.") from exc
     route = result["routes"][0]
     return {"geometry": route["geometry"], "distance_meters": route["distance"],
-            "duration_seconds": route["duration"], "legs": route.get("legs", [])}
+            "duration_seconds": route["duration"], "legs": route.get("legs", []),
+            "static_duration_seconds": route["duration"], "traffic_aware": False,
+            "provider": "OSRM", "traffic_speed_intervals": []}
 
 
 @router.get("/me", response_model=AgentResponse)
@@ -330,10 +529,6 @@ async def get_agent_dashboard(
         agent = current_user.agent
         if not agent:
             agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-            if not agent and "malavya" in (current_user.full_name or "").lower():
-                agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
-                agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
             if not agent:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -343,8 +538,10 @@ async def get_agent_dashboard(
         if agent_id:
             agent = await db.get(Agent, agent_id)
         else:
-            stmt = select(Agent).options(joinedload(Agent.profile)).order_by(Agent.agent_code.asc()).limit(1)
-            agent = (await db.execute(stmt)).scalars().first()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An agent_id is required when an administrator previews an agent dashboard.",
+            )
         if not agent:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -360,15 +557,6 @@ async def get_agent_dashboard(
 
     # Collect all candidate agent IDs for this field agent to prevent scoping mismatches
     agent_ids = {agent.id}
-    name_lower = (current_user.full_name or "").lower()
-    email_lower = (current_user.email or "").lower()
-    if "malavya" in name_lower or "malavya" in email_lower:
-        agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-        agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     # 1. Fetch Today's Visits for this agent (including pending rollover from earlier today / past)
     today_query = (
@@ -459,23 +647,10 @@ async def list_agent_visits(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent and "malavya" in (current_user.full_name or "").lower():
-            agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
-            agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
 
     agent_ids = {agent.id}
-    name_lower = (current_user.full_name or "").lower()
-    email_lower = (current_user.email or "").lower()
-    if "malavya" in name_lower or "malavya" in email_lower:
-        agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-        agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     query = (
         select(Visit)
@@ -538,15 +713,6 @@ async def get_agent_visit(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent:
-            name_lower = (current_user.full_name or "").lower()
-            email_lower = (current_user.email or "").lower()
-            if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            elif "malavya" in name_lower or "malavya" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent:
-            agent = await db.scalar(select(Agent).where(Agent.agent_code == "121"))
 
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
@@ -590,15 +756,6 @@ async def get_agent_visit_history(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent:
-            name_lower = (current_user.full_name or "").lower()
-            email_lower = (current_user.email or "").lower()
-            if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            elif "malavya" in name_lower or "malavya" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent:
-            agent = await db.scalar(select(Agent).where(Agent.agent_code == "121"))
 
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
@@ -660,15 +817,6 @@ async def update_agent_visit_status(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent:
-            name_lower = (current_user.full_name or "").lower()
-            email_lower = (current_user.email or "").lower()
-            if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            elif "malavya" in name_lower or "malavya" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent:
-            agent = await db.scalar(select(Agent).where(Agent.agent_code == "121"))
 
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
@@ -695,15 +843,6 @@ async def update_agent_visit_status(
         )
 
     agent_ids = {agent.id}
-    name_lower = (current_user.full_name or "").lower()
-    email_lower = (current_user.email or "").lower()
-    if "malavya" in name_lower or "malavya" in email_lower:
-        agent_ids.add(uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-        agent_ids.add(uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-    other_ag_ids = await db.scalars(select(Agent.id).where(Agent.profile_id == current_user.id))
-    for o_id in other_ag_ids:
-        agent_ids.add(o_id)
 
     if visit.agent_id not in agent_ids:
         raise HTTPException(
@@ -768,15 +907,6 @@ async def update_agent_duty_status(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent:
-            name_lower = (current_user.full_name or "").lower()
-            email_lower = (current_user.email or "").lower()
-            if "raina" in name_lower or "rishabh" in name_lower or "rainamishra" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            elif "malavya" in name_lower or "malavya" in email_lower:
-                agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent:
-            agent = await db.scalar(select(Agent).where(Agent.agent_code == "121"))
 
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found.")
@@ -790,9 +920,9 @@ async def update_agent_duty_status(
 
     agent.status = payload.status
     await db.commit()
-    await db.refresh(agent)
+    agent.profile = current_user
 
-    return _to_agent_response(agent)
+    return _to_agent_response(agent, profile=current_user)
 
 
 @router.patch("/me/location", response_model=AgentResponse)
@@ -809,10 +939,6 @@ async def update_agent_live_location(
     agent = current_user.agent
     if not agent:
         agent = await db.scalar(select(Agent).where(Agent.profile_id == current_user.id))
-        if not agent and "malavya" in (current_user.full_name or "").lower():
-            agent = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-        if not agent and ("raina" in (current_user.full_name or "").lower() or "rishabh" in (current_user.full_name or "").lower() or "rainamishra" in (current_user.email or "").lower()):
-            agent = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
         if not agent:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -823,12 +949,13 @@ async def update_agent_live_location(
     loc_source = payload.location_source if payload.location_source in ("gps", "manual") else "gps"
     verified_accuracy = payload.gps_accuracy if loc_source == "gps" else None
 
+    now_utc = datetime.now(timezone.utc)
     agent.current_latitude = payload.latitude
     agent.current_longitude = payload.longitude
     agent.location_source = loc_source
     if payload.battery_level is not None:
         agent.battery_level = payload.battery_level
-    agent.last_location_update = func.now()
+    agent.last_location_update = now_utc
     agent.current_location = WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326)
 
     # Log separate location record breadcrumb
@@ -844,5 +971,6 @@ async def update_agent_live_location(
 
     await db.commit()
     agent.profile = current_user
+    agent.last_location_update = now_utc
 
-    return _to_agent_response(agent)
+    return _to_agent_response(agent, profile=current_user)

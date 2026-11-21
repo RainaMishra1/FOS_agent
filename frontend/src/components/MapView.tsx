@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
-import { fetchAgents, AgentApiItem, ApiError } from "@/lib/api";
+import { fetchAgents, AgentApiItem } from "@/lib/api";
 import StatusBadge from "./StatusBadge";
 import {
   Compass,
@@ -108,64 +107,16 @@ export default function MapView({
     }
   }, []);
 
-  // Fetch real agents from database with fallback
+  // Fetch real agents from the authenticated backend.
   const loadAgentsData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await fetchAgents(session?.access_token, { limit: 100 });
-      if (res.items && res.items.length > 0) {
-        setAgents(res.items);
-        return;
-      }
+      setAgents(res.items);
     } catch (err: any) {
-      console.warn("FastAPI unreachable, fetching directly from Supabase:", err);
-    }
-
-    try {
-      const { data: dbAgents, error: sbError } = await supabase
-        .from("agents")
-        .select(`
-          id,
-          agent_code,
-          territory,
-          status,
-          current_latitude,
-          current_longitude,
-          battery_level,
-          profiles (
-            full_name,
-            email,
-            phone
-          )
-        `);
-
-      if (dbAgents && dbAgents.length > 0) {
-        const converted: AgentApiItem[] = dbAgents.map((a: any) => {
-          const prof = a.profiles || {};
-          return {
-            id: a.id,
-            agent_code: a.agent_code || a.id.slice(0, 8),
-            name: prof.full_name || `Agent ${a.agent_code || a.id.slice(0, 4)}`,
-            email: prof.email || "agent@fos.internal",
-            phone: prof.phone || "+91 98800 12345",
-            status: a.status === "active" ? "active" : "inactive",
-            territory: a.territory || "Field Operations",
-            address: "Field Operations Center",
-            location_source: "gps",
-            current_latitude: a.current_latitude ?? 19.21899,
-            current_longitude: a.current_longitude ?? 73.14006,
-            battery_level: a.battery_level ?? 95,
-            last_location_update: new Date().toISOString(),
-            assigned_tasks: 3,
-            completed_visits: 1,
-            created_at: new Date().toISOString(),
-          };
-        });
-        setAgents(converted);
-      }
-    } catch (sbErr) {
-      console.error("Supabase direct query failed:", sbErr);
+      setAgents([]);
+      setError(err?.message || "Could not load field agents.");
     } finally {
       setIsLoading(false);
     }

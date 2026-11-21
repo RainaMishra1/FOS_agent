@@ -226,8 +226,8 @@ async def get_current_profile(
       1. Modern lookup: Profile.auth_user_id == user_uuid
       2. Legacy lookup: Profile.id == user_uuid (pre-migration-0003 aligned profiles)
       3. Verified email match: lower(Profile.email) == lower(token_email)
-    Automatically self-heals legacy or email-only profiles by setting auth_user_id.
-    Rejects users without a provisioned Profile with a 403 Forbidden.
+    Does not assign roles or create profiles from token metadata. Rejects users
+    without a provisioned Profile with a 403 Forbidden.
     """
     sub = claims.get("sub") or claims.get("id")
     try:
@@ -290,131 +290,6 @@ async def get_current_profile(
             logger.warning("Lookup by email failed: %s", exc.__class__.__name__)
             await db.rollback()
 
-    # Self-healing: If matched via legacy ID or verified email and auth_user_id is unset, link it
-    if profile:
-        meta_role = (claims.get("user_metadata", {}) or {}).get("role")
-        needs_commit = False
-        if getattr(profile, "auth_user_id", None) is None:
-            profile.auth_user_id = user_uuid
-            needs_commit = True
-        if meta_role in ("admin", "agent") and profile.role != meta_role:
-            logger.info("Syncing profile %s role from %s to %s based on claims", profile.email, profile.role, meta_role)
-            profile.role = meta_role
-            if meta_role == "admin" and getattr(profile, "agent", None):
-                try:
-                    await db.delete(profile.agent)
-                except Exception:
-                    pass
-            needs_commit = True
-
-        # Self-healing: Ensure an active agent record is linked if profile role is agent
-        if profile.role == "agent" and not getattr(profile, "agent", None):
-            try:
-                ag_res = await db.execute(
-                    select(Agent).where(Agent.profile_id == profile.id)
-                )
-                ag = ag_res.scalars().first()
-                if not ag:
-                    # Match known seed agents or agent code
-                    name_l = (profile.full_name or "").lower()
-                    email_l = (profile.email or "").lower()
-                    if "raina" in name_l or "rishabh" in name_l or "121" in email_l or "rainamishra" in email_l:
-                        ag = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-                    elif "malavya" in name_l or "malavya" in email_l:
-                        ag = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-                if not ag:
-                    ag_res2 = await db.execute(select(Agent).where(Agent.agent_code == "121"))
-                    ag = ag_res2.scalars().first()
-                if not ag:
-                    ag_res3 = await db.execute(select(Agent).where(Agent.profile_id.is_(None)))
-                    ag = ag_res3.scalars().first()
-
-                if ag:
-                    ag.profile_id = profile.id
-                    profile.agent = ag
-                    needs_commit = True
-                    logger.info("Self-healed agent link for profile %s -> agent %s", profile.email, ag.id)
-                else:
-                    new_ag = Agent(
-                        id=uuid.uuid4(),
-                        profile_id=profile.id,
-                        agent_code="121",
-                        status="active",
-                        territory="Mumbai Zone",
-                        address="Mumbai Hub",
-                        location_source="gps",
-                        battery_level=95,
-                    )
-                    db.add(new_ag)
-                    profile.agent = new_ag
-                    needs_commit = True
-                    logger.info("Auto-created agent record for profile %s -> agent %s", profile.email, new_ag.id)
-            except Exception as ag_err:
-                logger.warning("Agent self-healing lookup failed: %s", ag_err)
-
-        if needs_commit:
-            try:
-                await db.commit()
-            except Exception as link_err:
-                await db.rollback()
-                logger.warning("Could not persist self-healed profile for %s: %s", profile.email, link_err)
-
-    # Strategy 4: Auto-provision profile and agent for valid Supabase authenticated user
-    if not profile and user_uuid:
-        try:
-            user_meta = claims.get("user_metadata", {}) or {}
-            derived_name = (
-                user_meta.get("full_name")
-                or claims.get("name")
-                or (token_email.split("@")[0].replace(".", " ").title() if token_email else "User")
-            )
-            meta_role = user_meta.get("role")
-            if meta_role in ("admin", "agent"):
-                derived_role = meta_role
-            elif token_email in {"rishabmishra075@gmail.com", "rishabhmishra075@gmail.com"} or "admin" in (token_email or "").lower():
-                derived_role = "admin"
-            else:
-                derived_role = "agent"
-
-            profile = Profile(
-                id=user_uuid,
-                auth_user_id=user_uuid,
-                email=token_email or f"{user_uuid}@fos.internal",
-                full_name=derived_name,
-                role=derived_role,
-            )
-            db.add(profile)
-            await db.flush()
-
-            if derived_role == "agent":
-                ag = Agent(
-                    id=uuid.uuid4(),
-                    profile_id=profile.id,
-                    agent_code=user_meta.get("employee_id") or ("AGT-" + str(profile.id)[:4].upper()),
-                    status="active",
-                    territory="Mumbai Zone",
-                    address="Mumbai Hub",
-                    location_source="gps",
-                    current_latitude=None,
-                    current_longitude=None,
-                    battery_level=90,
-                )
-                db.add(ag)
-                await db.flush()
-            await db.commit()
-            lookup_strategy = "auto_provisioned"
-            logger.info("Auto-provisioned profile for %s with role=%s", token_email, derived_role)
-        except Exception as prov_err:
-            logger.warning("Auto-provision profile failed: %s", prov_err)
-            await db.rollback()
-            try:
-                res = await db.execute(
-                    select(Profile).options(joinedload(Profile.agent)).where(Profile.id == user_uuid)
-                )
-                profile = res.unique().scalars().first()
-            except Exception:
-                pass
-
     if profile:
         logger.info(
             "Profile authenticated: profile_id=%s, role=%s, resolved_via=%s",
@@ -468,7 +343,7 @@ async def require_agent(
 ) -> Profile:
     """
     Dependency enforcing that the caller is an active field agent ('agent').
-    Ensures the linked Agent entity is loaded and present, self-healing the relationship if needed.
+    Requires the agent record to be explicitly provisioned and linked to this profile.
     """
     if profile.role != "agent":
         raise HTTPException(
@@ -477,46 +352,7 @@ async def require_agent(
         )
 
     if not getattr(profile, "agent", None):
-        try:
-            ag_res = await db.execute(
-                select(Agent).where(Agent.profile_id == profile.id)
-            )
-            ag = ag_res.scalars().first()
-            if not ag:
-                name_l = (profile.full_name or "").lower()
-                email_l = (profile.email or "").lower()
-                if "raina" in name_l or "rishabh" in name_l or "121" in email_l or "rainamishra" in email_l:
-                    ag = await db.get(Agent, uuid.UUID("5f926578-e5c7-40cc-ac8e-d59616be0c38"))
-                elif "malavya" in name_l or "malavya" in email_l:
-                    ag = await db.get(Agent, uuid.UUID("6f926578-e5c7-40cc-ac8e-d59616be0c38"))
-            if not ag:
-                ag_res2 = await db.execute(select(Agent).where(Agent.agent_code == "121"))
-                ag = ag_res2.scalars().first()
-            if not ag:
-                ag_res3 = await db.execute(select(Agent).where(Agent.profile_id.is_(None)))
-                ag = ag_res3.scalars().first()
-
-            if ag:
-                ag.profile_id = profile.id
-                profile.agent = ag
-                await db.commit()
-            else:
-                new_ag = Agent(
-                    id=uuid.uuid4(),
-                    profile_id=profile.id,
-                    agent_code="121",
-                    status="active",
-                    territory="Mumbai Zone",
-                    address="Mumbai Hub",
-                    location_source="gps",
-                    battery_level=95,
-                )
-                db.add(new_ag)
-                await db.commit()
-                profile.agent = new_ag
-        except Exception as heal_err:
-            await db.rollback()
-            logger.warning("require_agent self-healing failed: %s", heal_err)
+        profile.agent = await db.scalar(select(Agent).where(Agent.profile_id == profile.id))
 
     if not profile.agent:
         raise HTTPException(

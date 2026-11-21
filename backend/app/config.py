@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     MAX_ACCEPTABLE_GPS_ACCURACY_METERS: float = 750.0
     LOCATION_STALE_THRESHOLD_SECONDS: int = 300
     OSRM_BASE_URL: str = "http://router.project-osrm.org"
+    GOOGLE_ROUTES_API_KEY: Optional[str] = None
     GEOCODING_SEARCH_URL: str = "https://nominatim.openstreetmap.org/search"
     GEOCODING_USER_AGENT: str = "FOS-Enterprise/1.0 (field operations address lookup)"
 

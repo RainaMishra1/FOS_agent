@@ -26,7 +26,7 @@ A production-oriented web application for managing field agents, customer leads,
 - **Backend:** Python, FastAPI, Pydantic v2, Pydantic-Settings, SQLAlchemy 2.0 (asyncpg), `python-jose` (cryptography), `httpx`, Uvicorn, Pytest.
 - **Database:** Supabase PostgreSQL + PostGIS (geospatial distance and territory boundaries).
 - **Authentication:** Supabase Auth with JWT bearer tokens and server-verified profile roles.
-- **Routing & Optimization:** OSRM road distance matrix + Google OR-Tools routing engine.
+- **Routing & Optimization:** Traffic-aware Google Routes waypoint optimization when `GOOGLE_ROUTES_API_KEY` is configured, with OSRM road-time fallback.
 
 ---
 
@@ -52,7 +52,7 @@ FOS_agent/
 │   │   └── api/
 │   │       └── v1/
 │   │           ├── api.py        # V1 router aggregation
-│   │           ├── auth.py       # /auth/me, bootstrap & provisioning
+│   │           ├── auth.py       # /auth/me and protected provisioning
 │   │           ├── agents.py     # Role-guarded agents endpoints
 │   │           ├── customers.py  # Authenticated customer endpoints
 │   │           ├── visits.py     # Role-isolated field visits
@@ -108,14 +108,11 @@ FastAPI does not assume a legacy JWT secret. The verification engine (`app/core/
 - **`agent`**: Access to their own profile (`GET /api/v1/auth/me`), their own operational record (`GET /api/v1/agents/me`), submitting live GPS coordinates (`PATCH /api/v1/agents/me/location`), and viewing/updating only their own assigned visits (`GET /api/v1/visits`, `PATCH /api/v1/visits/{id}/status`).
 - **Privacy Isolation**: Any attempt by a field agent to query another agent's records or visit schedule is rejected with `403 Forbidden` at the API level.
 
-### 3. Secure First Administrator Provisioning
-Users can never assign themselves administrative privileges:
-1. **Initial Bootstrap (`POST /api/v1/auth/bootstrap-first-admin`)**:
-   - Only functions when `SELECT COUNT(id) FROM profiles WHERE role = 'admin'` is `0`.
-   - As soon as the first administrator is provisioned, this endpoint is permanently disabled and returns `403 Forbidden`.
-2. **Subsequent Administrators (`POST /api/v1/auth/provision-admin`)**:
-   - Strictly protected with the `require_admin` dependency.
-   - Can only be invoked by an active, authenticated administrator.
+### 3. Account Provisioning
+- Application roles are loaded from the backend `profiles` table after Supabase sign-in. Browser metadata and email text do not grant roles.
+- Public first-admin bootstrap is disabled. Administrator signup requires the server-side registration key and, in production, an email in `ADMIN_REGISTRATION_ALLOWLIST`.
+- The browser does not create profiles directly or fabricate a local session when Supabase or the backend is unavailable.
+- `POST /api/v1/auth/provision-admin` is restricted to an authenticated administrator.
 
 ---
 

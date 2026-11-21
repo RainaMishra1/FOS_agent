@@ -1,3 +1,4 @@
+import os
 import ssl
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import (
@@ -16,7 +17,19 @@ connect_args = {
 db_url = settings.DATABASE_URL
 if "localhost" not in db_url and "127.0.0.1" not in db_url:
     if "ssl=" not in db_url and "sslmode=" not in db_url:
-        ssl_ctx = ssl.create_default_context()
+        try:
+            ssl_ctx = ssl.create_default_context()
+        except PermissionError:
+            # Some managed Windows environments set SSLKEYLOGFILE to a protected
+            # diagnostic path. It is optional, so retry without that setting
+            # instead of preventing the API from starting.
+            keylog_file = os.environ.pop("SSLKEYLOGFILE", None)
+            if keylog_file is None:
+                raise
+            try:
+                ssl_ctx = ssl.create_default_context()
+            finally:
+                os.environ["SSLKEYLOGFILE"] = keylog_file
         # In development/debug, permit TLS encryption without failing on Windows self-signed root certificate chains
         if settings.ENVIRONMENT.lower() == "development" or settings.DEBUG:
             ssl_ctx.check_hostname = False

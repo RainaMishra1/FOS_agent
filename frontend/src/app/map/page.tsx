@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import MapView from "@/components/MapView";
 import { useAuth } from "@/context/AuthContext";
 import { fetchAgents, AgentApiItem } from "@/lib/api";
-import { supabase } from "@/lib/supabaseClient";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import {
   Compass,
@@ -27,51 +26,18 @@ export default function LiveMapPage() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (session?.access_token) {
-        const res = await fetchAgents(session?.access_token, { limit: 100 });
-        if (res.items?.length) {
-          setAgents(res.items);
-          setIsLoading(false);
-          return;
-        }
-      }
+      if (!session?.access_token) throw new Error("Your secure session is unavailable. Sign in again.");
+      const result = await fetchAgents(session.access_token, { limit: 100 });
+      setAgents(result.items);
+      setSelectedAgent((current) => current ? result.items.find((agent) => agent.id === current.id) || null : null);
     } catch (err) {
-      console.warn("FastAPI unreachable, loading agents directly from Supabase:", err);
-    }
-
-    try {
-      const { data: dbAgents } = await supabase
-        .from("agents")
-        .select("*, profile:profiles(id, full_name, email, phone)");
-
-      if (dbAgents && dbAgents.length > 0) {
-        const mapped: AgentApiItem[] = dbAgents.map((a: any) => ({
-          id: a.id,
-          agent_code: a.agent_code || a.id.slice(0, 8),
-          name: a.profile?.full_name || "Field Agent",
-          email: a.profile?.email || "",
-          phone: a.profile?.phone || "+91 98450 00000",
-          status: a.status || "active",
-          territory: a.territory || "Field Hub",
-          address: a.address || "Field Center",
-          location_source: a.location_source || "gps",
-          current_latitude: Number(a.current_latitude) || 19.21899,
-          current_longitude: Number(a.current_longitude) || 73.14006,
-          battery_level: a.battery_level ?? 90,
-          last_location_update: a.last_location_update || new Date().toISOString(),
-          assigned_tasks: 2,
-          completed_visits: 1,
-          created_at: a.created_at || new Date().toISOString(),
-        }));
-        setAgents(mapped);
-      }
-    } catch (sbErr) {
-      console.warn("Supabase loadData error:", sbErr);
+      setAgents([]);
+      setSelectedAgent(null);
+      console.error("Could not load agents for the map:", err);
     } finally {
       setIsLoading(false);
     }
   }, [session?.access_token]);
-
   useEffect(() => {
     if (isAuthenticated) {
       loadData();

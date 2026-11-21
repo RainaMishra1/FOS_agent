@@ -34,7 +34,7 @@ export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
-  const { agents } = useOperations();
+  const { agents, loadAgents } = useOperations();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -44,6 +44,14 @@ export default function AppShell({ children }: AppShellProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(3);
   const [globalSearch, setGlobalSearch] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const agentSearchLoadedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (isSearchOpen && !agentSearchLoadedRef.current) {
+      agentSearchLoadedRef.current = true;
+      if (agents.length === 0) void loadAgents();
+    }
+  }, [isSearchOpen, agents.length, loadAgents]);
 
   const matchingAgents = React.useMemo(() => {
     if (!globalSearch.trim()) return (agents || []).slice(0, 5);
@@ -59,8 +67,7 @@ export default function AppShell({ children }: AppShellProps) {
   const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname?.endsWith("/login") || pathname?.endsWith("/signup");
   const isAgentRoute = Boolean(pathname === "/agent" || pathname?.startsWith("/agent/"));
 
-  const userEmail = (user?.email || profile?.email || "").toLowerCase();
-  const isAdminAccount = role === "admin" || userEmail.includes("rishabmishra075") || userEmail.includes("rishabhmishra075");
+  const isAdminAccount = role === "admin";
 
   // 1. Client-side Route Guard for Admin Portal
   useEffect(() => {
@@ -125,15 +132,13 @@ export default function AppShell({ children }: AppShellProps) {
     router.push("/login");
   };
 
-  const displayName = isAdminAccount 
-    ? (profile?.full_name && profile.full_name !== "Rishabh Mishra" ? profile.full_name : "Raina Mishra")
-    : (profile?.full_name || "Field Agent");
+  const displayName = profile?.full_name || (isAdminAccount ? "Operations Admin" : "Field Agent");
   const initials = displayName
     .split(" ")
     .map((n) => n[0])
     .join("")
     .slice(0, 2)
-    .toUpperCase() || "RM";
+    .toUpperCase() || "FA";
 
   return (
     <div className="min-h-screen bg-[#F5F2EB] text-[#1A201C] flex flex-col lg:flex-row antialiased font-sans">
@@ -452,25 +457,8 @@ export default function AppShell({ children }: AppShellProps) {
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="py-2 space-y-2.5">
-                    <div className="p-2.5 rounded-xl bg-[#F5F2EB] border border-[#E6DFD3]">
-                      <p className="font-semibold text-[#1A201C] text-[11px]">Geofence Verified Check-in</p>
-                      <p className="text-[10px] text-[#756F66] mt-0.5">
-                        Marcus Vance verified check-in at Sterling Towers (14m accuracy).
-                      </p>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-[#F5F2EB] border border-[#E6DFD3]">
-                      <p className="font-semibold text-[#1A201C] text-[11px]">Route Optimized (Zone 3)</p>
-                      <p className="text-[10px] text-[#756F66] mt-0.5">
-                        Priya Sharma completed Koramangala sequence ahead of schedule.
-                      </p>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-[#F8EFE2] border border-[#EAD4B4]">
-                      <p className="font-semibold text-[#9E6924] text-[11px]">Visit Delayed</p>
-                      <p className="text-[10px] text-[#756F66] mt-0.5">
-                        Aerospace Component Systems meeting pushed by 45 mins.
-                      </p>
-                    </div>
+                  <div className="py-5 text-center text-[11px] text-[#756F66]">
+                    No operational alerts are available.
                   </div>
                 </div>
               )}
