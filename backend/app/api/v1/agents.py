@@ -130,14 +130,29 @@ def _to_agent_response(
     agent: Agent,
     assigned_tasks: int = 0,
     completed_visits: int = 0,
+    profile: Optional[Profile] = None,
 ) -> AgentResponse:
+    prof = profile or agent.__dict__.get("profile")
+    if prof is None:
+        try:
+            prof = agent.profile
+        except Exception:
+            prof = None
+
+    last_update = agent.__dict__.get("last_location_update")
+    if last_update is None or not isinstance(last_update, datetime):
+        try:
+            last_update = agent.last_location_update
+        except Exception:
+            last_update = None
+
     return AgentResponse(
         id=agent.id,
-        auth_linked=bool(agent.profile and agent.profile.auth_user_id),
+        auth_linked=bool(prof and prof.auth_user_id),
         agent_code=agent.agent_code,
-        name=agent.profile.full_name if agent.profile else (agent.agent_code or "Unknown Agent"),
-        email=agent.profile.email if agent.profile else None,
-        phone=agent.profile.phone if agent.profile else None,
+        name=prof.full_name if prof else (agent.agent_code or "Unknown Agent"),
+        email=prof.email if prof else None,
+        phone=prof.phone if prof else None,
         status=agent.status,
         territory=agent.territory,
         address=agent.address,
@@ -145,7 +160,7 @@ def _to_agent_response(
         current_latitude=agent.current_latitude,
         current_longitude=agent.current_longitude,
         battery_level=agent.battery_level,
-        last_location_update=agent.last_location_update,
+        last_location_update=last_update if isinstance(last_update, datetime) else None,
         assigned_tasks=assigned_tasks,
         completed_visits=completed_visits,
         created_at=agent.created_at or datetime.now(timezone.utc),

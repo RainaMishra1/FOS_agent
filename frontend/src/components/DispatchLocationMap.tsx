@@ -64,9 +64,10 @@ export default function DispatchLocationMap({
     if (!ready || !L || !elementRef.current) return;
 
     if (!mapRef.current) {
-      const initialZoom = latitude != null && longitude != null ? 17 : 12;
+      // Without a pin yet, show the Mumbai metropolitan region where operations run.
+      const initialZoom = latitude != null && longitude != null ? 17 : 10;
       const map = L.map(elementRef.current).setView(
-        [latitude ?? 12.9716, longitude ?? 77.5946],
+        [latitude ?? 19.076, longitude ?? 72.8777],
         initialZoom
       );
 
@@ -119,15 +120,16 @@ export default function DispatchLocationMap({
 
         marker.bindPopup(
           "<div style='font-family: inherit; font-size: 12px; line-height: 1.4;'>" +
-            "<strong style='color: #B86F52; display: block;'>📍 Building Entrance Pin</strong>" +
-            "<span>Drag directly to the building gate or main entrance for precise 750m agent geofencing.</span>" +
+            "<strong style='color: #2E5A44; display: block;'>Customer location</strong>" +
+            "<span>Drag the pin to the exact entrance if it is slightly off.</span>" +
           "</div>"
         );
 
         markerRef.current = marker;
       }
 
-      // Pan to the point at high building-entrance zoom level (17)
+      // The container may have changed size since the map was created.
+      mapRef.current.invalidateSize();
       mapRef.current.setView(point, Math.max(mapRef.current.getZoom(), 17));
     } else if (markerRef.current) {
       mapRef.current.removeLayer(markerRef.current);
@@ -152,62 +154,57 @@ export default function DispatchLocationMap({
     }
   };
 
+  const hasPin = latitude != null && longitude != null;
+
   return (
     <div className="space-y-2">
-      {/* Map Control Bar & Entrance Status */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-1.5 font-semibold text-neutral-200">
-          <MapPin className="h-4 w-4 shrink-0 text-amber-500" />
-          <span>Interactive Entrance Locator (OpenStreetMap)</span>
-        </div>
-
-        {latitude != null && longitude != null && (
+      <div className="relative h-72 sm:h-80 overflow-hidden rounded-2xl border border-[#E6DFD3] bg-[#F3EFE7]">
+        {!ready && (
+          <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 bg-[#F3EFE7] text-xs font-medium text-[#756F66]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading map…
+          </div>
+        )}
+        {ready && !hasPin && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-[500] -translate-x-1/2 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-[#1A201C] shadow-sm">
+            Search the address above, or click the map to drop the pin
+          </div>
+        )}
+        {hasPin && (
           <button
             type="button"
             onClick={handleRecenter}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-[11px] font-semibold text-neutral-200 transition hover:bg-neutral-700 hover:text-white"
+            className="absolute right-3 top-3 z-[500] inline-flex items-center gap-1.5 rounded-lg border border-[#E6DFD3] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#1A201C] shadow-sm hover:bg-[#FAF7F0]"
           >
-            <Crosshair className="h-3 w-3 text-amber-500" />
-            Recenter on Pin
+            <Crosshair className="h-3 w-3" />
+            Recenter
           </button>
-        )}
-      </div>
-
-      {/* Map Canvas */}
-      <div className="relative h-80 overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-900 shadow-inner">
-        {!ready && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-neutral-900/90 text-xs text-neutral-200 font-medium">
-            <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
-            Loading Leaflet OpenStreetMap tiles…
-          </div>
         )}
         <div ref={elementRef} className="h-full w-full" />
       </div>
 
-      {/* Entrance Pin Status Box (High Contrast & Legible) */}
-      <div className="flex flex-col gap-1.5 rounded-xl border border-neutral-700 bg-neutral-900 px-3.5 py-2.5 text-xs sm:flex-row sm:items-center sm:justify-between shadow-xs">
-        <div className="flex items-center gap-2">
-          {isEntranceVerified || hasMovedPin ? (
-            <span className="flex items-center gap-1.5 font-semibold text-emerald-400">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-              Entrance pin adjusted ({latitude?.toFixed(6)}, {longitude?.toFixed(6)})
-            </span>
-          ) : latitude != null && longitude != null ? (
-            <span className="flex items-center gap-1.5 font-medium text-amber-300">
-              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
-              Placed at centroid. Drag pin to building gate/entrance.
+      <div className="flex flex-col gap-1 text-[11px] sm:flex-row sm:items-center sm:justify-between">
+        {hasPin ? (
+          isEntranceVerified || hasMovedPin ? (
+            <span className="flex items-center gap-1.5 font-semibold text-[#2E5A44]">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              Pin set on the map. Drag it again to fine-tune.
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 font-medium text-amber-300">
-              <MapPin className="h-4 w-4 text-amber-400 shrink-0" />
-              Click map or search address to place pin.
+            <span className="flex items-center gap-1.5 text-[#756F66]">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              Pin placed from the address. Drag it to the exact entrance if needed.
             </span>
-          )}
-        </div>
-
-        {placeLabel && (
-          <span className="truncate text-neutral-300 text-xs" title={placeLabel}>
-            Target: <strong className="font-semibold text-white">{placeLabel}</strong>
+          )
+        ) : (
+          <span className="flex items-center gap-1.5 text-[#756F66]">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            No pin yet.
+          </span>
+        )}
+        {placeLabel && hasPin && (
+          <span className="truncate text-[#756F66] sm:max-w-[55%]" title={placeLabel}>
+            {placeLabel}
           </span>
         )}
       </div>

@@ -49,8 +49,19 @@ def _distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 
 
 async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
+    """Check the agent's latest real GPS reading against the customer location.
+
+    The reading must exist, come from device GPS (manual entries carry no
+    accuracy), be fresh, and be within the configured accuracy and radius.
+    Nothing is synthesized or re-timestamped here.
+    """
     customer = visit.customer
-    if not customer or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180):
+    if (
+        not customer
+        or customer.latitude is None
+        or customer.longitude is None
+        or not (-90 <= customer.latitude <= 90 and -180 <= customer.longitude <= 180)
+    ):
         raise HTTPException(status_code=409, detail="This visit has no valid saved customer location.")
 
     location = await db.scalar(
@@ -59,32 +70,33 @@ async def _verify_visit_geofence(agent: Agent, visit: Visit, db: AsyncSession):
         .order_by(AgentLocation.recorded_at.desc())
         .limit(1)
     )
-
-    # If no recorded log exists, but agent has current coordinates, create a fresh reading
-    if not location and agent.current_latitude is not None and agent.current_longitude is not None:
-        location = AgentLocation(
-            agent_id=agent.id,
-            latitude=agent.current_latitude,
-            longitude=agent.current_longitude,
-            location=WKTElement(f"POINT({agent.current_longitude} {agent.current_latitude})", srid=4326),
-            gps_accuracy=15.0,
-            battery_level=agent.battery_level,
-        )
-        agent.location_source = "gps"
-        db.add(location)
-        await db.flush()
-
     if not location:
         raise HTTPException(status_code=409, detail="No GPS reading is available. Allow location and try again.")
 
-    # If the reading is older than stale threshold, refresh recorded_at so active check-in isn't rejected
+    # Manual entries are stored with gps_accuracy=None; only device GPS counts.
+    if location.gps_accuracy is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Your latest location was entered manually. Share live GPS location to check in.",
+        )
+    if location.gps_accuracy > settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"GPS accuracy is \u00b1{location.gps_accuracy:.0f}m; it must be "
+                f"{settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS:.0f}m or better. Move outdoors and try again."
+            ),
+        )
+
     recorded_at = location.recorded_at
     if recorded_at.tzinfo is None:
         recorded_at = recorded_at.replace(tzinfo=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - recorded_at).total_seconds()
     if age_seconds > settings.LOCATION_STALE_THRESHOLD_SECONDS:
-        location.recorded_at = datetime.now(timezone.utc)
-        await db.flush()
+        raise HTTPException(
+            status_code=409,
+            detail="Your GPS location is out of date. Allow location access and try again.",
+        )
 
     distance = _distance_meters(
         location.latitude, location.longitude, customer.latitude, customer.longitude
@@ -908,9 +920,9 @@ async def update_agent_duty_status(
 
     agent.status = payload.status
     await db.commit()
-    await db.refresh(agent)
+    agent.profile = current_user
 
-    return _to_agent_response(agent)
+    return _to_agent_response(agent, profile=current_user)
 
 
 @router.patch("/me/location", response_model=AgentResponse)
@@ -937,12 +949,13 @@ async def update_agent_live_location(
     loc_source = payload.location_source if payload.location_source in ("gps", "manual") else "gps"
     verified_accuracy = payload.gps_accuracy if loc_source == "gps" else None
 
+    now_utc = datetime.now(timezone.utc)
     agent.current_latitude = payload.latitude
     agent.current_longitude = payload.longitude
     agent.location_source = loc_source
     if payload.battery_level is not None:
         agent.battery_level = payload.battery_level
-    agent.last_location_update = func.now()
+    agent.last_location_update = now_utc
     agent.current_location = WKTElement(f"POINT({payload.longitude} {payload.latitude})", srid=4326)
 
     # Log separate location record breadcrumb
@@ -958,5 +971,6 @@ async def update_agent_live_location(
 
     await db.commit()
     agent.profile = current_user
+    agent.last_location_update = now_utc
 
-    return _to_agent_response(agent)
+    return _to_agent_response(agent, profile=current_user)

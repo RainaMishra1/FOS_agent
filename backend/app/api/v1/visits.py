@@ -21,7 +21,12 @@ from app.models.customer import Customer
 from app.models.lead import Lead
 from app.models.assignment import Assignment
 from app.models.profile import Profile
-from app.schemas.visit import VisitResponse, VisitListResponse, VisitStatusUpdateRequest, VisitDispatchRequest, AdminRoutePlanRequest, AdminRouteOrderRequest
+from app.schemas.visit import (
+    VisitResponse, VisitListResponse, VisitStatusUpdateRequest, VisitDispatchRequest,
+    AdminRoutePlanRequest, AdminRouteOrderRequest,
+    AgentSuggestionRequest, AgentSuggestionItem, AgentSuggestionResponse,
+)
+from app.services.lead_clustering import AgentAnchor, WorkPoint, suggest_agent_for_lead
 from app.core.auth import require_authenticated, require_admin
 
 router = APIRouter(prefix="/visits", tags=["Visits"])
@@ -329,6 +334,108 @@ async def save_admin_route_order(
     await db.commit()
     return {"saved": True, "agent_id": str(payload.agent_id), "scheduled_date": payload.scheduled_date,
             "ordered_visit_ids": [str(v) for v in payload.visit_ids]}
+
+
+OPEN_VISIT_STATUSES = ("pending", "in_progress", "delayed")
+SUGGESTION_HISTORY_DAYS = 30
+
+
+@router.post("/suggest-agent", response_model=AgentSuggestionResponse)
+async def suggest_agent_for_new_lead(
+    payload: AgentSuggestionRequest,
+    current_admin: Profile = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AgentSuggestionResponse:
+    """Suggest the agent whose work area the new lead falls in (anchored k-means).
+
+    k = number of active agents with a known location. Each cluster starts at
+    the agent's location and absorbs the customer sites of visits from the last
+    30 days onward, so its centre reflects where that agent actually works.
+    The lead goes to the cluster whose centre is nearest. Nothing is saved; the
+    admin can still pick a different agent before dispatching.
+    """
+    from datetime import timedelta
+
+    ref_date = payload.scheduled_date or datetime.now(timezone.utc).date()
+    active_agents = (await db.execute(
+        select(Agent).options(joinedload(Agent.profile)).where(Agent.status == "active")
+    )).unique().scalars().all()
+
+    located = [
+        a for a in active_agents
+        if a.current_latitude is not None and a.current_longitude is not None
+        and math.isfinite(a.current_latitude) and math.isfinite(a.current_longitude)
+        and not (a.current_latitude == 0 and a.current_longitude == 0)
+    ]
+    skipped = len(active_agents) - len(located)
+    if not located:
+        return AgentSuggestionResponse(
+            recommended_agent_id=None,
+            method="anchored_kmeans",
+            detail="No active agent has a known location yet, so choose an agent manually.",
+            agents_considered=0,
+            work_points_used=0,
+            skipped_agents_without_location=skipped,
+            suggestions=[],
+        )
+
+    agent_ids = [a.id for a in located]
+    rows = (await db.execute(
+        select(Visit.agent_id, Visit.status, Customer.latitude, Customer.longitude)
+        .join(Customer, Visit.customer_id == Customer.id)
+        .where(
+            Visit.agent_id.in_(agent_ids),
+            Visit.scheduled_date >= ref_date - timedelta(days=SUGGESTION_HISTORY_DAYS),
+            Customer.latitude.is_not(None),
+            Customer.longitude.is_not(None),
+        )
+    )).all()
+
+    open_counts: dict = {}
+    work_points = []
+    for agent_id, visit_status, lat, lng in rows:
+        if visit_status in OPEN_VISIT_STATUSES:
+            open_counts[agent_id] = open_counts.get(agent_id, 0) + 1
+        if math.isfinite(lat) and math.isfinite(lng):
+            work_points.append(WorkPoint(lat, lng))
+
+    result = suggest_agent_for_lead(
+        [AgentAnchor(str(a.id), a.current_latitude, a.current_longitude) for a in located],
+        work_points,
+        payload.latitude,
+        payload.longitude,
+    )
+    by_id = {str(a.id): a for a in located}
+    suggestions = []
+    for cluster in result.clusters:
+        agent = by_id[cluster.agent_id]
+        suggestions.append(AgentSuggestionItem(
+            agent_id=agent.id,
+            agent_code=agent.agent_code,
+            name=agent.profile.full_name if agent.profile else (agent.agent_code or "Field Agent"),
+            location_source=agent.location_source or "unknown",
+            distance_to_area_meters=round(cluster.distance_to_centroid_m, 1),
+            distance_to_agent_meters=round(cluster.distance_to_agent_m, 1),
+            area_center_latitude=cluster.centroid_latitude,
+            area_center_longitude=cluster.centroid_longitude,
+            area_visit_count=cluster.point_count,
+            open_visits=open_counts.get(agent.id, 0),
+            in_lead_cluster=cluster.contains_lead,
+        ))
+
+    best = suggestions[0]
+    return AgentSuggestionResponse(
+        recommended_agent_id=uuid.UUID(result.recommended_agent_id),
+        method="anchored_kmeans",
+        detail=(
+            f"{best.name} covers this area: {best.distance_to_area_meters / 1000:.1f} km from the centre "
+            f"of their work area ({len(located)} active agents clustered)."
+        ),
+        agents_considered=len(located),
+        work_points_used=len(work_points),
+        skipped_agents_without_location=skipped,
+        suggestions=suggestions,
+    )
 
 
 @router.post("/dispatch", response_model=VisitResponse, status_code=status.HTTP_201_CREATED)

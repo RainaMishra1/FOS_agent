@@ -77,6 +77,36 @@ class AdminRouteOrderRequest(BaseModel):
     visit_ids: List[uuid.UUID] = Field(..., min_length=1)
 
 
+class AgentSuggestionRequest(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    scheduled_date: Optional[date] = None
+
+
+class AgentSuggestionItem(BaseModel):
+    agent_id: uuid.UUID
+    agent_code: Optional[str] = None
+    name: str
+    location_source: str
+    distance_to_area_meters: float
+    distance_to_agent_meters: float
+    area_center_latitude: float
+    area_center_longitude: float
+    area_visit_count: int
+    open_visits: int
+    in_lead_cluster: bool
+
+
+class AgentSuggestionResponse(BaseModel):
+    recommended_agent_id: Optional[uuid.UUID] = None
+    method: str
+    detail: str
+    agents_considered: int
+    work_points_used: int
+    skipped_agents_without_location: int
+    suggestions: List[AgentSuggestionItem]
+
+
 class AgentStats(BaseModel):
     today_total: int
     today_completed: int

@@ -611,6 +611,41 @@ export async function createDispatchedVisit(payload: VisitDispatchPayload, token
   }, token);
 }
 
+export interface AgentSuggestionItem {
+  agent_id: string;
+  agent_code?: string | null;
+  name: string;
+  location_source: string;
+  distance_to_area_meters: number;
+  distance_to_agent_meters: number;
+  area_center_latitude: number;
+  area_center_longitude: number;
+  area_visit_count: number;
+  open_visits: number;
+  in_lead_cluster: boolean;
+}
+
+export interface AgentSuggestionResponse {
+  recommended_agent_id: string | null;
+  method: string;
+  detail: string;
+  agents_considered: number;
+  work_points_used: number;
+  skipped_agents_without_location: number;
+  suggestions: AgentSuggestionItem[];
+}
+
+/** Suggest the agent whose work area (k-means cluster) contains the lead location. */
+export async function suggestAgentForLead(
+  params: { latitude: number; longitude: number; scheduled_date?: string },
+  token?: string | null
+): Promise<AgentSuggestionResponse> {
+  return await apiFetch<AgentSuggestionResponse>("/visits/suggest-agent", {
+    method: "POST",
+    body: JSON.stringify(params),
+  }, token);
+}
+
 export interface AgentStatsApiResponse {
   today_total: number;
   today_completed: number;

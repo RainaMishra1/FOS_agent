@@ -443,6 +443,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     );
 
     let liveBrowserCoords: { lat: number; lng: number } | null = liveGpsCoordsRef.current;
+    let liveAccuracy: number | undefined = liveGpsCoordsRef.current?.accuracy;
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       try {
         const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
@@ -457,7 +458,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             lat: freshFix.coords.latitude,
             lng: freshFix.coords.longitude,
           };
-          liveGpsCoordsRef.current = liveBrowserCoords;
+          liveAccuracy = freshFix.coords.accuracy;
+          liveGpsCoordsRef.current = { ...liveBrowserCoords, accuracy: liveAccuracy };
           setLiveGpsCoords({
             lat: freshFix.coords.latitude,
             lng: freshFix.coords.longitude,
@@ -514,7 +516,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           await updateAgentLocation({
             latitude: targetLat,
             longitude: targetLng,
-            gps_accuracy: 15,
+            // Send the device's real accuracy; the server rejects readings without it.
+            gps_accuracy: liveAccuracy,
             location_source: "gps",
           }, session.access_token);
         } catch (locErr) {

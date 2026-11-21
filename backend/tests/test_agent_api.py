@@ -607,63 +607,55 @@ def test_agent_location_bounds_validation(client: TestClient):
 
 def test_manual_location_cannot_satisfy_geofence(client: TestClient):
     """
-    Security check: Manual coordinates must not satisfy server-side geofencing.
-    If agent.location_source == 'manual', geofence_verified is forced to False.
+    Security check: a manually entered location must not pass the geofence.
+    Manual readings are stored with gps_accuracy=None, so check-in is refused
+    with 409 and the visit is left untouched.
     """
+    from app.models.agent_location import AgentLocation
+
     user_id = uuid.uuid4()
     agent_id = uuid.uuid4()
     visit_id = uuid.uuid4()
     token = create_test_token(str(user_id))
 
-    agent_entity = Agent(
-        id=agent_id,
-        profile_id=user_id,
-        status="active",
-        location_source="manual",
-    )
+    agent_entity = Agent(id=agent_id, profile_id=user_id, status="active", location_source="manual")
     profile = Profile(id=user_id, full_name="Agent One", role="agent")
     profile.agent = agent_entity
 
+    customer = Customer(
+        id=uuid.uuid4(), name="Global Logistics", address="55 Airport Road",
+        city="Bengaluru", latitude=12.9716, longitude=77.5946,
+    )
     visit = Visit(
-        id=visit_id,
-        visit_code="VST-999",
-        agent_id=agent_id,
-        customer_id=uuid.uuid4(),
-        scheduled_date=date.today(),
-        scheduled_time="11:00 AM",
-        status="pending",
-        geofence_verified=False,
+        id=visit_id, visit_code="VST-999", agent_id=agent_id, customer_id=customer.id,
+        customer=customer, scheduled_date=date.today(), scheduled_time="11:00 AM",
+        status="pending", geofence_verified=False,
+    )
+
+    manual_reading = AgentLocation(
+        agent_id=agent_id, latitude=12.9716, longitude=77.5946, gps_accuracy=None,
+        recorded_at=datetime.now(timezone.utc),
     )
 
     mock_db = AsyncMock()
     mock_result = MagicMock()
     mock_result.unique.return_value.scalars.return_value.first.return_value = visit
     mock_db.execute.return_value = mock_result
+    mock_db.scalar.return_value = manual_reading
 
     app.dependency_overrides[get_current_profile] = lambda: profile
     app.dependency_overrides[get_db] = lambda: mock_db
 
     try:
-        # Agent attempts to claim geofence_verified=True while on manual location
         res = client.patch(
             f"/api/v1/agent/visits/{visit_id}/status",
             json={"status": "in_progress", "geofence_verified": True},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert res.status_code == 200
-        # Must be rejected because location_source is manual
+        assert res.status_code == 409
+        assert "manually" in res.text
+        assert visit.status == "pending"
         assert visit.geofence_verified is False
-
-        # Now simulate verified GPS source
-        agent_entity.location_source = "gps"
-        res_gps = client.patch(
-            f"/api/v1/agent/visits/{visit_id}/status",
-            json={"status": "in_progress", "geofence_verified": True},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert res_gps.status_code == 200
-        # Now geofence_verified is accepted
-        assert visit.geofence_verified is True
+        mock_db.commit.assert_not_called()
     finally:
         app.dependency_overrides.clear()
-
