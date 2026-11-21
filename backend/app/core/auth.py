@@ -242,6 +242,7 @@ async def get_current_profile(
     token_email = (claims.get("email") or "").strip().lower()
     profile: Optional[Profile] = None
     lookup_strategy: Optional[str] = None
+    lookup_errors: list[str] = []
 
     # Strategy 1: Modern link by auth_user_id
     try:
@@ -256,6 +257,7 @@ async def get_current_profile(
             lookup_strategy = "auth_user_id"
     except Exception as exc:
         logger.warning("Lookup by auth_user_id failed (column may be unmigrated): %s", exc.__class__.__name__)
+        lookup_errors.append(exc.__class__.__name__)
         await db.rollback()
 
     # Strategy 2: Legacy link by Profile.id == user_uuid
@@ -272,6 +274,7 @@ async def get_current_profile(
                 lookup_strategy = "legacy_profile_id"
         except Exception as exc:
             logger.warning("Lookup by Profile.id failed: %s", exc.__class__.__name__)
+            lookup_errors.append(exc.__class__.__name__)
             await db.rollback()
 
     # Strategy 3: Verified email match from cryptographically verified Supabase claims
@@ -288,6 +291,7 @@ async def get_current_profile(
                 lookup_strategy = "verified_email"
         except Exception as exc:
             logger.warning("Lookup by email failed: %s", exc.__class__.__name__)
+            lookup_errors.append(exc.__class__.__name__)
             await db.rollback()
 
     if profile:
@@ -298,6 +302,16 @@ async def get_current_profile(
             lookup_strategy,
         )
         return profile
+
+    attempted = 3 if token_email else 2
+    if len(lookup_errors) >= attempted:
+        # Every lookup failed with an error: the database is unreachable,
+        # which is not the same as the user having no profile.
+        logger.error("Profile lookup failed: database unavailable (%s)", ", ".join(sorted(set(lookup_errors))))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The FOS database is temporarily unavailable. Please try again in a minute.",
+        )
 
     # Safe diagnostic logging: Report failure without sensitive information
     email_domain = token_email.split("@")[-1] if "@" in token_email else "unknown"
