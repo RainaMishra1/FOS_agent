@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/fos_agent"
     DIRECT_URL: str = "postgresql://postgres:postgres@localhost:5432/fos_agent"
+    # Supabase root CA used to verify the database TLS certificate.
+    DATABASE_SSL_CA_FILE: Optional[str] = str(BACKEND_DIR / "certs" / "supabase-prod-ca-2021.crt")
 
     @field_validator("DATABASE_URL", mode="after")
     @classmethod

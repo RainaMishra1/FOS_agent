@@ -1,5 +1,7 @@
+import logging
 import os
 import ssl
+from pathlib import Path
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -7,6 +9,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from app.config import settings
+
+logger = logging.getLogger("fos.db")
 
 connect_args = {
     "timeout": 10,
@@ -30,10 +34,22 @@ if "localhost" not in db_url and "127.0.0.1" not in db_url:
                 ssl_ctx = ssl.create_default_context()
             finally:
                 os.environ["SSLKEYLOGFILE"] = keylog_file
-        # In development/debug, permit TLS encryption without failing on Windows self-signed root certificate chains
-        if settings.ENVIRONMENT.lower() == "development" or settings.DEBUG:
+        # Supabase signs database certificates with its own root CA
+        # ("Supabase Root 2021 CA"), which is not in the system trust store.
+        # Trust it explicitly so production keeps full certificate checks.
+        ca_file = settings.DATABASE_SSL_CA_FILE
+        if ca_file and Path(ca_file).is_file():
+            ssl_ctx.load_verify_locations(cafile=ca_file)
+        elif settings.ENVIRONMENT.lower() == "development" or settings.DEBUG:
+            # Local development only: encrypt without verifying the chain.
             ssl_ctx.check_hostname = False
             ssl_ctx.verify_mode = ssl.CERT_NONE
+        else:
+            logger.error(
+                "Database CA certificate not found at %s; TLS verification will fail. "
+                "Add Supabase's prod-ca-2021.crt or set DATABASE_SSL_CA_FILE.",
+                ca_file,
+            )
         connect_args["ssl"] = ssl_ctx
 
 # Configure SQLAlchemy 2.x Async Engine with appropriate PostgreSQL async driver (asyncpg)

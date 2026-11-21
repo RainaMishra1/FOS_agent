@@ -237,3 +237,35 @@ def test_client_ip_uses_last_forwarded_entry():
         client=SimpleNamespace(host="10.0.0.1"),
     )
     assert auth_api._client_ip(request) == "203.0.113.9"
+
+
+# --------------------------------------------------------------------------
+# Database outage is reported as 503, not "profile not provisioned"
+# --------------------------------------------------------------------------
+
+def test_profile_lookup_reports_database_outage_as_503():
+    from app.core import auth as core_auth
+
+    class SSLCertVerificationError(Exception):
+        pass
+
+    db = AsyncMock()
+    db.execute.side_effect = SSLCertVerificationError("certificate verify failed")
+    claims = {"sub": str(uuid.uuid4()), "email": "agent@example.com"}
+    with pytest.raises(HTTPException) as exc:
+        _run(core_auth.get_current_profile(claims=claims, db=db))
+    assert exc.value.status_code == 503
+    assert "temporarily unavailable" in exc.value.detail
+
+
+def test_missing_profile_is_still_403_when_database_works():
+    from app.core import auth as core_auth
+
+    empty = MagicMock()
+    empty.unique.return_value.scalars.return_value.first.return_value = None
+    db = AsyncMock()
+    db.execute.return_value = empty
+    claims = {"sub": str(uuid.uuid4()), "email": "nobody@example.com"}
+    with pytest.raises(HTTPException) as exc:
+        _run(core_auth.get_current_profile(claims=claims, db=db))
+    assert exc.value.status_code == 403
