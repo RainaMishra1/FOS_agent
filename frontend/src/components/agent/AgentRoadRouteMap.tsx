@@ -554,8 +554,8 @@ export default function AgentRoadRouteMap({
       const isDone = stop.status === "completed";
       const isInProgress = stop.status === "in_progress";
 
-      const bg = isDestination ? "#1E3F35" : isSelected ? "#1E3F35" : isNearest ? "#2D6A4F" : isDone ? "#40916C" : isInProgress ? "#1E3F35" : "#6B7280";
-      const border = isDestination ? "3px solid #F59E0B" : isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #EAF2EC" : "2px solid #ffffff";
+      const bg = isDestination ? "#393185" : isSelected ? "#393185" : isNearest ? "#4B42A3" : isDone ? "#40916C" : isInProgress ? "#393185" : "#6B7280";
+      const border = isDestination ? "3px solid #F59E0B" : isSelected ? "3px solid #ffffff" : isNearest ? "3px solid #F1F0F8" : "2px solid #ffffff";
       const stopBadge = stop.order_index ?? index + 1;
       const labelText = isDestination ? "🎯" : isNearest ? `★ ${stopBadge}` : `${stopBadge}`;
       const opacityStyle = isNavigating && !isDestination ? "opacity: 0.5; transform: scale(0.85);" : "";
@@ -616,7 +616,7 @@ export default function AgentRoadRouteMap({
     if (routeLatLngs.length > 1) {
       // Glow background line
       routeCasingRef.current = L.polyline(drawnRoute, {
-        color: isNavigating ? "#FFFFFF" : "#1E3F35",
+        color: isNavigating ? "#FFFFFF" : "#393185",
         weight: isNavigating ? 11 : 6,
         opacity: isNavigating ? 0.95 : 0.2,
         lineCap: "round",
@@ -644,7 +644,7 @@ export default function AgentRoadRouteMap({
         }
       } else {
         routeLineRef.current = L.polyline(drawnRoute, {
-          color: isNavigating ? (travelMode === "walk" ? "#276EF1" : "#111111") : "#2D6A4F",
+          color: isNavigating ? (travelMode === "walk" ? "#276EF1" : "#111111") : "#4B42A3",
           dashArray: travelMode === "walk" ? "1 12" : undefined,
           weight: isNavigating ? 6 : 4,
           opacity: 0.95,
@@ -681,7 +681,7 @@ export default function AgentRoadRouteMap({
       `
       : `
         <div style="
-          background: #1E3F35;
+          background: #393185;
           color: #ffffff;
           width: 30px;
           height: 30px;
@@ -784,7 +784,7 @@ export default function AgentRoadRouteMap({
     : "https://www.google.com/maps";
 
   const sheetContent = (
-    <div className={`isolate overflow-hidden bg-[#EEF0F2] ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-full" : `relative z-0 ${activeDestinationStop && onStartNavigation && onTravelModeChange ? "h-[540px]" : "h-[440px]"} rounded-2xl border border-[#E6DFD3] shadow-xs`}`}>
+    <div className={`isolate overflow-hidden bg-[#EEF0F2] ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-full" : `relative z-0 ${activeDestinationStop && onStartNavigation && onTravelModeChange ? "h-[540px]" : "h-[440px]"} rounded-2xl border border-[#E3E2EE] shadow-xs`}`}>
       {/* Map DOM Element */}
       <div ref={mapRef} className="absolute inset-0" />
 

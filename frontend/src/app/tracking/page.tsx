@@ -554,7 +554,7 @@ export default function AgentTrackingPage() {
                   <span>{selectedAgent?.name || "Agent"} Live GPS</span>
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#2D6A4F] inline-block" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#4B42A3] inline-block" />
                   <span>Next Scheduled Task</span>
                 </span>
                 <span className="flex items-center gap-1.5">

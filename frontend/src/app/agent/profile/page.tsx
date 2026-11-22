@@ -136,9 +136,9 @@ export default function AgentProfilePage() {
 
         {/* Verified Field Agent Session Info */}
         <div className="p-3.5 rounded-xl bg-beige-sand/30 border border-beige-border space-y-1.5">
-          <div className="flex items-center justify-between text-[#1E3F35] font-bold text-xs">
+          <div className="flex items-center justify-between text-[#393185] font-bold text-xs">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#1E3F35]" />
+              <ShieldCheck className="w-3.5 h-3.5 text-[#393185]" />
               Verified Field Agent Session
             </span>
             <span className="text-[10px] font-semibold text-beige-muted">Role: Field Agent</span>

@@ -77,7 +77,7 @@ export default function AgentMapPreview({
 
   return (
     <div
-      className={`relative w-full ${height} rounded-2xl bg-[#EBE4D5] border border-beige-border overflow-hidden select-none shadow-xs flex flex-col`}
+      className={`relative w-full ${height} rounded-2xl bg-[#EDECF5] border border-beige-border overflow-hidden select-none shadow-xs flex flex-col`}
     >
       {/* Top Map HUD Overlay */}
       <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
@@ -133,36 +133,36 @@ export default function AgentMapPreview({
           <circle cx="32" cy="65" r="25" fill="#E0D7C6" fillOpacity="0.4" />
 
           {/* Grid lines */}
-          <line x1="0" y1="25" x2="100" y2="25" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
-          <line x1="0" y1="50" x2="100" y2="50" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
-          <line x1="0" y1="75" x2="100" y2="75" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
-          <line x1="25" y1="0" x2="25" y2="100" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
-          <line x1="50" y1="0" x2="50" y2="100" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
-          <line x1="75" y1="0" x2="75" y2="100" stroke="#DFD5C4" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="0" y1="25" x2="100" y2="25" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="0" y1="50" x2="100" y2="50" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="0" y1="75" x2="100" y2="75" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="25" y1="0" x2="25" y2="100" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="50" y1="0" x2="50" y2="100" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
+          <line x1="75" y1="0" x2="75" y2="100" stroke="#CFCDE2" strokeWidth="0.3" strokeDasharray="1,2" />
 
           {/* Road Network Lines (Illustrative) */}
           <path
             d="M 10 30 Q 40 45 60 25 T 90 40"
             fill="none"
-            stroke="#D6CBBA"
+            stroke="#CFCDE2"
             strokeWidth="1.2"
           />
           <path
             d="M 20 85 Q 50 60 70 80 T 95 65"
             fill="none"
-            stroke="#D6CBBA"
+            stroke="#CFCDE2"
             strokeWidth="1.2"
           />
           <path
             d="M 30 10 Q 55 45 45 90"
             fill="none"
-            stroke="#D6CBBA"
+            stroke="#CFCDE2"
             strokeWidth="1.2"
           />
           <path
             d="M 75 10 Q 65 50 80 90"
             fill="none"
-            stroke="#D6CBBA"
+            stroke="#CFCDE2"
             strokeWidth="1.2"
           />
 

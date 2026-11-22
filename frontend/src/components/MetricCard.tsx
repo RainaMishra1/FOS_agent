@@ -32,11 +32,11 @@ export default function MetricCard({
     switch (accentColor) {
       case "olive":
       case "terracotta":
-        return "bg-[#EAF2EC] text-[#1E3F35]";
+        return "bg-[#F1F0F8] text-[#393185]";
       case "amber":
         return "bg-[#F8EFE2] text-[#9E6924]";
       default:
-        return "bg-[#EAF2EC] text-[#1E3F35]";
+        return "bg-[#F1F0F8] text-[#393185]";
     }
   };
 
@@ -49,9 +49,9 @@ export default function MetricCard({
         return "bg-[#F8EFE2] text-[#9E6924]";
       case "olive":
       case "terracotta":
-        return "bg-[#EAF2EC] text-[#1E3F35]";
+        return "bg-[#F1F0F8] text-[#393185]";
       default:
-        return "bg-[#EFEBE2] text-[#756F66]";
+        return "bg-[#F1F0F8] text-[#62607A]";
     }
   };
 
@@ -109,11 +109,11 @@ export default function MetricCard({
     if (type === "bars-green") {
       return (
         <div className="flex items-end gap-1 h-7">
-          <div className="w-1.5 h-2 bg-[#A3C9B4] rounded-t-xs" />
-          <div className="w-1.5 h-3 bg-[#A3C9B4] rounded-t-xs" />
+          <div className="w-1.5 h-2 bg-[#B9B5E0] rounded-t-xs" />
+          <div className="w-1.5 h-3 bg-[#B9B5E0] rounded-t-xs" />
           <div className="w-1.5 h-6 bg-[#3B7A57] rounded-t-xs" />
           <div className="w-1.5 h-4.5 bg-[#6AA884] rounded-t-xs" />
-          <div className="w-1.5 h-3 bg-[#A3C9B4] rounded-t-xs" />
+          <div className="w-1.5 h-3 bg-[#B9B5E0] rounded-t-xs" />
         </div>
       );
     }
@@ -121,11 +121,11 @@ export default function MetricCard({
     if (type === "bars-amber") {
       return (
         <div className="flex items-end gap-1 h-7">
-          <div className="w-1.5 h-2 bg-[#EAD4B4] rounded-t-xs" />
+          <div className="w-1.5 h-2 bg-[#E3E1F2] rounded-t-xs" />
           <div className="w-1.5 h-3.5 bg-[#DEBA87] rounded-t-xs" />
           <div className="w-1.5 h-6 bg-[#B88746] rounded-t-xs" />
           <div className="w-1.5 h-4.5 bg-[#C99E61] rounded-t-xs" />
-          <div className="w-1.5 h-2.5 bg-[#EAD4B4] rounded-t-xs" />
+          <div className="w-1.5 h-2.5 bg-[#E3E1F2] rounded-t-xs" />
         </div>
       );
     }
@@ -134,7 +134,7 @@ export default function MetricCard({
   };
 
   return (
-    <div className="p-4 rounded-2xl bg-white border border-[#E6DFD3] shadow-[0_1px_3px_rgba(48,45,40,0.03)] hover:border-[#D6CDBC] transition-all duration-200 flex flex-col justify-between">
+    <div className="p-4 rounded-2xl bg-white border border-[#E3E2EE] shadow-[0_1px_3px_rgba(48,45,40,0.03)] hover:border-[#CFCDE2] transition-all duration-200 flex flex-col justify-between">
       {/* Top Row: Icon */}
       <div className="flex items-start justify-between">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${getIconStyles()}`}>
@@ -145,10 +145,10 @@ export default function MetricCard({
       {/* Middle & Bottom Row: Info and Sparkline */}
       <div className="mt-3 flex items-end justify-between gap-2">
         <div className="min-w-0">
-          <span className="text-xs font-medium text-[#756F66] block truncate">
+          <span className="text-xs font-medium text-[#62607A] block truncate">
             {title}
           </span>
-          <div className="text-2xl sm:text-3xl font-bold text-[#1A201C] tracking-tight mt-0.5 leading-tight">
+          <div className="text-2xl sm:text-3xl font-bold text-[#16151F] tracking-tight mt-0.5 leading-tight">
             {value}
           </div>
           <div className="mt-2 min-h-[22px] flex items-center">
@@ -157,7 +157,7 @@ export default function MetricCard({
                 {effectiveBadge}
               </span>
             ) : subtitle ? (
-              <span className="text-[10px] text-[#756F66] block truncate">
+              <span className="text-[10px] text-[#62607A] block truncate">
                 {subtitle}
               </span>
             ) : null}

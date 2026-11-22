@@ -144,7 +144,7 @@ export default function MyVisitsPage() {
             type="button"
             onClick={() => setActiveTab(tab.id)}
             aria-pressed={activeTab === tab.id}
-            className={`rounded-lg px-2 py-3 text-sm font-semibold transition ${activeTab === tab.id ? "bg-[#1E3F35] text-white" : "text-beige-muted hover:bg-beige-bg hover:text-beige-text"}`}
+            className={`rounded-lg px-2 py-3 text-sm font-semibold transition ${activeTab === tab.id ? "bg-[#00843E] text-white" : "text-beige-muted hover:bg-beige-bg hover:text-beige-text"}`}
           >
             {tab.label} <span className={activeTab === tab.id ? "ml-1 text-white/75" : "ml-1 text-beige-muted"}>{tab.count}</span>
           </button>
@@ -194,7 +194,7 @@ export default function MyVisitsPage() {
                   {activeTab !== "today" && (
                     <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 shrink-0" />{formatVisitDate(visit.scheduledDate)}</p>
                   )}
-                  <p className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#1E3F35]" /><span>{visit.address || "Address not available"}{visit.city ? `, ${visit.city}` : ""}</span></p>
+                  <p className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#393185]" /><span>{visit.address || "Address not available"}{visit.city ? `, ${visit.city}` : ""}</span></p>
                   {visit.purpose && <p className="rounded-lg bg-beige-bg px-3 py-2 text-sm text-beige-text">{visit.purpose}</p>}
                 </div>
 
@@ -204,13 +204,13 @@ export default function MyVisitsPage() {
                       type="button"
                       onClick={() => void handleCheckIn(visit)}
                       disabled={Boolean(checkingInId) || !isOnDuty}
-                      className="min-h-10 rounded-lg bg-[#1E3F35] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-h-10 rounded-lg bg-[#00843E] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isCheckingIn ? "Checking location…" : "Check in"}
                     </button>
                   )}
                   {inProgress && (
-                    <button type="button" onClick={() => setVisitToComplete(visit)} className="min-h-10 rounded-lg bg-[#1E3F35] px-4 py-2 text-sm font-semibold text-white">
+                    <button type="button" onClick={() => setVisitToComplete(visit)} className="min-h-10 rounded-lg bg-[#00843E] px-4 py-2 text-sm font-semibold text-white">
                       Complete visit
                     </button>
                   )}
@@ -219,7 +219,7 @@ export default function MyVisitsPage() {
                       <Navigation className="h-4 w-4" /> Directions
                     </Link>
                   )}
-                  <button type="button" onClick={() => setSelectedVisit(visit)} className="min-h-10 rounded-lg px-3 py-2 text-sm font-semibold text-[#1E3F35] hover:bg-[#EAF2EC]">
+                  <button type="button" onClick={() => setSelectedVisit(visit)} className="min-h-10 rounded-lg px-3 py-2 text-sm font-semibold text-[#393185] hover:bg-[#F1F0F8]">
                     Visit details
                   </button>
                   {completed && visit.completedTime && <span className="self-center text-sm text-beige-muted">Completed at {visit.completedTime}</span>}

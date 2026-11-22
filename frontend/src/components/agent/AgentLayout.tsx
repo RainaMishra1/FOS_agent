@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
 import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import InstallAppBanner from "@/components/agent/InstallAppBanner";
+import BrandMark from "@/components/shell/BrandMark";
+import PageBand from "@/components/shell/PageBand";
 import { useAuth } from "@/context/AuthContext";
 import {
   Compass,
@@ -27,6 +29,7 @@ import {
   Info,
   LogOut,
   Loader2,
+  ChevronLeft,
 } from "lucide-react";
 
 interface AgentLayoutProps {
@@ -70,11 +73,10 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
-        <div className="w-12 h-12 rounded-2xl bg-[#1E3F35] text-white flex items-center justify-center animate-pulse shadow-md mb-3">
+        <div className="w-12 h-12 rounded-2xl bg-[#00843E] text-white flex items-center justify-center animate-pulse shadow-md mb-3">
           <Compass className="w-6 h-6 animate-spin" />
         </div>
-        <p className="text-xs font-semibold text-beige-text">Verifying Field Agent Session...</p>
-        <span className="text-[10px] text-beige-muted mt-1">Authenticating with Supabase Auth</span>
+        <p className="text-sm font-semibold text-beige-text">Loading…</p>
       </div>
     );
   }
@@ -82,8 +84,8 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   if (isAdminUser) {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
-        <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
-        <p className="text-xs text-beige-muted">Redirecting to Operations Admin Portal...</p>
+        <Loader2 className="w-6 h-6 text-[#393185] animate-spin mb-2" />
+        <p className="text-xs text-beige-muted">Opening admin…</p>
       </div>
     );
   }
@@ -91,8 +93,8 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
   if (!isAuthenticated || !profile || role !== "agent") {
     return (
       <div className="min-h-screen bg-beige-bg flex flex-col items-center justify-center p-4">
-        <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
-        <p className="text-xs text-beige-muted">Redirecting to login...</p>
+        <Loader2 className="w-6 h-6 text-[#393185] animate-spin mb-2" />
+        <p className="text-xs text-beige-muted">Opening sign-in…</p>
       </div>
     );
   }
@@ -111,12 +113,12 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     .toUpperCase();
 
   const navItems = [
-    { name: "Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
-    { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 0 },
-    { name: "My Routes", href: "/agent/routes", icon: Route },
-    { name: "My Leads", href: "/agent/leads", icon: ClipboardList },
-    { name: "Visit History", href: "/agent/history", icon: History },
-    { name: "My Profile", href: "/agent/profile", icon: User },
+    { name: "Home", href: "/agent/dashboard", icon: LayoutDashboard },
+    { name: "Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 0 },
+    { name: "Routes", href: "/agent/routes", icon: Route },
+    { name: "Leads", href: "/agent/leads", icon: ClipboardList },
+    { name: "History", href: "/agent/history", icon: History },
+    { name: "Profile", href: "/agent/profile", icon: User },
   ];
 
   const currentDate = new Intl.DateTimeFormat("en-US", {
@@ -126,29 +128,38 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     year: "numeric",
   }).format(new Date());
 
+  const today = currentDate;
+  const agentCode = profile?.agent_code || currentAgent.agentCode || "";
+  const sidebarItems = navItems;
+  // Phone: 5 tabs; History is reached from Profile.
+  const tabItems = navItems.filter((item) => item.href !== "/agent/history");
+  const isActive = (href: string) => pathname === href || (href !== "/agent/dashboard" && Boolean(pathname?.startsWith(href + "/")));
+  const isSubPage = Boolean(pathname?.startsWith("/agent/visits/"));
+  const pageTitle = isSubPage ? "Visit" : navItems.find((item) => isActive(item.href))?.name ?? "FOS";
+
   return (
-    <div className="min-h-screen bg-[#F5F2EB] text-beige-text flex flex-col md:flex-row antialiased selection:bg-[#1E3F35] selection:text-white">
-      {/* Toast Notification Banner */}
+    <div className="min-h-screen bg-[#F5F5FA] text-beige-text antialiased selection:bg-[#393185] selection:text-white">
+      {/* Toast */}
       {notification && (
-        <div className="fixed top-4 left-4 right-4 z-[9999] max-w-md mx-auto animate-in slide-in-from-top duration-200">
+        <div
+          className="fixed left-3 right-3 z-[9999] max-w-md mx-auto animate-in slide-in-from-top duration-200"
+          style={{ top: "max(env(safe-area-inset-top), 12px)" }}
+        >
           <div
-            className={`p-3 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-xs backdrop-blur-md ${
-              notification.type === "success"
-                ? "bg-white/95 border-[#CDE1D2] text-[#1E3F35]"
-                : notification.type === "error"
-                ? "bg-white/95 border-red-300 text-red-700"
-                : "bg-white/95 border-[#E6DFD3] text-beige-text"
+            className={`p-3 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-sm bg-white ${
+              notification.type === "success" ? "border-[#B7E1C8] text-[#006F34]" : notification.type === "error" ? "border-red-300 text-red-700" : "border-[#E3E2EE] text-beige-text"
             }`}
+            role="status"
           >
             <div className="flex items-center gap-2">
               {notification.type === "success" ? (
-                <CheckCircle2 className="w-4 h-4 text-[#1E3F35] shrink-0" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               ) : notification.type === "error" ? (
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
               ) : (
-                <Info className="w-4 h-4 text-beige-muted shrink-0" />
+                <Info className="w-4 h-4 shrink-0" />
               )}
-              <span className="font-medium text-beige-text">
+              <span className="font-medium">
                 {typeof notification.message === "string"
                   ? notification.message
                   : typeof notification.message === "object" && notification.message !== null
@@ -156,217 +167,122 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
                   : String(notification.message)}
               </span>
             </div>
-            <button
-              onClick={clearNotification}
-              className="p-1 rounded-lg hover:bg-beige-sand text-beige-muted"
-            >
-              <X className="w-3.5 h-3.5" />
+            <button onClick={clearNotification} className="p-1 rounded-lg hover:bg-[#F1F0F8] text-beige-muted" aria-label="Close">
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Desktop Sidebar (hidden on mobile, visible on md+) */}
-      <aside className="hidden md:flex flex-col justify-between w-64 bg-[#F4EFE6] border-r border-[#E6DFD3] p-4 sticky top-0 h-screen shrink-0 overflow-y-auto">
-        <div className="space-y-5">
-          {/* Brand Header */}
-          <div className="pb-3 border-b border-[#E6DFD3]/80">
-            <Link href="/agent/dashboard" className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-                <Compass className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-bold text-sm tracking-tight text-beige-text block">
-                  FOS Agent
-                </span>
-                <span className="text-[10px] text-beige-muted block">Field Operations System</span>
-              </div>
-            </Link>
-          </div>
+      {/* ── Desktop: black strip ─────────────────────────── */}
+      <div className="hidden md:block bg-black text-white/90 text-xs">
+        <div className="mx-auto flex h-9 max-w-[1400px] items-center justify-end gap-6 px-10">
+          <span>{today}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#00843E] text-[9px] font-bold">{agentInitials}</span>
+            {agentName}
+            {agentCode && <span className="text-white/50">· {agentCode}</span>}
+          </span>
+          <button onClick={handleSignOut} className="flex items-center gap-1.5 hover:text-white cursor-pointer">
+            <LogOut className="w-3.5 h-3.5 text-[#00A651]" />
+            Log out
+          </button>
+        </div>
+      </div>
 
-          {/* Agent Profile Card */}
-          <div className="p-3.5 rounded-2xl bg-white border border-[#E6DFD3] shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                  {agentInitials}
-                </div>
-                <div className="truncate">
-                  <span className="font-bold text-xs text-beige-text block leading-tight truncate">
-                    {agentName}
-                  </span>
-                  <span className="text-[10px] text-beige-muted block">
-                    Agent ID: {profile?.agent_code || currentAgent.agentCode || (profile?.id ? profile.id.slice(0, 8) : "Active")}
-                  </span>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-beige-muted shrink-0" />
-            </div>
-
-            <div className="flex items-center justify-between pt-1 border-t border-[#E6DFD3]/60">
-              <DutyToggleButton size="sm" />
-              <span className="text-xs text-beige-muted font-medium">Field Agent</span>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <nav className="space-y-1.5">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-
+      {/* ── Desktop: white header with navigation ─────────── */}
+      <header className="hidden md:block sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-[#E3E2EE] shadow-[0_4px_20px_-12px_rgba(57,49,133,.25)]">
+        <div className="mx-auto flex h-16 max-w-[1400px] items-center gap-8 px-10">
+          <Link href="/agent/dashboard" aria-label="Home">
+            <BrandMark />
+          </Link>
+          <nav className="flex h-full items-stretch gap-1" aria-label="Main">
+            {sidebarItems.map((item) => {
+              const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition group ${
-                    isActive
-                      ? "bg-[#EAF2EC] text-[#1E3F35] font-bold shadow-2xs before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-[#1E3F35] before:rounded-r"
-                      : "text-beige-muted hover:text-beige-text hover:bg-[#EAE4D9]/60"
-                  }`}
+                  aria-current={active ? "page" : undefined}
+                  className={`nav-link flex items-center gap-1.5 px-3 text-sm transition ${active ? "font-bold text-[#393185]" : "font-medium text-[#45435A] hover:text-[#393185]"}`}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      className={`w-4 h-4 transition ${
-                        isActive ? "text-[#1E3F35]" : "text-beige-muted group-hover:text-beige-text"
-                      }`}
-                    />
-                    <span>{item.name}</span>
-                  </div>
-
-                  {item.badge !== undefined && item.badge > 0 && (
-                    <span className="w-5 h-5 rounded-full bg-[#1E3F35] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-                      {item.badge}
-                    </span>
-                  )}
+                  {item.name}
+                  {"badge" in item && item.badge ? (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#00843E] text-white text-[11px] font-bold flex items-center justify-center">{item.badge}</span>
+                  ) : null}
                 </Link>
               );
             })}
           </nav>
-        </div>
-
-        {/* Desktop Sidebar Footer: Device & Location Card */}
-        <div className="pt-4 space-y-3">
-          <div className="p-3.5 rounded-2xl bg-white border border-[#E6DFD3] shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-beige-text">Device & Location</span>
-              <ChevronRight className="w-3.5 h-3.5 text-beige-muted" />
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 text-beige-muted">
-                <ShieldCheck className="w-4 h-4 text-beige-muted" />
-                <span className="text-[11px]">Geofence Status</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#1E3F35]" />
-                <span className="text-[11px] font-semibold text-[#1E3F35]">Within Active Zone</span>
-                <ChevronRight className="w-3 h-3 text-beige-muted" />
-              </div>
-            </div>
+          <div className="ml-auto">
+            <DutyToggleButton size="md" />
           </div>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Sticky Header */}
-        <header
-          className="sticky top-0 z-30 bg-[#F5F2EB]/90 backdrop-blur-md border-b border-[#E6DFD3] px-4 sm:px-6 py-3 flex items-center justify-between"
-          style={{ paddingTop: "max(env(safe-area-inset-top), 0.75rem)" }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center font-bold text-xs shadow-2xs">
-              <Compass className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="font-bold text-sm text-beige-text block leading-tight">
-                FOS Mobile
-              </span>
-              <span className="text-[11px] text-beige-muted block">
-                Field Operations • {currentAgent.territory.split("(")[0].trim() || "Mumbai"}
-              </span>
-            </div>
-          </div>
-
-          {/* Right Header: Verified Agent Badge + Date + Duty Toggle + Logout */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Logged-in Agent Badge */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-semibold text-beige-text shadow-2xs">
-              <User className="w-3.5 h-3.5 text-[#1E3F35] shrink-0" />
-              <span className="font-bold text-xs text-beige-text truncate max-w-[130px] sm:max-w-none">
-                {agentName} ({profile?.agent_code || currentAgent.agentCode || (profile?.id ? profile.id.slice(0, 8) : "Active")})
-              </span>
-            </div>
-
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#E6DFD3] text-xs font-medium text-beige-text shadow-2xs">
-              <CalendarCheck className="w-3.5 h-3.5 text-beige-muted" />
-              <span>{currentDate}</span>
-            </div>
-
-            {/* Duty Status Button */}
-            <DutyToggleButton size="sm" />
-
-            {/* Sign Out Button */}
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-beige-sand border border-[#E6DFD3] text-xs font-semibold text-beige-text hover:text-red-700 transition shadow-2xs cursor-pointer"
-              title="Logout"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Logout</span>
+      {/* ── Phone: indigo app bar ─────────────────────────── */}
+      <header
+        className="md:hidden sticky top-0 z-30 bg-[#393185] text-white px-4 pb-3 flex items-center justify-between gap-3 shadow-md"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 10px)" }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {isSubPage ? (
+            <button onClick={() => router.back()} className="-ml-1 p-1.5 rounded-full hover:bg-white/10" aria-label="Back">
+              <ChevronLeft className="w-5 h-5" />
             </button>
-          </div>
-        </header>
+          ) : (
+            <BrandMark size={30} withText={false} light />
+          )}
+          <h1 key={pageTitle} className="text-lg font-bold tracking-tight truncate animate-rise">{pageTitle}</h1>
+        </div>
+        <DutyToggleButton size="sm" className="!bg-white/10 !text-white !border-white/25" />
+      </header>
 
-        {/* Page Content Body */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-10">
+      {/* ── Desktop: indigo title band ─────────────────────── */}
+      <div className="hidden md:block">
+        <PageBand title={pageTitle} />
+      </div>
+
+      <main className="relative mx-auto w-full max-w-[1400px] px-4 pt-4 pb-28 md:-mt-12 md:px-10 md:pb-12 md:pt-0">
+        <div className="md:rounded-3xl md:bg-[#F5F5FA] md:p-6 md:shadow-[0_20px_50px_-30px_rgba(22,21,31,.45)]">
           <div className="md:hidden">
             <InstallAppBanner />
           </div>
-          {children}
-        </main>
+          <div key={pathname} className="page-rise">{children}</div>
+        </div>
+      </main>
 
-        {/* Mobile Fixed Bottom Navigation Bar (md:hidden) */}
-        <nav
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E6DFD3] px-2 pt-1.5 shadow-[0_-4px_12px_rgba(48,45,40,0.05)]"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.375rem)" }}
-        >
-          <div className="flex items-center justify-around">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition relative min-w-[56px] ${
-                    isActive
-                      ? "text-[#1E3F35] font-bold"
-                      : "text-beige-muted hover:text-beige-text"
-                  }`}
-                >
-                  <div className="relative">
-                    <Icon className="w-5 h-5" />
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span className="absolute -top-1 -right-2 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#1E3F35] text-white leading-tight">
-                        {item.badge}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] mt-0.5 tracking-tight">
-                    {item.name.replace("My ", "")}
-                  </span>
-                  {isActive && (
-                    <span className="w-1 h-1 rounded-full bg-[#1E3F35] mt-0.5" />
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-      </div>
+      {/* ── Phone: bottom tabs ─────────────────────────────── */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#E3E2EE] shadow-[0_-6px_20px_-10px_rgba(57,49,133,.25)]"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Main"
+      >
+        <div className="grid grid-cols-5">
+          {tabItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center gap-0.5 py-2 min-h-[58px] px-0.5 transition ${active ? "text-[#393185]" : "text-[#7B7991]"}`}
+                aria-current={active ? "page" : undefined}
+              >
+                <span className={`relative flex items-center justify-center h-7 w-11 rounded-full transition-all duration-200 ${active ? "bg-[#393185] text-white scale-105" : ""}`}>
+                  <Icon className="w-5 h-5" />
+                  {"badge" in item && item.badge ? (
+                    <span className="absolute -top-1 right-0.5 min-w-4 h-4 px-1 rounded-full text-[10px] font-bold bg-[#00843E] text-white flex items-center justify-center ring-2 ring-white">
+                      {item.badge}
+                    </span>
+                  ) : null}
+                </span>
+                <span className={`text-[10px] leading-tight ${active ? "font-bold" : "font-medium"}`}>{item.name}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

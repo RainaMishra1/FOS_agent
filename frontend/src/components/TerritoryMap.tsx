@@ -43,7 +43,7 @@ const escapeHtml = (value: string) =>
 
 const MARKER_STYLE: Record<MapMarker["kind"], { fill: string; ring: string }> = {
   lead: { fill: "#B86F52", ring: "#ffffff" },
-  agent: { fill: "#1E3F35", ring: "#ffffff" },
+  agent: { fill: "#393185", ring: "#ffffff" },
   gps: { fill: "#0284c7", ring: "#ffffff" },
 };
 
@@ -189,9 +189,9 @@ export default function TerritoryMap({
   }, [ready, fitKey]);
 
   return (
-    <div className={`relative ${heightClass} overflow-hidden rounded-2xl border border-[#E6DFD3] bg-[#F3EFE7]`}>
+    <div className={`relative ${heightClass} overflow-hidden rounded-2xl border border-[#E3E2EE] bg-[#F1F0F8]`}>
       {!ready && (
-        <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 text-xs font-medium text-[#756F66]">
+        <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 text-xs font-medium text-[#62607A]">
           {loadError ? loadError : (<><Loader2 className="h-4 w-4 animate-spin" /> Loading map…</>)}
         </div>
       )}

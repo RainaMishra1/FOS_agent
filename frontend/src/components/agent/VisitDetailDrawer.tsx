@@ -276,14 +276,14 @@ export default function VisitDetailDrawer({
               <button
                 onClick={() => setShowCompleteModal(true)}
                 className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                  isOutsideGeofence ? "bg-amber-700 hover:bg-amber-800" : "bg-[#1E3F35] hover:bg-[#162F27]"
+                  isOutsideGeofence ? "bg-amber-700 hover:bg-amber-800" : "bg-[#00843E] hover:bg-[#006F34]"
                 }`}
               >
                 {isOutsideGeofence ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                 <span>{isOutsideGeofence ? `Complete Visit (${distanceMeters}m away)` : "Complete Visit"}</span>
               </button>
             ) : visit.status === "completed" ? (
-              <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-[#EAF2EC] text-[#1E3F35] text-center border border-[#CDE1D2]">
+              <div className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-[#F1F0F8] text-[#393185] text-center border border-[#D7D4EE]">
                 ✓ Visit Completed
               </div>
             ) : (
@@ -291,7 +291,7 @@ export default function VisitDetailDrawer({
                 <Link
                   href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}&start=true`}
                   onClick={onClose}
-                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#00843E] hover:bg-[#006F34] text-white shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Navigation className="w-4 h-4 text-white" />
                   <span>Start Nav</span>
@@ -301,7 +301,7 @@ export default function VisitDetailDrawer({
                   type="button"
                   disabled={isCheckingIn}
                   onClick={handleCheckIn}
-                  className="flex-1 py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2] hover:bg-[#D8E9DC] shadow-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#F1F0F8] text-[#393185] border border-[#D7D4EE] hover:bg-[#E3E1F2] shadow-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {isCheckingIn ? (
                     <>

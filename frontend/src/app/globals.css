@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 :root {
-  --bg-main: #F5F2EB;
-  --text-main: #1A201C;
-  --text-muted: #756F66;
-  --border-subtle: #E6DFD3;
+  --bg-main: #F5F5FA;
+  --text-main: #16151F;
+  --text-muted: #62607A;
+  --border-subtle: #E3E2EE;
   --card-bg: #FFFFFF;
 }
 
@@ -26,18 +26,40 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #ECE7DD;
+  background: #EDECF5;
 }
 ::-webkit-scrollbar-thumb {
-  background: #D2C9BB;
+  background: #CFCDE2;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2D6A4F;
+  background: #4B42A3;
 }
 
 
 /* Softer base map for the agent route / navigation screens */
 .fos-soft-tiles {
   filter: saturate(0.55) contrast(0.92) brightness(1.04);
+}
+
+/* ── Motion (SK-style theme) ───────────────────────────── */
+/* Page content fades up, children one after another. */
+.page-rise > * { animation: rise .45s cubic-bezier(.2,.7,.2,1) both; }
+.page-rise > *:nth-child(2) { animation-delay: .05s; }
+.page-rise > *:nth-child(3) { animation-delay: .1s; }
+.page-rise > *:nth-child(4) { animation-delay: .15s; }
+.page-rise > *:nth-child(n+5) { animation-delay: .2s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+/* Cards lift slightly on hover (desktop pointers only). */
+@media (hover: hover) {
+  .lift { transition: transform .2s ease, box-shadow .2s ease; }
+  .lift:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -12px rgba(57,49,133,.25); }
+}
+/* Sliding underline for header navigation. */
+.nav-link { position: relative; }
+.nav-link::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: #00843E; transform: scaleX(0); transform-origin: center; transition: transform .25s ease; }
+.nav-link:hover::after, .nav-link[aria-current="page"]::after { transform: scaleX(1); }
+@media (prefers-reduced-motion: reduce) {
+  .page-rise > *, .animate-rise, .animate-floaty { animation: none !important; }
+  .lift, .nav-link::after { transition: none !important; }
 }

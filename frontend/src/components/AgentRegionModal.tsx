@@ -18,7 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { TerritoryApiItem, apiErrorMessage, createTerritory, deleteTerritory, fetchTerritories, updateTerritory } from "@/lib/api";
 import { describeTerritory } from "@/lib/territoryText";
 
-const COLORS = ["#2E5A44", "#B86F52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64", "#B04A5A", "#3E7C8C"];
+const COLORS = ["#393185", "#B86F52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64", "#B04A5A", "#3E7C8C"];
 
 interface AgentRegionModalProps {
   isOpen: boolean;
@@ -90,7 +90,7 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
     .map((t) => ({
       id: t.id,
       name: t.name,
-      color: t.agent_id === agent.id ? t.color : "#8A857C",
+      color: t.agent_id === agent.id ? t.color : "#7B7991",
       subtitle: t.agent_name || null,
       points: t.points,
     }));
@@ -139,18 +139,18 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
 
   return (
     <div className="fixed inset-0 z-[10000] overflow-y-auto bg-black/40 px-3 py-6 sm:px-6 flex justify-center items-start">
-      <div className="w-full max-w-5xl rounded-3xl border border-[#E6DFD3] bg-[#FAF8F5] p-5 sm:p-6 space-y-4 shadow-2xl">
+      <div className="w-full max-w-5xl rounded-3xl border border-[#E3E2EE] bg-[#FAF8F5] p-5 sm:p-6 space-y-4 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-[#1A201C] flex items-center gap-2">
+            <h2 className="text-xl font-bold text-[#16151F] flex items-center gap-2">
               <Layers className="h-5 w-5" /> Region for {agent.name}
-              {agent.agent_code ? <span className="text-sm font-medium text-[#756F66]">({agent.agent_code})</span> : null}
+              {agent.agent_code ? <span className="text-sm font-medium text-[#62607A]">({agent.agent_code})</span> : null}
             </h2>
-            <p className="text-xs text-[#756F66] mt-0.5">
+            <p className="text-xs text-[#62607A] mt-0.5">
               One region per agent. Other agents&apos; regions are shown in grey; the new region can&apos;t overlap them.
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-xl border border-[#E6DFD3] bg-white p-2 text-[#756F66]">
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-xl border border-[#E3E2EE] bg-white p-2 text-[#62607A]">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -183,13 +183,13 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
 
           <div className="space-y-3">
             {loading ? (
-              <p className="flex items-center gap-1.5 text-xs text-[#756F66]">
+              <p className="flex items-center gap-1.5 text-xs text-[#62607A]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
               </p>
             ) : (
               <>
                 {existing && !changingArea && (
-                  <div className="rounded-xl border border-[#CDE1D2] bg-[#F4FAF6] p-3 text-xs text-[#1E3F35] space-y-1">
+                  <div className="rounded-xl border border-[#D7D4EE] bg-[#F7F7FB] p-3 text-xs text-[#393185] space-y-1">
                     <div className="font-bold">{existing.name}</div>
                     <div>{describeTerritory(existing) || "Drawn on the map"}</div>
                     <button
@@ -211,7 +211,7 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
                   />
                 )}
                 <div>
-                  <label className="block text-xs font-semibold text-[#1A201C] mb-1">Region name *</label>
+                  <label className="block text-xs font-semibold text-[#16151F] mb-1">Region name *</label>
                   <input
                     value={name}
                     onChange={(e) => {
@@ -219,7 +219,7 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
                       setNameTouched(true);
                     }}
                     maxLength={120}
-                    className="w-full text-sm rounded-xl border border-[#E6DFD3] bg-white px-3 py-2 text-[#1A201C] focus:outline-none focus:border-[#2E5A44]"
+                    className="w-full text-sm rounded-xl border border-[#E3E2EE] bg-white px-3 py-2 text-[#16151F] focus:outline-none focus:border-[#393185]"
                     placeholder="e.g. Kalyan – Thane"
                   />
                 </div>
@@ -237,14 +237,14 @@ export default function AgentRegionModal({ isOpen, agent, onClose, onSaved }: Ag
                     <span />
                   )}
                   <div className="flex gap-2">
-                    <button type="button" onClick={onClose} className="rounded-xl px-3 py-2 text-xs font-semibold text-[#756F66]">
+                    <button type="button" onClick={onClose} className="rounded-xl px-3 py-2 text-xs font-semibold text-[#62607A]">
                       Cancel
                     </button>
                     <button
                       type="button"
                       onClick={save}
                       disabled={saving}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#2E5A44] px-4 py-2 text-xs font-bold text-white hover:bg-[#234837] disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#393185] px-4 py-2 text-xs font-bold text-white hover:bg-[#006F34] disabled:opacity-50"
                     >
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       {existing ? "Save region" : "Assign region"}

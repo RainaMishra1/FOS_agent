@@ -180,7 +180,7 @@ export default function NextVisitCard({
         className: "custom-you-marker",
         html: `
           <div style="display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-            <div style="background: #ffffff; border: 1.5px solid #E6DFD3; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #1E3F35; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px; white-space: nowrap;">
+            <div style="background: #ffffff; border: 1.5px solid #E3E2EE; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: #393185; box-shadow: 0 2px 6px rgba(0,0,0,0.12); margin-bottom: 2px; white-space: nowrap;">
               You ${isLive ? "(Live GPS)" : ""}
             </div>
             <div style="width: 14px; height: 14px; border-radius: 50%; background: #0284c7; border: 2.5px solid #ffffff; box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25);"></div>
@@ -203,7 +203,7 @@ export default function NextVisitCard({
                 <circle cx="12" cy="11" r="4.5" fill="#ffffff"/>
               </svg>
             </div>
-            <div style="background: #ffffff; border: 1px solid #E6DFD3; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px; white-space: nowrap;">
+            <div style="background: #ffffff; border: 1px solid #E3E2EE; border-radius: 9999px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #292524; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-top: 1px; white-space: nowrap;">
               ${destName}
             </div>
           </div>
@@ -231,7 +231,7 @@ export default function NextVisitCard({
             [destLat, destLng],
           ],
           {
-            color: "#1E3F35",
+            color: "#393185",
             weight: 3.5,
             opacity: 0.85,
             dashArray: "6, 8",
@@ -289,8 +289,8 @@ export default function NextVisitCard({
 
   if (!visit) {
     return (
-      <div className="rounded-2xl bg-white border border-[#E6DFD3] p-8 text-center space-y-3 shadow-xs">
-        <div className="w-12 h-12 rounded-full bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center shadow-2xs">
+      <div className="rounded-2xl bg-white border border-[#E3E2EE] p-8 text-center space-y-3 shadow-xs">
+        <div className="w-12 h-12 rounded-full bg-[#F1F0F8] text-[#393185] mx-auto flex items-center justify-center shadow-2xs">
           <CheckCircle2 className="w-6 h-6" />
         </div>
         <h4 className="text-base font-bold text-beige-text">No Pending Visits Scheduled</h4>
@@ -315,13 +315,13 @@ export default function NextVisitCard({
 
   return (
     <>
-      <div className="rounded-2xl bg-white border border-[#E6DFD3] p-4 sm:p-6 shadow-xs overflow-hidden">
+      <div className="rounded-2xl bg-white border border-[#E3E2EE] p-4 sm:p-6 shadow-xs overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           {/* Left Column: Visit Details & Actions */}
           <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
             {/* Header Tags */}
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2]">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#F1F0F8] text-[#393185] border border-[#D7D4EE]">
                 <Navigation className="w-3 h-3 rotate-45" />
                 <span>Next Stop #{visit.orderIndex}</span>
               </span>
@@ -345,7 +345,7 @@ export default function NextVisitCard({
                 {visit.customerName}
               </h2>
               <p className="text-xs sm:text-sm text-beige-muted flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-[#1E3F35] shrink-0" />
+                <MapPin className="w-4 h-4 text-[#393185] shrink-0" />
                 <span>{visit.address}</span>
               </p>
             </div>
@@ -380,10 +380,10 @@ export default function NextVisitCard({
             </button>
 
             {/* 3 Metrics Strip - 100% Dynamically Calculated */}
-            <div className="grid grid-cols-3 divide-x divide-[#E6DFD3] border-y border-[#E6DFD3] py-2.5 my-1">
+            <div className="grid grid-cols-3 divide-x divide-[#E3E2EE] border-y border-[#E3E2EE] py-2.5 my-1">
               <div className="px-2">
                 <div className="text-[10px] text-beige-muted font-medium flex items-center gap-1">
-                  <RouteIcon className="w-3 h-3 text-[#1E3F35]" />
+                  <RouteIcon className="w-3 h-3 text-[#393185]" />
                   <span>Distance (est.)</span>
                 </div>
                 <div className="text-base sm:text-lg font-bold text-beige-text mt-0.5">
@@ -403,7 +403,7 @@ export default function NextVisitCard({
 
               <div className="px-3">
                 <div className="text-[10px] text-beige-muted font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-[#1E3F35]" />
+                  <ShieldCheck className="w-3 h-3 text-[#393185]" />
                   <span>Geofence Radius</span>
                 </div>
                 <div className="text-base sm:text-lg font-bold text-beige-text mt-0.5">
@@ -422,7 +422,7 @@ export default function NextVisitCard({
                   className={`py-2.5 px-3.5 rounded-xl text-xs font-bold text-white shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer ${
                     isOutsideGeofence
                       ? "bg-amber-700 hover:bg-amber-800"
-                      : "bg-[#1E3F35] hover:bg-[#162F27]"
+                      : "bg-[#00843E] hover:bg-[#006F34]"
                   }`}
                   title={isOutsideGeofence ? "You are outside the 750m zone" : "Complete Visit"}
                 >
@@ -436,7 +436,7 @@ export default function NextVisitCard({
                   type="button"
                   onClick={handleQuickCheckIn}
                   disabled={isCheckingIn}
-                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                  className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#00843E] hover:bg-[#006F34] text-white shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer disabled:opacity-50"
                 >
                   {isCheckingIn ? (
                     <>
@@ -455,7 +455,7 @@ export default function NextVisitCard({
               {/* Start Navigation Button */}
               <Link
                 href={`/agent/routes?visitId=${encodeURIComponent(visit.id)}&start=true`}
-                className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#1E3F35] hover:bg-[#162F27] text-white shadow-xs transition flex items-center justify-center gap-1.5 active:scale-[0.98]"
+                className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-[#00843E] hover:bg-[#006F34] text-white shadow-xs transition flex items-center justify-center gap-1.5 active:scale-[0.98]"
               >
                 <Navigation className="w-3.5 h-3.5 text-white" />
                 <span>Start Navigation</span>
@@ -465,7 +465,7 @@ export default function NextVisitCard({
               <button
                 type="button"
                 onClick={() => onOpenDetails(visit)}
-                className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-white hover:bg-[#F9F7F2] text-[#1E3F35] border border-[#E6DFD3] transition flex items-center justify-center gap-1.5 active:scale-[0.98] cursor-pointer"
+                className="py-2.5 px-3.5 rounded-xl text-xs font-bold bg-white hover:bg-[#F4F4F9] text-[#393185] border border-[#E3E2EE] transition flex items-center justify-center gap-1.5 active:scale-[0.98] cursor-pointer"
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>Visit Details</span>
@@ -474,12 +474,12 @@ export default function NextVisitCard({
           </div>
 
           {/* Right Column: Live Embedded Route Map */}
-          <div className="lg:col-span-5 min-h-[260px] sm:min-h-[300px] relative rounded-2xl overflow-hidden border border-[#E6DFD3] shadow-inner bg-[#EFECE6]">
+          <div className="lg:col-span-5 min-h-[260px] sm:min-h-[300px] relative rounded-2xl overflow-hidden border border-[#E3E2EE] shadow-inner bg-[#EEEEF4]">
             {/* Map Container */}
             <div ref={mapContainerRef} className="absolute inset-0 w-full h-full z-0" />
 
             {/* Floating Top-Left Controls */}
-            <div className="absolute top-3 left-3 z-10 flex flex-col gap-1 bg-white/95 backdrop-blur-md rounded-xl border border-[#E6DFD3] p-1 shadow-xs">
+            <div className="absolute top-3 left-3 z-10 flex flex-col gap-1 bg-white/95 backdrop-blur-md rounded-xl border border-[#E3E2EE] p-1 shadow-xs">
               <button
                 type="button"
                 onClick={() => handleZoom(1)}
@@ -504,16 +504,16 @@ export default function NextVisitCard({
                 type="button"
                 onClick={handleCalibrateGps}
                 disabled={isCalibratingGps}
-                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] text-beige-muted hover:text-[#1E3F35] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
+                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E3E2EE] text-beige-muted hover:text-[#393185] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
                 title="Calibrate device live GPS"
               >
-                <RefreshCw className={`w-4 h-4 ${isCalibratingGps ? "animate-spin text-[#1E3F35]" : ""}`} />
+                <RefreshCw className={`w-4 h-4 ${isCalibratingGps ? "animate-spin text-[#393185]" : ""}`} />
               </button>
 
               <button
                 type="button"
                 onClick={handleRecenter}
-                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] text-beige-muted hover:text-[#1E3F35] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
+                className="p-2 rounded-xl bg-white/95 backdrop-blur-md border border-[#E3E2EE] text-beige-muted hover:text-[#393185] hover:bg-beige-sand/60 shadow-xs transition cursor-pointer"
                 title="Re-center on Route"
               >
                 <Crosshair className="w-4 h-4" />
@@ -521,9 +521,9 @@ export default function NextVisitCard({
             </div>
 
             {/* Floating Bottom Trip ETA Card - Matches Left Metrics Exactly */}
-            <div className="absolute bottom-3 right-3 z-10 bg-white/95 backdrop-blur-md border border-[#E6DFD3] rounded-2xl px-3.5 py-2 shadow-md flex items-center gap-3">
+            <div className="absolute bottom-3 right-3 z-10 bg-white/95 backdrop-blur-md border border-[#E3E2EE] rounded-2xl px-3.5 py-2 shadow-md flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Car className="w-4 h-4 text-[#1E3F35]" />
+                <Car className="w-4 h-4 text-[#393185]" />
                 <div>
                   <span className="text-xs font-bold text-beige-text block leading-tight">
                     {formattedDistance}
@@ -532,7 +532,7 @@ export default function NextVisitCard({
                 </div>
               </div>
 
-              <div className="h-6 w-px bg-[#E6DFD3]" />
+              <div className="h-6 w-px bg-[#E3E2EE]" />
 
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-[#9E6924]" />

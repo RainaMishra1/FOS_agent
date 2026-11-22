@@ -79,7 +79,7 @@ export default function InstallAppBanner() {
   };
 
   return (
-    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#CDE1D2] bg-white p-3 shadow-2xs">
+    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#D7D4EE] bg-white p-3 shadow-2xs">
       <img src="/icons/icon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-xl" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-bold text-beige-text">Install FOS Agent</p>
@@ -95,7 +95,7 @@ export default function InstallAppBanner() {
         <button
           type="button"
           onClick={install}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#1E3F35] px-3.5 py-2 text-xs font-bold text-white cursor-pointer"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#00843E] px-3.5 py-2 text-xs font-bold text-white cursor-pointer"
         >
           <Download className="h-3.5 w-3.5" />
           Install

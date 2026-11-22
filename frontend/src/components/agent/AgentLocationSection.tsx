@@ -135,12 +135,12 @@ export default function AgentLocationSection() {
   }, [startWatching, stopWatching]);
 
   return (
-    <section className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 shadow-xs">
+    <section className="rounded-2xl border border-[#E3E2EE] bg-white p-4 sm:p-5 shadow-xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Left: Icon and Real-Time Lat/Long */}
         <div className="flex items-center gap-3.5">
-          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2EC] text-[#1E3F35] shadow-2xs">
-            <Navigation className="h-5 w-5 text-[#1E3F35]" />
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F1F0F8] text-[#393185] shadow-2xs">
+            <Navigation className="h-5 w-5 text-[#393185]" />
             {isOnDuty && tracking && (
               <span className="absolute -top-1 -right-1 flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -170,10 +170,10 @@ export default function AgentLocationSection() {
               {isOnDuty ? (
                 liveCoords ? (
                   <>
-                    <span className="font-mono font-semibold text-[#1E3F35] bg-[#EAF2EC] px-2.5 py-1 rounded-lg border border-[#CDE1D2]">
+                    <span className="font-mono font-semibold text-[#393185] bg-[#F1F0F8] px-2.5 py-1 rounded-lg border border-[#D7D4EE]">
                       Lat: {liveCoords.lat.toFixed(5)}°
                     </span>
-                    <span className="font-mono font-semibold text-[#1E3F35] bg-[#EAF2EC] px-2.5 py-1 rounded-lg border border-[#CDE1D2]">
+                    <span className="font-mono font-semibold text-[#393185] bg-[#F1F0F8] px-2.5 py-1 rounded-lg border border-[#D7D4EE]">
                       Long: {liveCoords.lng.toFixed(5)}°
                     </span>
                     {liveCoords.accuracy ? (
@@ -184,7 +184,7 @@ export default function AgentLocationSection() {
                   </>
                 ) : (
                   <span className="text-xs text-beige-muted flex items-center gap-1.5 py-1">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1E3F35]" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#393185]" />
                     Acquiring live coordinates…
                   </span>
                 )

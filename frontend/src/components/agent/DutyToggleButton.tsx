@@ -50,10 +50,10 @@ export default function DutyToggleButton({
       aria-label={isOnDuty ? "Switch to Off Duty" : "Switch to On Duty"}
       onClick={handleClick}
       disabled={isUpdating}
-      title={isOnDuty ? "Click to go Off Duty (pause tracking)" : "Click to go On Duty (enable tracking)"}
+      title={isOnDuty ? "Go off duty" : "Go on duty"}
       className={`group relative inline-flex items-center rounded-full font-bold transition-all duration-200 shadow-2xs select-none cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-offset-1 disabled:opacity-70 ${
         isOnDuty
-          ? "bg-[#EAF2EC] hover:bg-[#DFEDE2] text-[#1E3F35] border border-[#CDE1D2] hover:border-[#1E3F35]/40 focus:ring-[#1E3F35]/30 active:scale-95"
+          ? "bg-[#F1F0F8] hover:bg-[#E3E1F2] text-[#393185] border border-[#D7D4EE] hover:border-[#393185]/40 focus:ring-[#393185]/30 active:scale-95"
           : "bg-[#FAF3E7] hover:bg-[#F5ECD9] text-[#9E6924] border border-[#F0E4D0] hover:border-[#9E6924]/40 focus:ring-[#9E6924]/30 active:scale-95"
       } ${sizeClasses} ${className}`}
     >
@@ -61,29 +61,29 @@ export default function DutyToggleButton({
       <span className="relative flex items-center justify-center shrink-0">
         <span
           className={`rounded-full transition-colors ${dotSize} ${
-            isOnDuty ? "bg-[#1E3F35]" : "bg-[#9E6924]"
+            isOnDuty ? "bg-[#00843E]" : "bg-[#9E6924]"
           }`}
         />
         {isOnDuty && (
-          <span className="absolute -inset-1 rounded-full bg-[#1E3F35]/25 animate-ping" />
+          <span className="absolute -inset-1 rounded-full bg-[#00843E]/25 animate-ping" />
         )}
       </span>
 
       {/* Status Text */}
       <span className="leading-none tracking-tight">
-        {isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}
+        {isOnDuty ? "On duty" : "Off duty"}
       </span>
 
       {/* Visual Toggle Switch Track */}
       <span
         aria-hidden="true"
         className={`ml-1 flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
-          isOnDuty ? "bg-[#1E3F35]" : "bg-[#D6C7AE]"
+          isOnDuty ? "bg-[#00843E]" : "bg-[#D6C7AE]"
         }`}
       >
         <span
           className={`flex h-3 w-3 items-center justify-center rounded-full bg-white shadow-xs transition-transform duration-200 ease-in-out ${
-            isOnDuty ? "translate-x-3 text-[#1E3F35]" : "translate-x-0 text-[#9E6924]"
+            isOnDuty ? "translate-x-3 text-[#393185]" : "translate-x-0 text-[#9E6924]"
           }`}
         >
           {isUpdating ? (

@@ -27,12 +27,12 @@ import {
 } from "@/lib/api";
 import { describeTerritory } from "@/lib/territoryText";
 
-const COLORS = ["#2E5A44", "#B86F52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64", "#B04A5A", "#3E7C8C"];
+const COLORS = ["#393185", "#B86F52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64", "#B04A5A", "#3E7C8C"];
 
 type Mode = { kind: "view" } | { kind: "create" } | { kind: "edit"; id: string; changeArea: boolean };
 
 const inputClass =
-  "w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3 py-2 text-[#1A201C] focus:outline-none focus:border-[#2E5A44]";
+  "w-full text-sm rounded-xl border border-[#E3E2EE] bg-[#FAFAFD] px-3 py-2 text-[#16151F] focus:outline-none focus:border-[#393185]";
 
 export default function TerritoriesPage() {
   const { session } = useAuth();
@@ -177,10 +177,10 @@ export default function TerritoriesPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[#1A201C] flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-[#16151F] flex items-center gap-2">
             <Layers className="h-6 w-6" /> Agent regions
           </h1>
-          <p className="text-sm text-[#756F66] mt-1">
+          <p className="text-sm text-[#62607A] mt-1">
             Each agent gets one region, and regions can&apos;t overlap. Agents create leads only inside their region, and new
             dispatches go to the agent whose region contains the address.
           </p>
@@ -188,14 +188,14 @@ export default function TerritoriesPage() {
         {mode.kind === "view" && (
           <button
             onClick={startCreate}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-[#2E5A44] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#234837]"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#393185] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#006F34]"
           >
             <Plus className="h-4 w-4" /> Assign a region
           </button>
         )}
       </div>
 
-      {notice && <div className="rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-3.5 py-2.5 text-xs text-[#1E3F35]">{notice}</div>}
+      {notice && <div className="rounded-xl border border-[#D7D4EE] bg-[#F1F0F8] px-3.5 py-2.5 text-xs text-[#393185]">{notice}</div>}
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
@@ -225,10 +225,10 @@ export default function TerritoriesPage() {
 
         <div className="space-y-4">
           {mode.kind !== "view" && (
-            <div className="rounded-2xl border border-[#E6DFD3] bg-white p-4 space-y-3">
-              <h2 className="text-sm font-bold text-[#1A201C]">{mode.kind === "create" ? "Assign a region" : "Edit region"}</h2>
+            <div className="rounded-2xl border border-[#E3E2EE] bg-white p-4 space-y-3">
+              <h2 className="text-sm font-bold text-[#16151F]">{mode.kind === "create" ? "Assign a region" : "Edit region"}</h2>
               <div>
-                <label className="block text-xs font-semibold text-[#1A201C] mb-1">Agent *</label>
+                <label className="block text-xs font-semibold text-[#16151F] mb-1">Agent *</label>
                 <select value={agentId} onChange={(e) => setAgentId(e.target.value)} className={inputClass}>
                   <option value="">Choose the agent…</option>
                   {agents.map((a) => {
@@ -247,12 +247,12 @@ export default function TerritoriesPage() {
               {defining ? (
                 <RegionEditor value={region} onChange={setRegion} pickTarget={pickTarget} onPickTargetChange={setPickTarget} />
               ) : (
-                <div className="rounded-xl bg-[#FAF7F0] px-3 py-2 text-xs text-[#1A201C]">
+                <div className="rounded-xl bg-[#F7F7FB] px-3 py-2 text-xs text-[#16151F]">
                   {describeTerritory(territories.find((t) => t.id === editingId)!) || "Drawn on the map"}
                   <button
                     type="button"
                     onClick={() => mode.kind === "edit" && setMode({ ...mode, changeArea: true })}
-                    className="ml-2 inline-flex items-center gap-1 font-semibold text-[#2E5A44] underline underline-offset-2"
+                    className="ml-2 inline-flex items-center gap-1 font-semibold text-[#393185] underline underline-offset-2"
                   >
                     <Pencil className="h-3 w-3" /> Change the area
                   </button>
@@ -260,7 +260,7 @@ export default function TerritoriesPage() {
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-[#1A201C] mb-1">Region name *</label>
+                <label className="block text-xs font-semibold text-[#16151F] mb-1">Region name *</label>
                 <input
                   value={name}
                   onChange={(e) => {
@@ -273,7 +273,7 @@ export default function TerritoriesPage() {
                 />
               </div>
               <div>
-                <span className="block text-xs font-semibold text-[#1A201C] mb-1">Colour</span>
+                <span className="block text-xs font-semibold text-[#16151F] mb-1">Colour</span>
                 <div className="flex flex-wrap gap-1.5">
                   {COLORS.map((c) => (
                     <button
@@ -281,21 +281,21 @@ export default function TerritoriesPage() {
                       type="button"
                       aria-label={`Colour ${c}`}
                       onClick={() => setColor(c)}
-                      className={`h-7 w-7 rounded-full border-2 ${color === c ? "border-[#1A201C]" : "border-white"}`}
+                      className={`h-7 w-7 rounded-full border-2 ${color === c ? "border-[#16151F]" : "border-white"}`}
                       style={{ background: c }}
                     />
                   ))}
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={resetForm} className="rounded-xl px-3 py-2 text-xs font-semibold text-[#756F66]">
+                <button type="button" onClick={resetForm} className="rounded-xl px-3 py-2 text-xs font-semibold text-[#62607A]">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={save}
                   disabled={saving}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#2E5A44] px-4 py-2 text-xs font-bold text-white hover:bg-[#234837] disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#393185] px-4 py-2 text-xs font-bold text-white hover:bg-[#006F34] disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
                 </button>
@@ -303,17 +303,17 @@ export default function TerritoriesPage() {
             </div>
           )}
 
-          <div className="rounded-2xl border border-[#E6DFD3] bg-white p-4 space-y-3">
-            <h2 className="text-sm font-bold text-[#1A201C]">
+          <div className="rounded-2xl border border-[#E3E2EE] bg-white p-4 space-y-3">
+            <h2 className="text-sm font-bold text-[#16151F]">
               {territories.length} region{territories.length === 1 ? "" : "s"}
             </h2>
             {loading && (
-              <p className="flex items-center gap-1.5 text-xs text-[#756F66]">
+              <p className="flex items-center gap-1.5 text-xs text-[#62607A]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
               </p>
             )}
             {!loading && territories.length === 0 && (
-              <p className="text-xs text-[#756F66]">No regions yet. Click &quot;Assign a region&quot;.</p>
+              <p className="text-xs text-[#62607A]">No regions yet. Click &quot;Assign a region&quot;.</p>
             )}
             <ul className="space-y-2">
               {territories.map((t) => (
@@ -321,19 +321,19 @@ export default function TerritoriesPage() {
                   key={t.id}
                   onClick={() => setSelectedId(t.id)}
                   className={`rounded-xl border p-3 text-xs cursor-pointer ${
-                    selectedId === t.id ? "border-[#2E5A44] bg-[#F4FAF6]" : "border-[#EFE8DD] bg-[#FCFAF6]"
+                    selectedId === t.id ? "border-[#393185] bg-[#F7F7FB]" : "border-[#EDECF5] bg-[#FAFAFD]"
                   }`}
                 >
                   <div className="flex items-start gap-2">
                     <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full" style={{ background: t.color }} />
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-[#1A201C] truncate">{t.name}</div>
-                      <div className="text-[#756F66]">
+                      <div className="font-bold text-[#16151F] truncate">{t.name}</div>
+                      <div className="text-[#62607A]">
                         {t.agent_name || "Unknown agent"}
                         {t.agent_code ? ` · ${t.agent_code}` : ""}
                       </div>
-                      {describeTerritory(t) && <div className="text-[11px] text-[#1A201C]">{describeTerritory(t)}</div>}
-                      <div className="text-[11px] text-[#A39E95]">
+                      {describeTerritory(t) && <div className="text-[11px] text-[#16151F]">{describeTerritory(t)}</div>}
+                      <div className="text-[11px] text-[#9A98AE]">
                         {t.area_sq_km != null ? `${t.area_sq_km.toFixed(2)} km²` : ""} · {t.lead_count} lead{t.lead_count === 1 ? "" : "s"}
                       </div>
                     </div>
@@ -346,7 +346,7 @@ export default function TerritoriesPage() {
                             e.stopPropagation();
                             startEdit(t);
                           }}
-                          className="rounded-lg border border-[#E6DFD3] bg-white p-1.5 text-[#1A201C] hover:bg-[#FAF7F0]"
+                          className="rounded-lg border border-[#E3E2EE] bg-white p-1.5 text-[#16151F] hover:bg-[#F7F7FB]"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>

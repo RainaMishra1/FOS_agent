@@ -22,7 +22,7 @@ export function DonutChart({ slices, centerLabel = "leads", onSliceClick }: { sl
   return (
     <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
       <svg viewBox="0 0 160 160" className="h-40 w-40 shrink-0" role="img" aria-label={`${total} ${centerLabel} by status`}>
-        <circle cx="80" cy="80" r={radius} fill="none" stroke="#F3EFE7" strokeWidth={stroke} />
+        <circle cx="80" cy="80" r={radius} fill="none" stroke="#F1F0F8" strokeWidth={stroke} />
         {total > 0 &&
           slices.map((s) => {
             if (s.value === 0) return null;
@@ -49,10 +49,10 @@ export function DonutChart({ slices, centerLabel = "leads", onSliceClick }: { sl
             offset += length;
             return el;
           })}
-        <text x="80" y="76" textAnchor="middle" className="fill-[#1A201C]" style={{ fontSize: 26, fontWeight: 700 }}>
+        <text x="80" y="76" textAnchor="middle" className="fill-[#16151F]" style={{ fontSize: 26, fontWeight: 700 }}>
           {hovered ? hovered.value : total}
         </text>
-        <text x="80" y="96" textAnchor="middle" className="fill-[#756F66]" style={{ fontSize: 11 }}>
+        <text x="80" y="96" textAnchor="middle" className="fill-[#62607A]" style={{ fontSize: 11 }}>
           {hovered ? hovered.label.toLowerCase() : centerLabel}
         </text>
       </svg>
@@ -63,12 +63,12 @@ export function DonutChart({ slices, centerLabel = "leads", onSliceClick }: { sl
             onMouseEnter={() => setHover(s.key)}
             onMouseLeave={() => setHover(null)}
             onClick={() => onSliceClick?.(s.key)}
-            className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 ${hover === s.key ? "bg-[#FAF7F0]" : ""}`}
+            className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 ${hover === s.key ? "bg-[#F7F7FB]" : ""}`}
           >
             <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
-            <span className="flex-1 text-[#1A201C]">{s.label}</span>
-            <span className="font-semibold text-[#1A201C]">{s.value}</span>
-            <span className="w-10 text-right text-[#A39E95]">{total ? Math.round((s.value / total) * 100) : 0}%</span>
+            <span className="flex-1 text-[#16151F]">{s.label}</span>
+            <span className="font-semibold text-[#16151F]">{s.value}</span>
+            <span className="w-10 text-right text-[#9A98AE]">{total ? Math.round((s.value / total) * 100) : 0}%</span>
           </li>
         ))}
       </ul>
@@ -104,7 +104,7 @@ export function StackedBarChart({
   const top = Math.ceil(max / step) * step;
   const ticks = Array.from({ length: top / step + 1 }, (_, i) => i * step);
 
-  if (rows.length === 0) return <p className="text-xs text-[#756F66]">{emptyText}</p>;
+  if (rows.length === 0) return <p className="text-xs text-[#62607A]">{emptyText}</p>;
 
   return (
     <div className="text-xs">
@@ -114,13 +114,13 @@ export function StackedBarChart({
             key={row.key}
             type="button"
             onClick={() => onRowClick?.(row.key)}
-            className={`grid w-full grid-cols-[110px_minmax(0,1fr)_28px] items-center gap-2 rounded-lg px-1 py-0.5 text-left ${row.highlighted ? "bg-[#F4FAF6]" : "hover:bg-[#FAF7F0]"}`}
+            className={`grid w-full grid-cols-[110px_minmax(0,1fr)_28px] items-center gap-2 rounded-lg px-1 py-0.5 text-left ${row.highlighted ? "bg-[#F7F7FB]" : "hover:bg-[#F7F7FB]"}`}
           >
             <span className="min-w-0">
-              <span className="block truncate font-semibold text-[#1A201C]">{row.label}</span>
-              {row.sublabel && <span className="block truncate text-[10px] text-[#A39E95]">{row.sublabel}</span>}
+              <span className="block truncate font-semibold text-[#16151F]">{row.label}</span>
+              {row.sublabel && <span className="block truncate text-[10px] text-[#9A98AE]">{row.sublabel}</span>}
             </span>
-            <span className="relative block h-5 rounded bg-[#F3EFE7]">
+            <span className="relative block h-5 rounded bg-[#F1F0F8]">
               <span className="absolute inset-y-0 left-0 flex overflow-hidden rounded" style={{ width: `${(totals[i] / top) * 100}%` }}>
                 {row.segments.map((seg) =>
                   seg.value > 0 ? (
@@ -134,18 +134,18 @@ export function StackedBarChart({
                 )}
               </span>
               {average != null && average > 0 && (
-                <span className="absolute -top-1 -bottom-1 w-0 border-l-2 border-dashed border-[#1A201C]" style={{ left: `${(average / top) * 100}%` }} />
+                <span className="absolute -top-1 -bottom-1 w-0 border-l-2 border-dashed border-[#16151F]" style={{ left: `${(average / top) * 100}%` }} />
               )}
             </span>
-            <span className="text-right font-semibold text-[#1A201C]">{totals[i]}</span>
+            <span className="text-right font-semibold text-[#16151F]">{totals[i]}</span>
           </button>
         ))}
       </div>
       <div className="mt-2 grid grid-cols-[110px_minmax(0,1fr)_28px] gap-2 px-1">
         <span />
-        <span className="relative h-4 border-t border-[#E6DFD3]">
+        <span className="relative h-4 border-t border-[#E3E2EE]">
           {ticks.map((t) => (
-            <span key={t} className="absolute -translate-x-1/2 pt-0.5 text-[10px] text-[#A39E95]" style={{ left: `${(t / top) * 100}%` }}>
+            <span key={t} className="absolute -translate-x-1/2 pt-0.5 text-[10px] text-[#9A98AE]" style={{ left: `${(t / top) * 100}%` }}>
               {t}
             </span>
           ))}
@@ -153,8 +153,8 @@ export function StackedBarChart({
         <span />
       </div>
       {average != null && average > 0 && (
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#756F66]">
-          <span className="inline-block h-3 w-0 border-l-2 border-dashed border-[#1A201C]" /> {averageLabel}: {average.toFixed(1)}
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#62607A]">
+          <span className="inline-block h-3 w-0 border-l-2 border-dashed border-[#16151F]" /> {averageLabel}: {average.toFixed(1)}
         </p>
       )}
     </div>
@@ -164,7 +164,7 @@ export function StackedBarChart({
 /** Small horizontal share bar used inside KPI cards. */
 export function ShareBar({ value, total, color }: { value: number; total: number; color: string }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F3EFE7]">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F1F0F8]">
       <div className="h-full rounded-full transition-all" style={{ width: `${total ? (value / total) * 100 : 0}%`, background: color }} />
     </div>
   );

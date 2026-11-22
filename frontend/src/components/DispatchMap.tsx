@@ -175,7 +175,7 @@ export default function DispatchMap({
       for (const p of ordered) {
         const marker = L.circleMarker([p.latitude, p.longitude], {
           radius: p.selected ? 9 : 6,
-          color: p.selected ? "#1A201C" : "#ffffff",
+          color: p.selected ? "#16151F" : "#ffffff",
           weight: p.selected ? 3 : 1.5,
           dashArray: p.dashed ? "3 3" : undefined,
           fillColor: p.color,
@@ -202,8 +202,8 @@ export default function DispatchMap({
               <span style="position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:9999px;
                            background:${dot};border:2px solid #ffffff;"></span>
             </div>
-            <div style="margin-top:3px;white-space:nowrap;background:#ffffff;border:1px solid #E6DFD3;border-radius:9999px;
-                        padding:1px 8px;font-size:10px;font-weight:700;color:#1A201C;box-shadow:0 1px 3px rgba(0,0,0,0.12);">
+            <div style="margin-top:3px;white-space:nowrap;background:#ffffff;border:1px solid #E3E2EE;border-radius:9999px;
+                        padding:1px 8px;font-size:10px;font-weight:700;color:#16151F;box-shadow:0 1px 3px rgba(0,0,0,0.12);">
               ${escapeHtml(a.name)}
             </div>
           </div>`;
@@ -232,9 +232,9 @@ export default function DispatchMap({
   }, [ready, fitKey]);
 
   return (
-    <div className="relative h-full min-h-[460px] overflow-hidden rounded-2xl border border-[#E6DFD3] bg-[#F3EFE7]">
+    <div className="relative h-full min-h-[460px] overflow-hidden rounded-2xl border border-[#E3E2EE] bg-[#F1F0F8]">
       {!ready && (
-        <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 text-xs font-medium text-[#756F66]">
+        <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 text-xs font-medium text-[#62607A]">
           {loadError ? loadError : (<><Loader2 className="h-4 w-4 animate-spin" /> Loading map…</>)}
         </div>
       )}

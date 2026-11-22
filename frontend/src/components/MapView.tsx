@@ -198,10 +198,10 @@ export default function MapView({
 
   // Helper to build distinct circular markers matching reference screenshot
   const createAgentIcon = useCallback((L: any, agent: AgentApiItem, isSelected: boolean) => {
-    let pinColor = "#1E3F35"; // active (forest green)
+    let pinColor = "#393185"; // active (forest green)
     if (agent.status === "busy") pinColor = "#C07A2B"; // busy (caramel/amber)
     if (agent.status === "break") pinColor = "#3B82F6"; // break (blue)
-    if (agent.status === "inactive") pinColor = "#756F66"; // inactive (gray)
+    if (agent.status === "inactive") pinColor = "#62607A"; // inactive (gray)
 
     const isGps = isRecentGps(agent);
     const size = isSelected ? 34 : 28;
@@ -299,24 +299,24 @@ export default function MapView({
         : "Not recorded";
       const popupHtml = `
         <div style="font-family: inherit; font-size: 12px; padding: 2px;">
-          <strong style="color: #1A201C; font-size: 13px;">${escapeHtml(agent.name || "Field Agent")}</strong>
-          <span style="font-family: monospace; color: #756F66; font-size: 10px; display: block;">${escapeHtml(agent.agent_code || "")}</span>
+          <strong style="color: #16151F; font-size: 13px;">${escapeHtml(agent.name || "Field Agent")}</strong>
+          <span style="font-family: monospace; color: #62607A; font-size: 10px; display: block;">${escapeHtml(agent.agent_code || "")}</span>
           <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
             <span style="
               font-size: 9px;
               padding: 2px 6px;
               border-radius: 4px;
-              background: ${isGps ? "#EAF2EC" : "#F8EFE2"};
-              color: ${isGps ? "#1E3F35" : "#9E6924"};
+              background: ${isGps ? "#F1F0F8" : "#F8EFE2"};
+              color: ${isGps ? "#393185" : "#9E6924"};
               font-weight: 700;
               text-transform: uppercase;
             ">
               ${sourceLabel}
             </span>
-            <span style="color: #756F66; font-size: 10px;">${escapeHtml(agent.status)}</span>
+            <span style="color: #62607A; font-size: 10px;">${escapeHtml(agent.status)}</span>
           </div>
-          <span style="color: #1A201C; font-size: 10px; font-weight: 600; display:block; margin-top: 2px;">📍 ${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E</span>
-          <span style="color: #756F66; font-size: 10px; display:block;">Updated: ${updatedAt}</span>
+          <span style="color: #16151F; font-size: 10px; font-weight: 600; display:block; margin-top: 2px;">📍 ${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E</span>
+          <span style="color: #62607A; font-size: 10px; display:block;">Updated: ${updatedAt}</span>
         </div>
       `;
       marker.bindPopup(popupHtml);
@@ -372,28 +372,28 @@ export default function MapView({
 
   return (
     <div
-      className={`relative w-full ${height} rounded-2xl bg-[#EBE4D5] border border-beige-border overflow-hidden flex flex-col select-none`}
+      className={`relative w-full ${height} rounded-2xl bg-[#EDECF5] border border-beige-border overflow-hidden flex flex-col select-none`}
     >
       {/* Top Map Control Bar for Full Page Mode */}
       {isFullPage && (
         <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
           {/* Search & Filter Group */}
-          <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E6DFD3] shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E3E2EE] shadow-sm">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-[#756F66] absolute left-2.5 top-2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-[#62607A] absolute left-2.5 top-2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Filter agents by name, ID, territory..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-3 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] placeholder-[#756F66] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35] w-44 sm:w-60"
+                className="pl-8 pr-3 py-1 rounded-lg bg-[#F5F5FA] text-xs text-[#16151F] placeholder-[#62607A] border border-[#E3E2EE] focus:outline-none focus:border-[#393185] w-44 sm:w-60"
               />
             </div>
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35]"
+              className="px-2.5 py-1 rounded-lg bg-[#F5F5FA] text-xs text-[#16151F] border border-[#E3E2EE] focus:outline-none focus:border-[#393185]"
             >
               <option value="all">All Statuses</option>
               <option value="active">Active (On Duty)</option>
@@ -405,7 +405,7 @@ export default function MapView({
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value)}
-              className="px-2.5 py-1 rounded-lg bg-[#F5F2EB] text-xs text-[#1A201C] border border-[#E6DFD3] focus:outline-none focus:border-[#1E3F35]"
+              className="px-2.5 py-1 rounded-lg bg-[#F5F5FA] text-xs text-[#16151F] border border-[#E3E2EE] focus:outline-none focus:border-[#393185]"
             >
               <option value="all">All Locations</option>
               <option value="gps">GPS source</option>
@@ -415,20 +415,20 @@ export default function MapView({
           </div>
 
           {/* Action Controls */}
-          <div className="flex items-center gap-1.5 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E6DFD3] shadow-sm">
+          <div className="flex items-center gap-1.5 pointer-events-auto bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-[#E3E2EE] shadow-sm">
             <button
               onClick={() => loadAgentsData()}
               disabled={isLoading}
-              className="p-1.5 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#F5F2EB] transition disabled:opacity-50"
+              className="p-1.5 rounded-lg text-[#62607A] hover:text-[#16151F] hover:bg-[#F5F5FA] transition disabled:opacity-50"
               title="Refresh database records"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-[#1E3F35]" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-[#393185]" : ""}`} />
             </button>
 
             {locatedAgents.length > 0 && (
               <button
                 onClick={fitToMarkers}
-                className="p-1.5 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#F5F2EB] transition"
+                className="p-1.5 rounded-lg text-[#62607A] hover:text-[#16151F] hover:bg-[#F5F5FA] transition"
                 title="Fit map to all markers"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
@@ -439,8 +439,8 @@ export default function MapView({
               onClick={() => setShowUnlocatedList(!showUnlocatedList)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
                 showUnlocatedList
-                  ? "bg-[#1E3F35] text-white"
-                  : "bg-[#F5F2EB] text-[#1A201C] hover:bg-[#E6DFD3]"
+                  ? "bg-[#00843E] text-white"
+                  : "bg-[#F5F5FA] text-[#16151F] hover:bg-[#E3E2EE]"
               }`}
             >
               <Users className="w-3.5 h-3.5" />
@@ -454,34 +454,34 @@ export default function MapView({
       <div className="relative w-full h-full flex-1">
         {/* Leaflet Loading Overlay */}
         {!isLeafletReady && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/90 text-[#756F66] text-xs gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-[#1E3F35]" />
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/90 text-[#62607A] text-xs gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-[#393185]" />
             <span>Loading OpenStreetMap engine...</span>
           </div>
         )}
 
         {/* Floating Top-Left Zoom & Re-center Controls (Exact Reference Design) */}
-        <div className="absolute top-4 left-4 z-20 pointer-events-auto flex flex-col bg-white rounded-xl border border-[#E6DFD3] shadow-md overflow-hidden">
+        <div className="absolute top-4 left-4 z-20 pointer-events-auto flex flex-col bg-white rounded-xl border border-[#E3E2EE] shadow-md overflow-hidden">
           <button
             onClick={() => mapInstanceRef.current?.zoomIn()}
-            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] border-b border-[#E6DFD3] transition flex items-center justify-center font-bold text-sm"
+            className="p-2 hover:bg-[#F5F5FA] text-[#16151F] border-b border-[#E3E2EE] transition flex items-center justify-center font-bold text-sm"
             title="Zoom In"
           >
             <Plus className="w-4 h-4" />
           </button>
           <button
             onClick={() => mapInstanceRef.current?.zoomOut()}
-            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] border-b border-[#E6DFD3] transition flex items-center justify-center font-bold text-sm"
+            className="p-2 hover:bg-[#F5F5FA] text-[#16151F] border-b border-[#E3E2EE] transition flex items-center justify-center font-bold text-sm"
             title="Zoom Out"
           >
             <Minus className="w-4 h-4" />
           </button>
           <button
             onClick={fitToMarkers}
-            className="p-2 hover:bg-[#F5F2EB] text-[#1A201C] transition flex items-center justify-center"
+            className="p-2 hover:bg-[#F5F5FA] text-[#16151F] transition flex items-center justify-center"
             title="Fit Map to Markers"
           >
-            <Navigation className="w-4 h-4 text-[#756F66]" />
+            <Navigation className="w-4 h-4 text-[#62607A]" />
           </button>
         </div>
 
@@ -494,7 +494,7 @@ export default function MapView({
             </div>
             <button
               onClick={() => loadAgentsData()}
-              className="px-2.5 py-1 rounded-lg bg-[#1E3F35] text-white font-semibold text-[11px]"
+              className="px-2.5 py-1 rounded-lg bg-[#00843E] text-white font-semibold text-[11px]"
             >
               Retry
             </button>
@@ -504,22 +504,22 @@ export default function MapView({
         <div ref={mapContainerRef} className="w-full h-full" />
 
         {/* Floating Bottom-Left Legend Pill (Exact Reference Design) */}
-        <div className="absolute bottom-4 left-4 z-20 pointer-events-auto bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#E6DFD3] shadow-md text-xs font-medium text-[#1A201C] flex flex-wrap items-center gap-3.5 sm:gap-4">
+        <div className="absolute bottom-4 left-4 z-20 pointer-events-auto bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#E3E2EE] shadow-md text-xs font-medium text-[#16151F] flex flex-wrap items-center gap-3.5 sm:gap-4">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] ring-2 ring-[#3B82F6]/30"></span>
-            <span className="text-[11px] font-medium text-[#1A201C]">Your Location</span>
+            <span className="text-[11px] font-medium text-[#16151F]">Your Location</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#1E3F35]"></span>
-            <span className="text-[11px] font-medium text-[#1A201C]">Active Agent</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#00843E]"></span>
+            <span className="text-[11px] font-medium text-[#16151F]">Active Agent</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#C07A2B]"></span>
-            <span className="text-[11px] font-medium text-[#1A201C]">Customer</span>
+            <span className="text-[11px] font-medium text-[#16151F]">Customer</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-4 h-0.5 bg-[#4F5B54] rounded-full"></span>
-            <span className="text-[11px] font-medium text-[#1A201C]">Route</span>
+            <span className="text-[11px] font-medium text-[#16151F]">Route</span>
           </div>
         </div>
 
@@ -527,11 +527,11 @@ export default function MapView({
         <div className="absolute bottom-4 right-4 z-20 pointer-events-auto">
           <button
             onClick={fitToMarkers}
-            className="bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-[#E6DFD3] shadow-md text-xs font-semibold text-[#1A201C] flex items-center gap-2 hover:bg-white transition"
+            className="bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-[#E3E2EE] shadow-md text-xs font-semibold text-[#16151F] flex items-center gap-2 hover:bg-white transition"
           >
-            <Layers className="w-4 h-4 text-[#1E3F35]" />
+            <Layers className="w-4 h-4 text-[#393185]" />
             <span>Map Layers</span>
-            <ChevronRight className="w-3.5 h-3.5 text-[#756F66]" />
+            <ChevronRight className="w-3.5 h-3.5 text-[#62607A]" />
           </button>
         </div>
 

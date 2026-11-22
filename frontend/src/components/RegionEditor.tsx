@@ -37,7 +37,7 @@ const KINDS: { key: RegionKind; label: string; hint: string }[] = [
 ];
 
 const inputClass =
-  "w-full text-sm rounded-xl border border-[#E6DFD3] bg-white px-3 py-2 text-[#1A201C] focus:outline-none focus:border-[#2E5A44]";
+  "w-full text-sm rounded-xl border border-[#E3E2EE] bg-white px-3 py-2 text-[#16151F] focus:outline-none focus:border-[#393185]";
 
 export const placeLabel = (p: PickedPlace) => [p.details.trim(), p.address.trim()].filter(Boolean).join(", ");
 
@@ -157,14 +157,14 @@ function PlaceField({
 }) {
   const [query, setQuery] = useState("");
   return (
-    <div className="space-y-1.5 rounded-xl border border-[#EFE8DD] bg-[#FCFAF6] p-2.5">
+    <div className="space-y-1.5 rounded-xl border border-[#EDECF5] bg-[#FAFAFD] p-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-[#1A201C]">{title} *</span>
+        <span className="text-xs font-semibold text-[#16151F]">{title} *</span>
         <button
           type="button"
           onClick={onTogglePick}
           className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
-            picking ? "bg-amber-100 text-amber-900" : "text-[#2E5A44] hover:underline"
+            picking ? "bg-amber-100 text-amber-900" : "text-[#393185] hover:underline"
           }`}
         >
           <Crosshair className="h-3 w-3" /> {picking ? "Click the map…" : "Pick on map"}
@@ -172,14 +172,14 @@ function PlaceField({
       </div>
       {place ? (
         <div className="space-y-1.5">
-          <div className="flex items-start gap-1.5 text-xs text-[#1A201C]">
+          <div className="flex items-start gap-1.5 text-xs text-[#16151F]">
             <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#B86F52]" />
             <span className="flex-1">{place.address}</span>
-            <button type="button" aria-label={`Clear ${title}`} onClick={onClear} className="text-[#756F66] hover:text-[#1A201C]">
+            <button type="button" aria-label={`Clear ${title}`} onClick={onClear} className="text-[#62607A] hover:text-[#16151F]">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="font-mono text-[11px] text-[#756F66]">
+          <div className="font-mono text-[11px] text-[#62607A]">
             {place.latitude.toFixed(6)}, {place.longitude.toFixed(6)}
           </div>
           <input
@@ -226,7 +226,7 @@ export default function RegionEditor({
 
   return (
     <div className="space-y-2.5">
-      <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#E6DFD3] bg-[#FAF7F0] p-1 text-[11px] font-semibold">
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#E3E2EE] bg-[#F7F7FB] p-1 text-[11px] font-semibold">
         {KINDS.map((k) => (
           <button
             key={k.key}
@@ -235,13 +235,13 @@ export default function RegionEditor({
               onChange((prev) => ({ ...prev, kind: k.key }));
               onPickTargetChange(null);
             }}
-            className={`rounded-lg px-1.5 py-1.5 ${d.kind === k.key ? "bg-white text-[#1A201C] shadow-xs" : "text-[#756F66]"}`}
+            className={`rounded-lg px-1.5 py-1.5 ${d.kind === k.key ? "bg-white text-[#16151F] shadow-xs" : "text-[#62607A]"}`}
           >
             {k.label}
           </button>
         ))}
       </div>
-      <p className="text-[11px] text-[#756F66]">{kind.hint}</p>
+      <p className="text-[11px] text-[#62607A]">{kind.hint}</p>
 
       {d.kind === "drawn" ? (
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -288,7 +288,7 @@ export default function RegionEditor({
             />
           )}
           <div>
-            <label className="block text-xs font-semibold text-[#1A201C] mb-1" htmlFor={`${idPrefix}-distance`}>
+            <label className="block text-xs font-semibold text-[#16151F] mb-1" htmlFor={`${idPrefix}-distance`}>
               {d.kind === "box" ? "Extra margin around the area (km) *" : "Radius (km) *"}
             </label>
             <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export default function RegionEditor({
                 step={0.1}
                 value={Math.min(20, Math.max(0.1, parseFloat(d.distanceKm) || 0.1))}
                 onChange={(e) => onChange((prev) => ({ ...prev, distanceKm: e.target.value }))}
-                className="flex-1 accent-[#2E5A44]"
+                className="flex-1 accent-[#393185]"
               />
               <input
                 id={`${idPrefix}-distance`}

@@ -120,7 +120,7 @@ export default function DispatchLocationMap({
 
         marker.bindPopup(
           "<div style='font-family: inherit; font-size: 12px; line-height: 1.4;'>" +
-            "<strong style='color: #2E5A44; display: block;'>Customer location</strong>" +
+            "<strong style='color: #393185; display: block;'>Customer location</strong>" +
             "<span>Drag the pin to the exact entrance if it is slightly off.</span>" +
           "</div>"
         );
@@ -158,15 +158,15 @@ export default function DispatchLocationMap({
 
   return (
     <div className="space-y-2">
-      <div className="relative h-72 sm:h-80 overflow-hidden rounded-2xl border border-[#E6DFD3] bg-[#F3EFE7]">
+      <div className="relative h-72 sm:h-80 overflow-hidden rounded-2xl border border-[#E3E2EE] bg-[#F1F0F8]">
         {!ready && (
-          <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 bg-[#F3EFE7] text-xs font-medium text-[#756F66]">
+          <div className="absolute inset-0 z-[500] flex items-center justify-center gap-2 bg-[#F1F0F8] text-xs font-medium text-[#62607A]">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading map…
           </div>
         )}
         {ready && !hasPin && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-[500] -translate-x-1/2 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-[#1A201C] shadow-sm">
+          <div className="pointer-events-none absolute left-1/2 top-3 z-[500] -translate-x-1/2 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-[#16151F] shadow-sm">
             Search the address above, or click the map to drop the pin
           </div>
         )}
@@ -174,7 +174,7 @@ export default function DispatchLocationMap({
           <button
             type="button"
             onClick={handleRecenter}
-            className="absolute right-3 top-3 z-[500] inline-flex items-center gap-1.5 rounded-lg border border-[#E6DFD3] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#1A201C] shadow-sm hover:bg-[#FAF7F0]"
+            className="absolute right-3 top-3 z-[500] inline-flex items-center gap-1.5 rounded-lg border border-[#E3E2EE] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#16151F] shadow-sm hover:bg-[#F7F7FB]"
           >
             <Crosshair className="h-3 w-3" />
             Recenter
@@ -186,24 +186,24 @@ export default function DispatchLocationMap({
       <div className="flex flex-col gap-1 text-[11px] sm:flex-row sm:items-center sm:justify-between">
         {hasPin ? (
           isEntranceVerified || hasMovedPin ? (
-            <span className="flex items-center gap-1.5 font-semibold text-[#2E5A44]">
+            <span className="flex items-center gap-1.5 font-semibold text-[#393185]">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               Pin set on the map. Drag it again to fine-tune.
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 text-[#756F66]">
+            <span className="flex items-center gap-1.5 text-[#62607A]">
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               Pin placed from the address. Drag it to the exact entrance if needed.
             </span>
           )
         ) : (
-          <span className="flex items-center gap-1.5 text-[#756F66]">
+          <span className="flex items-center gap-1.5 text-[#62607A]">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
             No pin yet.
           </span>
         )}
         {placeLabel && hasPin && (
-          <span className="truncate text-[#756F66] sm:max-w-[55%]" title={placeLabel}>
+          <span className="truncate text-[#62607A] sm:max-w-[55%]" title={placeLabel}>
             {placeLabel}
           </span>
         )}

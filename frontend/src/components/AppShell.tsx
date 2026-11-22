@@ -26,6 +26,8 @@ import {
   Hexagon,
 } from "lucide-react";
 import HealthChecker from "./HealthChecker";
+import BrandMark from "./shell/BrandMark";
+import PageBand from "./shell/PageBand";
 import { useAuth } from "@/context/AuthContext";
 import { useOperations } from "@/context/OperationsContext";
 
@@ -94,12 +96,11 @@ export default function AppShell({ children }: AppShellProps) {
   // Loading state while verifying session
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F2EB] flex flex-col items-center justify-center p-4">
-        <div className="w-12 h-12 rounded-2xl bg-[#1E3F35] text-white flex items-center justify-center animate-pulse shadow-md mb-3">
+      <div className="min-h-screen bg-[#F5F5FA] flex flex-col items-center justify-center p-4">
+        <div className="w-12 h-12 rounded-2xl bg-[#393185] text-white flex items-center justify-center animate-pulse shadow-md mb-3">
           <Compass className="w-6 h-6 animate-spin" />
         </div>
-        <p className="text-xs font-semibold text-[#1A201C]">Verifying Field Operations Session...</p>
-        <span className="text-[10px] text-[#756F66] mt-1">Authenticating with Supabase Auth</span>
+        <p className="text-sm font-semibold text-[#16151F]">Loading…</p>
       </div>
     );
   }
@@ -107,9 +108,9 @@ export default function AppShell({ children }: AppShellProps) {
   // If not authenticated or non-admin, render brief placeholder
   if (!isAuthenticated || !profile || !isAdminAccount) {
     return (
-      <div className="min-h-screen bg-[#F5F2EB] flex flex-col items-center justify-center p-4">
-        <Loader2 className="w-6 h-6 text-[#1E3F35] animate-spin mb-2" />
-        <p className="text-xs text-[#756F66]">Redirecting to authorized portal...</p>
+      <div className="min-h-screen bg-[#F5F5FA] flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 text-[#393185] animate-spin mb-2" />
+        <p className="text-xs text-[#62607A]">Opening…</p>
       </div>
     );
   }
@@ -146,411 +147,296 @@ export default function AppShell({ children }: AppShellProps) {
     .slice(0, 2)
     .toUpperCase() || "FA";
 
+  const isActive = (href: string) => pathname === href || Boolean(pathname?.startsWith(href + "/"));
+  const pageTitle = navItems.find((item) => isActive(item.href))?.name ?? "FOS";
+  const mobileTabs = [navItems[0], navItems[1], navItems[2], navItems[6]].filter(Boolean);
+
+  const searchBox = (
+    <div className="relative w-full">
+      <Search className="w-4 h-4 text-[#7B7991] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <input
+        type="text"
+        value={globalSearch}
+        onChange={(e) => {
+          setGlobalSearch(e.target.value);
+          setIsSearchOpen(true);
+        }}
+        onFocus={() => setIsSearchOpen(true)}
+        placeholder="Search agents"
+        className="w-full h-10 pl-10 pr-4 rounded-full bg-[#F1F0F8] border border-transparent text-sm text-[#16151F] placeholder-[#7B7991] focus:outline-none focus:bg-white focus:border-[#393185] transition"
+      />
+      {isSearchOpen && (
+        <div className="absolute left-0 right-0 mt-2 rounded-2xl bg-white border border-[#E3E2EE] shadow-2xl p-2 z-50 animate-rise max-h-80 overflow-y-auto">
+          {matchingAgents.length === 0 ? (
+            <div className="py-4 text-center text-sm text-[#62607A]">No agents found</div>
+          ) : (
+            matchingAgents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => {
+                  setIsSearchOpen(false);
+                  setGlobalSearch(agent.name);
+                  router.push(`/tracking?agentId=${agent.id}`);
+                }}
+                className="w-full p-2 rounded-xl hover:bg-[#F1F0F8] transition flex items-center gap-2.5 text-left cursor-pointer"
+              >
+                <span className="w-8 h-8 rounded-full bg-[#393185] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                  {agent.initials || agent.name.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-bold text-sm text-[#16151F] truncate">{agent.name}</span>
+                  {agent.territory && <span className="block text-xs text-[#62607A] truncate">{agent.territory}</span>}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-[#F5F2EB] text-[#1A201C] flex flex-col lg:flex-row antialiased font-sans">
-      {/* Mobile Menu Backdrop */}
-      {mobileMenuOpen && (
+    <div className="min-h-screen bg-[#F5F5FA] text-[#16151F] antialiased font-sans">
+      {/* Close floating menus when clicking elsewhere */}
+      {(isSearchOpen || showUserMenu || showNotifications) && (
         <div
-          onClick={() => setMobileMenuOpen(false)}
-          className="fixed inset-0 z-40 bg-black/25 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-20"
+          onClick={() => {
+            setIsSearchOpen(false);
+            setShowUserMenu(false);
+            setShowNotifications(false);
+          }}
         />
       )}
 
-      {/* Left Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#F4EFE6] border-r border-[#E6DFD3] flex flex-col justify-between transition-all duration-300 ease-in-out lg:static ${
-          mobileMenuOpen ? "translate-x-0 w-64 shadow-2xl" : "-translate-x-full lg:translate-x-0"
-        } ${sidebarCollapsed ? "lg:w-20" : "lg:w-64"}`}
-      >
-        <div>
-          {/* Brand Header */}
-          <div className="h-20 px-5 flex items-center justify-between">
-            <Link href="/admin/dashboard" className="flex items-center gap-3 overflow-hidden">
-              <div className="w-10 h-10 rounded-full bg-[#1E3F35] text-white flex items-center justify-center shrink-0 shadow-sm">
-                <Compass className="w-5 h-5 text-white" />
-              </div>
-              {!sidebarCollapsed && (
-                <div className="truncate leading-tight">
-                  <span className="font-extrabold text-sm tracking-tight text-[#1A201C] block">
-                    FOS
-                  </span>
-                  <span className="text-[11px] font-medium text-[#756F66] block">
-                    Field Operations System
-                  </span>
-                  <span className="text-[9px] font-semibold text-[#8C867C] tracking-wide block">
-                    Enterprise Admin
-                  </span>
-                </div>
-              )}
-            </Link>
+      {/* ── Desktop: black strip ─────────────────────────── */}
+      <div className="hidden lg:block bg-black text-white/90 text-xs">
+        <div className="mx-auto flex h-9 max-w-[1600px] items-center justify-end gap-6 px-8">
+          <span className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-[#00A651]" />
+            {currentDate}
+          </span>
+          <Link href="/agent/dashboard" className="flex items-center gap-1.5 hover:text-white">
+            <Smartphone className="w-3.5 h-3.5 text-[#00A651]" />
+            Agent app
+          </Link>
+          <button onClick={() => setShowHealthModal(true)} className="flex items-center gap-1.5 hover:text-white cursor-pointer">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#00A651]" />
+            System status
+          </button>
+        </div>
+      </div>
 
-            {/* Mobile close button */}
-            <button
-              onClick={() => setMobileMenuOpen(false)}
-              className="lg:hidden p-1.5 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#EDE7DC]"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Navigation Links - Existing tabs only */}
-          <nav className="px-3 py-2 space-y-1">
+      {/* ── Desktop: white header with navigation ─────────── */}
+      <header className="hidden lg:block sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-[#E3E2EE] shadow-[0_4px_20px_-12px_rgba(57,49,133,.25)]">
+        <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-6 px-8">
+          <Link href="/admin/dashboard" aria-label="Overview" className="shrink-0">
+            <BrandMark />
+          </Link>
+          <nav className="flex h-full items-stretch gap-0.5 overflow-x-auto" aria-label="Main">
             {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-
+              const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs transition-all duration-150 group relative ${
-                    isActive
-                      ? "bg-[#EAF2EC] text-[#1E3F35] font-bold border border-[#D0E2D5] shadow-xs"
-                      : "text-[#544F47] hover:text-[#1A201C] hover:bg-[#EDE7DC]/70 font-medium"
+                  aria-current={active ? "page" : undefined}
+                  className={`nav-link flex items-center whitespace-nowrap px-3 text-sm transition ${
+                    active ? "font-bold text-[#393185]" : "font-medium text-[#45435A] hover:text-[#393185]"
                   }`}
-                  title={sidebarCollapsed ? item.name : undefined}
                 >
-                  <Icon
-                    className={`w-4 h-4 shrink-0 transition-colors ${
-                      isActive ? "text-[#1E3F35]" : "text-[#756F66] group-hover:text-[#1A201C]"
-                    }`}
-                  />
-                  {!sidebarCollapsed && <span className="truncate">{item.name}</span>}
+                  {item.name}
                 </Link>
               );
             })}
           </nav>
-        </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="relative z-30 w-56 xl:w-72">{searchBox}</div>
 
-        {/* Sidebar Bottom: Field Agent App Card & Health */}
-        <div className="p-3 space-y-3">
-          {/* Field Agent App QR Download Card (as shown in design) */}
-          {!sidebarCollapsed ? (
-            <Link
-              href="/agent/dashboard"
-              className="block p-3 rounded-2xl bg-white/80 hover:bg-white border border-[#E6DFD3] shadow-xs transition group"
-              title="Open Mobile Field Agent App"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shrink-0">
-                    <Smartphone className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-[#1A201C] truncate">Field Agent App</span>
-                    </div>
-                    <span className="text-[10px] text-[#756F66] block truncate">Scan to download</span>
-                    <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-[#EAF2EC] text-[#1E3F35]">
-                      Mobile
-                    </span>
-                  </div>
-                </div>
-
-                {/* QR Code SVG */}
-                <div className="w-10 h-10 p-1 bg-white rounded-lg border border-[#E6DFD3] shrink-0 flex items-center justify-center">
-                  <svg viewBox="0 0 29 29" className="w-full h-full text-[#1A201C]" fill="currentColor">
-                    {/* Corner 1 */}
-                    <rect x="0" y="0" width="7" height="7" rx="1" fill="#1A201C" />
-                    <rect x="1" y="1" width="5" height="5" rx="0.5" fill="white" />
-                    <rect x="2" y="2" width="3" height="3" fill="#1A201C" />
-                    {/* Corner 2 */}
-                    <rect x="22" y="0" width="7" height="7" rx="1" fill="#1A201C" />
-                    <rect x="23" y="1" width="5" height="5" rx="0.5" fill="white" />
-                    <rect x="24" y="2" width="3" height="3" fill="#1A201C" />
-                    {/* Corner 3 */}
-                    <rect x="0" y="22" width="7" height="7" rx="1" fill="#1A201C" />
-                    <rect x="1" y="23" width="5" height="5" rx="0.5" fill="white" />
-                    <rect x="2" y="24" width="3" height="3" fill="#1A201C" />
-                    {/* Alignment & Data modules */}
-                    <rect x="9" y="2" width="2" height="2" />
-                    <rect x="13" y="2" width="3" height="2" />
-                    <rect x="18" y="4" width="2" height="3" />
-                    <rect x="10" y="7" width="2" height="2" />
-                    <rect x="14" y="8" width="2" height="3" />
-                    <rect x="2" y="9" width="3" height="2" />
-                    <rect x="7" y="11" width="2" height="2" />
-                    <rect x="11" y="12" width="3" height="2" />
-                    <rect x="16" y="11" width="2" height="2" />
-                    <rect x="20" y="10" width="2" height="2" />
-                    <rect x="24" y="13" width="3" height="2" />
-                    <rect x="9" y="16" width="3" height="2" />
-                    <rect x="14" y="15" width="2" height="3" />
-                    <rect x="18" y="17" width="3" height="2" />
-                    <rect x="22" y="16" width="2" height="2" />
-                    <rect x="9" y="22" width="2" height="2" />
-                    <rect x="13" y="21" width="2" height="3" />
-                    <rect x="17" y="24" width="3" height="2" />
-                    <rect x="22" y="22" width="4" height="2" />
-                    <rect x="24" y="26" width="2" height="2" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-          ) : (
-            <Link
-              href="/agent/dashboard"
-              className="flex justify-center p-2 rounded-xl bg-white border border-[#E6DFD3] text-[#1E3F35]"
-              title="Field Agent App (Mobile)"
-            >
-              <Smartphone className="w-5 h-5" />
-            </Link>
-          )}
-
-          {/* Health & Signout */}
-          <div className="pt-2 border-t border-[#E6DFD3]/70 flex items-center justify-between">
-            <button
-              onClick={() => setShowHealthModal(true)}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-[#756F66] hover:text-[#1A201C] transition p-1"
-              title="System Health Monitor"
-            >
-              <span className="w-2 h-2 rounded-full bg-[#1E3F35] animate-pulse" />
-              {!sidebarCollapsed && <span>Services OK</span>}
-            </button>
-
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-[#756F66] hover:text-[#9E3F3F] transition p-1"
-              title="Sign Out"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              {!sidebarCollapsed && <span>Exit</span>}
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header matching reference design */}
-        <header className="h-18 px-4 sm:px-6 lg:px-8 bg-[#F5F2EB] sticky top-0 z-30 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-1 max-w-2xl">
-            {/* Mobile Hamburger */}
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-xl text-[#756F66] hover:text-[#1A201C] bg-white border border-[#E6DFD3] transition"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
-            {/* Desktop Collapse Toggle */}
-            <button
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="hidden lg:flex p-2.5 rounded-xl text-[#756F66] hover:text-[#1A201C] bg-white border border-[#E6DFD3] transition shadow-xs"
-              title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            >
-              <Menu className="w-4 h-4" />
-            </button>
-
-            {/* Global Search Bar with Live Agent Location Dropdown */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-[#8C867C] absolute left-3.5 top-3 pointer-events-none" />
-              <input
-                type="text"
-                value={globalSearch}
-                onChange={(e) => {
-                  setGlobalSearch(e.target.value);
-                  setIsSearchOpen(true);
-                }}
-                onFocus={() => setIsSearchOpen(true)}
-                placeholder="Search agents, customers, tasks or locations..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-[#E6DFD3] text-xs text-[#1A201C] placeholder-[#8C867C] shadow-xs focus:outline-none focus:border-[#1E3F35] focus:ring-1 focus:ring-[#1E3F35] transition"
-              />
-
-              {/* Autocomplete Dropdown */}
-              {isSearchOpen && (
-                <div className="absolute left-0 right-0 mt-2 rounded-2xl bg-white border border-[#E6DFD3] shadow-2xl p-2.5 z-50 animate-in fade-in duration-100 max-h-80 overflow-y-auto">
-                  <div className="flex items-center justify-between pb-2 mb-1.5 border-b border-[#E6DFD3]/70 px-2 text-[11px] text-[#756F66]">
-                    <span className="font-semibold uppercase tracking-wider text-[10px]">
-                      Field Representatives ({matchingAgents.length})
-                    </span>
-                    <button
-                      onClick={() => setIsSearchOpen(false)}
-                      className="text-[#756F66] hover:text-[#1A201C] text-[10px]"
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div className="space-y-1">
-                    {matchingAgents.length === 0 ? (
-                      <div className="py-4 text-center text-xs text-[#756F66]">
-                        No representatives found matching &ldquo;{globalSearch}&rdquo;
-                      </div>
-                    ) : (
-                      matchingAgents.map((agent) => (
-                        <div
-                          key={agent.id}
-                          onClick={() => {
-                            setIsSearchOpen(false);
-                            setGlobalSearch(agent.name);
-                            router.push(`/tracking?agentId=${agent.id}`);
-                          }}
-                          className="p-2 rounded-xl hover:bg-[#F5F2EB] transition cursor-pointer flex items-center justify-between gap-3 group"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                              {agent.initials || agent.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-xs text-[#1A201C] truncate group-hover:text-[#1E3F35]">
-                                  {agent.name}
-                                </span>
-                                <span className="text-[10px] text-[#756F66] font-mono">
-                                  {agent.id}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] text-[#756F66] truncate mt-0.5">
-                                <span>{agent.territory}</span>
-                                <span>•</span>
-                                <span className="text-[#1E3F35] font-medium flex items-center gap-0.5">
-                                  <MapPin className="w-3 h-3 text-[#1E3F35]" />
-                                  {agent.coordinates ? `${agent.coordinates.lat.toFixed(4)}° N, ${agent.coordinates.lng.toFixed(4)}° E` : "GPS Active"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <span className="text-[10px] font-semibold text-[#1E3F35] bg-[#EAF2EC] px-2 py-1 rounded-lg shrink-0 group-hover:bg-[#1E3F35] group-hover:text-white transition">
-                            Show Location →
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Header Utilities: Date, Bell, User Profile */}
-          <div className="flex items-center gap-3 shrink-0">
-            {/* Date Pill */}
-            <div className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white border border-[#E6DFD3] text-xs font-medium text-[#1A201C] shadow-xs">
-              <Calendar className="w-4 h-4 text-[#756F66]" />
-              <span>{currentDate}</span>
-            </div>
-
-            {/* Notifications Menu */}
-            <div className="relative">
+            <div className="relative z-30">
               <button
                 onClick={() => {
                   setShowNotifications(!showNotifications);
                   setUnreadNotifications(0);
                 }}
-                className="relative p-2.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-[#1A201C] shadow-xs transition"
-                title="Notifications"
+                className="relative h-10 w-10 rounded-full hover:bg-[#F1F0F8] text-[#16151F] flex items-center justify-center transition cursor-pointer"
+                aria-label="Notifications"
               >
-                <Bell className="w-4 h-4 text-[#1A201C]" />
+                <Bell className="w-5 h-5" />
                 {unreadNotifications > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#1E3F35] text-white text-[10px] font-bold flex items-center justify-center">
+                  <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#00843E] text-white text-[10px] font-bold flex items-center justify-center">
                     {unreadNotifications}
                   </span>
                 )}
               </button>
-
-              {/* Notification Popover */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-white border border-[#E6DFD3] shadow-xl p-4 z-50 text-xs">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#E6DFD3]">
-                    <span className="font-bold text-[#1A201C]">Operational Alerts</span>
-                    <button
-                      onClick={() => setShowNotifications(false)}
-                      className="text-[#756F66] hover:text-[#1A201C]"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="py-5 text-center text-[11px] text-[#756F66]">
-                    No operational alerts are available.
-                  </div>
+                <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-white border border-[#E3E2EE] shadow-xl p-4 text-sm animate-rise">
+                  <div className="font-bold">Alerts</div>
+                  <div className="py-5 text-center text-[#62607A]">No alerts</div>
                 </div>
               )}
             </div>
 
-            {/* User Profile & Menu */}
-            <div className="relative">
+            <div className="relative z-30">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2.5 pl-1.5 py-1 text-left hover:opacity-90 transition cursor-pointer"
+                className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 hover:bg-[#F1F0F8] transition cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-full bg-[#1E3F35] text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                  {initials}
-                </div>
-                <div className="hidden sm:block text-left text-xs leading-tight">
-                  <span className="font-bold text-[#1A201C] block">
-                    {displayName}
-                  </span>
-                  <span className="text-[10px] text-[#756F66] block capitalize">
-                    {role || "Admin"}
-                  </span>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-[#756F66] hidden sm:block" />
+                <span className="w-8 h-8 rounded-full bg-[#393185] text-white flex items-center justify-center font-bold text-xs">{initials}</span>
+                <ChevronDown className="w-4 h-4 text-[#62607A]" />
               </button>
-
-              {/* User Dropdown */}
               {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white border border-[#E6DFD3] shadow-xl p-2 z-50 text-xs animate-in fade-in duration-100">
-                  <div className="px-3 py-2 border-b border-[#E6DFD3] mb-1">
-                    <p className="font-bold text-[#1A201C] truncate">{displayName}</p>
-                    <p className="text-[10px] text-[#756F66] truncate">{user?.email}</p>
-                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#EAF2EC] text-[#1E3F35] mt-1 uppercase">
-                      {role || "Admin"}
-                    </span>
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white border border-[#E3E2EE] shadow-xl p-2 text-sm animate-rise">
+                  <div className="px-3 py-2 border-b border-[#E3E2EE] mb-1">
+                    <p className="font-bold truncate">{displayName}</p>
+                    <p className="text-xs text-[#62607A] truncate">{user?.email}</p>
                   </div>
                   <Link
                     href="/settings"
                     onClick={() => setShowUserMenu(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-[#1A201C] hover:bg-[#F5F2EB] transition"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-[#F1F0F8] transition"
                   >
-                    <Settings className="w-3.5 h-3.5 text-[#756F66]" />
-                    <span>System Settings</span>
+                    <Settings className="w-4 h-4 text-[#62607A]" />
+                    Settings
                   </Link>
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
                       handleSignOut();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[#9E3F3F] hover:bg-[#F5F2EB] transition font-medium text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[#9E3F3F] hover:bg-[#F1F0F8] transition font-medium text-left cursor-pointer"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
+                    <LogOut className="w-4 h-4" />
+                    Log out
                   </button>
                 </div>
               )}
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* Page Content Body */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 pb-10 max-w-[1600px] w-full mx-auto overflow-y-auto">
-          {children}
-        </main>
+      {/* ── Phone/tablet: indigo app bar ─────────────────── */}
+      <header
+        className="lg:hidden sticky top-0 z-30 bg-[#393185] text-white px-4 pb-3 flex items-center gap-3 shadow-md"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 10px)" }}
+      >
+        <BrandMark size={30} withText={false} light />
+        <h1 key={pageTitle} className="flex-1 text-lg font-bold tracking-tight truncate animate-rise">{pageTitle}</h1>
+        <button onClick={() => setMobileMenuOpen(true)} className="p-2 -mr-2 rounded-full hover:bg-white/10" aria-label="Menu">
+          <Menu className="w-5 h-5" />
+        </button>
+      </header>
+
+      {/* Phone menu sheet */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-150" onClick={() => setMobileMenuOpen(false)}>
+          <div
+            className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4 animate-rise"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom), 16px)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#E3E2EE]" />
+            <div className="mb-3">{searchBox}</div>
+            <nav className="grid grid-cols-2 gap-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-2.5 rounded-2xl px-3 py-3 text-sm ${active ? "bg-[#393185] text-white font-bold" : "bg-[#F5F5FA] text-[#16151F] font-medium"}`}
+                  >
+                    <Icon className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{item.name}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button onClick={() => { setMobileMenuOpen(false); setShowHealthModal(true); }} className="h-11 rounded-2xl border border-[#E3E2EE] text-sm font-semibold">
+                System status
+              </button>
+              <button onClick={handleSignOut} className="h-11 rounded-2xl border border-red-200 text-sm font-semibold text-[#9E3F3F]">
+                Log out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Desktop: indigo title band ─────────────────────── */}
+      <div className="hidden lg:block">
+        <PageBand title={pageTitle} compact />
       </div>
+
+      <main className="relative mx-auto w-full max-w-[1600px] px-3 pt-3 pb-24 sm:px-5 lg:-mt-10 lg:px-8 lg:pb-12 lg:pt-0">
+        <div className="lg:rounded-3xl lg:bg-[#F5F5FA] lg:p-6 lg:shadow-[0_20px_50px_-30px_rgba(22,21,31,.45)]">
+          <div key={pathname} className="page-rise">{children}</div>
+        </div>
+      </main>
+
+      {/* ── Phone/tablet: bottom tabs ─────────────────────── */}
+      <nav
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#E3E2EE] shadow-[0_-6px_20px_-10px_rgba(57,49,133,.25)]"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Main"
+      >
+        <div className="grid grid-cols-5">
+          {mobileTabs.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-col items-center justify-center gap-0.5 py-2 min-h-[58px] ${active ? "text-[#393185]" : "text-[#7B7991]"}`}
+              >
+                <span className={`flex items-center justify-center h-7 w-11 rounded-full transition-all duration-200 ${active ? "bg-[#393185] text-white scale-105" : ""}`}>
+                  <Icon className="w-5 h-5" />
+                </span>
+                <span className={`text-[10px] leading-tight truncate max-w-full px-1 ${active ? "font-bold" : "font-medium"}`}>{item.name.split(" ")[0]}</span>
+              </Link>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex flex-col items-center justify-center gap-0.5 py-2 min-h-[58px] text-[#7B7991]"
+          >
+            <span className="flex items-center justify-center h-7 w-11 rounded-full">
+              <Menu className="w-5 h-5" />
+            </span>
+            <span className="text-[10px] font-medium">More</span>
+          </button>
+        </div>
+      </nav>
 
       {/* Backend Health Check Modal */}
       {showHealthModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-xl rounded-2xl bg-white border border-[#E6DFD3] shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E6DFD3] mb-4">
+          <div className="relative w-full max-w-xl rounded-2xl bg-white border border-[#E3E2EE] shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E3E2EE] mb-4">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-[#1E3F35]" />
-                <h3 className="font-bold text-sm text-[#1A201C]">Backend Infrastructure Monitor</h3>
+                <ShieldCheck className="w-5 h-5 text-[#393185]" />
+                <h3 className="font-bold text-sm text-[#16151F]">Backend Infrastructure Monitor</h3>
               </div>
               <button
                 onClick={() => setShowHealthModal(false)}
-                className="p-1 rounded-lg text-[#756F66] hover:text-[#1A201C] hover:bg-[#F5F2EB]"
+                className="p-1 rounded-lg text-[#62607A] hover:text-[#16151F] hover:bg-[#F5F5FA]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <HealthChecker />
-            <div className="mt-4 pt-3 border-t border-[#E6DFD3] text-center">
+            <div className="mt-4 pt-3 border-t border-[#E3E2EE] text-center">
               <button
                 onClick={() => setShowHealthModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#1E3F35] text-white hover:bg-[#163028] transition"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#00843E] text-white hover:bg-[#006F34] transition"
               >
                 Close Monitor
               </button>

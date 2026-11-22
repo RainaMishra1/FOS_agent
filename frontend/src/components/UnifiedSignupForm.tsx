@@ -112,14 +112,14 @@ export default function UnifiedSignupForm() {
   }
 
   const inputClass =
-    "w-full px-3.5 py-2.5 rounded-xl bg-beige-sand/50 border border-beige-border text-xs text-beige-text placeholder-beige-muted focus:outline-none focus:border-[#1E3F35]";
+    "w-full px-3.5 py-2.5 rounded-xl bg-beige-sand/50 border border-beige-border text-xs text-beige-text placeholder-beige-muted focus:outline-none focus:border-[#393185]";
 
   return (
     <main className="min-h-screen bg-beige-bg flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md space-y-5">
         {/* Brand Header */}
         <header className="text-center space-y-2">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-[#1E3F35] text-white flex items-center justify-center shadow-md">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-[#00843E] text-white flex items-center justify-center shadow-md">
             <Compass className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-beige-text">FOS Enterprise</h1>
@@ -147,7 +147,7 @@ export default function UnifiedSignupForm() {
                 }}
                 className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   !isAdmin
-                    ? "bg-[#1E3F35] text-white shadow-sm"
+                    ? "bg-[#00843E] text-white shadow-sm"
                     : "text-beige-muted hover:text-beige-text"
                 }`}
               >
@@ -162,7 +162,7 @@ export default function UnifiedSignupForm() {
                 }}
                 className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   isAdmin
-                    ? "bg-[#1E3F35] text-white shadow-sm"
+                    ? "bg-[#00843E] text-white shadow-sm"
                     : "text-beige-muted hover:text-beige-text"
                 }`}
               >
@@ -174,7 +174,7 @@ export default function UnifiedSignupForm() {
 
           {/* Role Description Notice */}
           <div className="p-3 rounded-xl bg-beige-sand/50 border border-beige-border text-[11px] text-beige-muted flex gap-2">
-            <BadgeCheck className="w-4 h-4 text-[#1E3F35] shrink-0 mt-0.5" />
+            <BadgeCheck className="w-4 h-4 text-[#393185] shrink-0 mt-0.5" />
             <span>
               {isAdmin
                 ? "Admin role provides central operations dispatching, agent live tracking, and full management controls."
@@ -188,7 +188,7 @@ export default function UnifiedSignupForm() {
               role={success ? "status" : "alert"}
               className={`p-3 rounded-xl border text-xs flex gap-2 ${
                 success
-                  ? "bg-[#EAF2EC] border-[#1E3F35]/30 text-[#1E3F35]"
+                  ? "bg-[#F1F0F8] border-[#393185]/30 text-[#393185]"
                   : "bg-beige-sand border-beige-terracotta/30 text-beige-terracotta"
               }`}
             >
@@ -257,7 +257,7 @@ export default function UnifiedSignupForm() {
                 <button
                   type="button"
                   onClick={() => setSecretKey(isAdmin ? "ADMIN" : "AGENT")}
-                  className="text-[10px] text-[#1E3F35] font-normal hover:underline cursor-pointer"
+                  className="text-[10px] text-[#393185] font-normal hover:underline cursor-pointer"
                 >
                   Use default key ({isAdmin ? "ADMIN" : "AGENT"})
                 </button>
@@ -323,7 +323,7 @@ export default function UnifiedSignupForm() {
             <button
               type="submit"
               disabled={busy || success}
-              className="w-full mt-2 py-2.5 rounded-xl bg-[#1E3F35] hover:bg-[#162F27] text-white text-xs font-bold flex justify-center items-center gap-2 transition disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed shadow-sm"
+              className="w-full mt-2 py-2.5 rounded-xl bg-[#00843E] hover:bg-[#006F34] text-white text-xs font-bold flex justify-center items-center gap-2 transition disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed shadow-sm"
             >
               {busy ? (
                 <>
@@ -343,7 +343,7 @@ export default function UnifiedSignupForm() {
           <div className="border-t border-beige-border pt-4 text-center text-xs text-beige-muted space-y-2">
             <p>
               Already have an account?{" "}
-              <Link href="/login" className="text-[#1E3F35] font-bold hover:underline">
+              <Link href="/login" className="text-[#393185] font-bold hover:underline">
                 Sign In
               </Link>
             </p>

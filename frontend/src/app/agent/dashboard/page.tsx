@@ -78,7 +78,7 @@ export default function AgentDashboardPage() {
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="px-3 py-1.5 rounded-xl bg-[#1E3F35] text-white font-semibold text-xs hover:bg-[#162F27] transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-[#00843E] text-white font-semibold text-xs hover:bg-[#006F34] transition flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
             <span>Retry Connection</span>
@@ -87,18 +87,18 @@ export default function AgentDashboardPage() {
       )}
 
       {/* 1. Welcome Hero Banner with City Skyline Silhouette */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-[#F9F7F2] via-[#F5EFE6] to-[#ECE5D8] border border-[#E6DFD3] p-5 sm:p-6 shadow-xs overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="relative rounded-2xl bg-gradient-to-r from-[#F4F4F9] via-[#F1F0F8] to-[#E3E1F2] border border-[#E3E2EE] p-5 sm:p-6 shadow-xs overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Subtle Decorative Skyline SVG */}
         <div className="absolute right-0 bottom-0 top-0 w-80 md:w-96 pointer-events-none opacity-45 overflow-hidden">
           <svg viewBox="0 0 400 160" fill="none" className="w-full h-full object-cover object-bottom">
-            <circle cx="280" cy="50" r="32" fill="#EADFC9" />
+            <circle cx="280" cy="50" r="32" fill="#E3E1F2" />
             <path
               d="M120 160V100H140V160M150 160V80H170V160M180 160V65H210V160M220 160V110H240V160M250 160V70H280V160M290 160V95H310V160M320 160V50H350V160M360 160V105H385V160"
-              fill="#DFD6C2"
+              fill="#D7D4EE"
             />
             <path
               d="M100 160V120H125V160M135 160V110H160V160M175 160V90H200V160M215 160V125H235V160M245 160V85H275V160M285 160V115H315V160M325 160V75H355V160M365 160V120H395V160"
-              fill="#D3C7AD"
+              fill="#CFCDE2"
               opacity="0.7"
             />
           </svg>
@@ -107,10 +107,10 @@ export default function AgentDashboardPage() {
         {/* Left Side: Welcome Greeting & Status */}
         <div className="relative z-10 space-y-1.5 max-w-xl">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#393185] tracking-tight">
               Welcome back, {currentAgent.name} 👋
             </h1>
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${isOnDuty ? "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2]" : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0]"}`}><span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#1E3F35] animate-pulse" : "bg-[#9E6924]"}`} /><span>{isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}</span></span>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${isOnDuty ? "bg-[#F1F0F8] text-[#393185] border-[#D7D4EE]" : "bg-[#FAF3E7] text-[#9E6924] border-[#F0E4D0]"}`}><span className={`w-2 h-2 rounded-full ${isOnDuty ? "bg-[#00843E] animate-pulse" : "bg-[#9E6924]"}`} /><span>{isOnDuty ? "On Duty • Active" : "Off Duty • Paused"}</span></span>
           </div>
           <p className="text-xs sm:text-sm text-beige-muted">
             Keep up the good work! You have {displayRemaining} pending visits remaining today ({displayCompleted} completed).
@@ -118,9 +118,9 @@ export default function AgentDashboardPage() {
         </div>
 
         {/* Right Side: Territory Badge */}
-        <div className="relative z-10 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-[#E6DFD3] rounded-2xl px-4 py-2.5 shadow-xs shrink-0 self-start md:self-auto">
-          <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shrink-0">
-            <MapPin className="w-4 h-4 text-[#1E3F35]" />
+        <div className="relative z-10 flex items-center gap-2.5 bg-white/95 backdrop-blur-md border border-[#E3E2EE] rounded-2xl px-4 py-2.5 shadow-xs shrink-0 self-start md:self-auto">
+          <div className="w-8 h-8 rounded-xl bg-[#F1F0F8] text-[#393185] flex items-center justify-center shrink-0">
+            <MapPin className="w-4 h-4 text-[#393185]" />
           </div>
           <div>
             <span className="text-xs font-bold text-beige-text block leading-tight">
@@ -134,16 +134,16 @@ export default function AgentDashboardPage() {
       {/* 2. Key Daily Performance 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         {/* Card 1: Today's Visits */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E3E2EE] shadow-xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] flex items-center justify-center shadow-2xs">
               <CalendarCheck className="w-4 h-4" />
             </div>
             <ChevronRight className="w-4 h-4 text-beige-muted" />
           </div>
           <div>
             <span className="text-xs font-semibold text-beige-muted block">Today&apos;s Visits</span>
-            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+            <div className="text-2xl sm:text-3xl font-bold text-[#393185] tracking-tight mt-0.5">
               {isLoading ? "..." : displayTotalVisits}
             </div>
             <span className="text-[11px] text-beige-muted mt-0.5 block">Assigned for today</span>
@@ -151,16 +151,16 @@ export default function AgentDashboardPage() {
         </div>
 
         {/* Card 2: Completed */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E3E2EE] shadow-xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] flex items-center justify-center shadow-2xs">
               <CheckCircle2 className="w-4 h-4" />
             </div>
             <ChevronRight className="w-4 h-4 text-beige-muted" />
           </div>
           <div>
             <span className="text-xs font-semibold text-beige-muted block">Completed</span>
-            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+            <div className="text-2xl sm:text-3xl font-bold text-[#393185] tracking-tight mt-0.5">
               {isLoading ? "..." : displayCompleted}
             </div>
             <span className="text-[11px] text-beige-muted mt-0.5 block">
@@ -170,7 +170,7 @@ export default function AgentDashboardPage() {
         </div>
 
         {/* Card 3: Remaining */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E3E2EE] shadow-xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
             <div className="w-9 h-9 rounded-xl bg-[#FAF3E7] text-[#9E6924] flex items-center justify-center shadow-2xs">
               <Clock className="w-4 h-4" />
@@ -179,7 +179,7 @@ export default function AgentDashboardPage() {
           </div>
           <div>
             <span className="text-xs font-semibold text-beige-muted block">Remaining</span>
-            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+            <div className="text-2xl sm:text-3xl font-bold text-[#393185] tracking-tight mt-0.5">
               {isLoading ? "..." : displayRemaining}
             </div>
             <span className="text-[11px] text-beige-muted mt-0.5 block">Pending check-ins</span>
@@ -187,19 +187,19 @@ export default function AgentDashboardPage() {
         </div>
 
         {/* Card 4: Geofence Radius */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6DFD3] shadow-xs flex flex-col justify-between space-y-3">
+        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E3E2EE] shadow-xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] flex items-center justify-center shadow-2xs">
               <Crosshair className="w-4 h-4" />
             </div>
             <ChevronRight className="w-4 h-4 text-beige-muted" />
           </div>
           <div>
             <span className="text-xs font-semibold text-beige-muted block">Geofence Radius</span>
-            <div className="text-2xl sm:text-3xl font-bold text-[#1E3F35] tracking-tight mt-0.5">
+            <div className="text-2xl sm:text-3xl font-bold text-[#393185] tracking-tight mt-0.5">
               750 m
             </div>
-            <span className="text-[11px] text-[#1E3F35] font-semibold mt-0.5 block">
+            <span className="text-[11px] text-[#393185] font-semibold mt-0.5 block">
               Check-in within this range
             </span>
           </div>
@@ -215,14 +215,14 @@ export default function AgentDashboardPage() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full border-2 border-[#1E3F35]" />
+            <div className="w-2.5 h-2.5 rounded-full border-2 border-[#393185]" />
             <h3 className="text-xs sm:text-sm font-bold text-beige-text uppercase tracking-wider">
               Current Priority Assignment
             </h3>
           </div>
           <Link
             href="/agent/visits"
-            className="text-xs font-bold text-[#1E3F35] hover:underline flex items-center gap-1"
+            className="text-xs font-bold text-[#393185] hover:underline flex items-center gap-1"
           >
             <span>All Visits ({displayTotalVisits})</span>
             <ArrowRight className="w-3.5 h-3.5" />
@@ -239,9 +239,9 @@ export default function AgentDashboardPage() {
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Link
           href="/agent/routes"
-          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F4F4F9] border border-[#E3E2EE] text-center transition shadow-2xs group"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <Route className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Routes</span>
@@ -250,9 +250,9 @@ export default function AgentDashboardPage() {
 
         <Link
           href="/agent/visits"
-          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F4F4F9] border border-[#E3E2EE] text-center transition shadow-2xs group"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <CalendarCheck className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Visits</span>
@@ -261,7 +261,7 @@ export default function AgentDashboardPage() {
 
         <Link
           href="/agent/history"
-          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F4F4F9] border border-[#E3E2EE] text-center transition shadow-2xs group"
         >
           <div className="w-9 h-9 rounded-xl bg-[#FAF3E7] text-[#9E6924] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <Clock className="w-4 h-4" />
@@ -272,9 +272,9 @@ export default function AgentDashboardPage() {
 
         <Link
           href="/agent/profile"
-          className="p-3.5 rounded-2xl bg-white hover:bg-[#F9F7F2] border border-[#E6DFD3] text-center transition shadow-2xs group"
+          className="p-3.5 rounded-2xl bg-white hover:bg-[#F4F4F9] border border-[#E3E2EE] text-center transition shadow-2xs group"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
+          <div className="w-9 h-9 rounded-xl bg-[#F1F0F8] text-[#393185] mx-auto flex items-center justify-center mb-2 group-hover:scale-105 transition">
             <ShieldCheck className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-beige-text block">My Profile</span>
@@ -291,13 +291,13 @@ export default function AgentDashboardPage() {
           </h3>
           <Link
             href="/agent/history"
-            className="text-[11px] font-semibold text-[#1E3F35] hover:underline"
+            className="text-[11px] font-semibold text-[#393185] hover:underline"
           >
             View All History →
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-white border border-[#E6DFD3] divide-y divide-[#E6DFD3]/80 overflow-hidden shadow-xs">
+        <div className="rounded-2xl bg-white border border-[#E3E2EE] divide-y divide-[#E3E2EE]/80 overflow-hidden shadow-xs">
           {[...visits.filter((v) => v.status === "completed"), ...historyVisits].slice(0, 4).map((visit) => (
             <div
               key={visit.id}
@@ -305,7 +305,7 @@ export default function AgentDashboardPage() {
               className="p-4 hover:bg-beige-sand/30 transition cursor-pointer flex items-center justify-between gap-3 text-xs"
             >
               <div className="flex items-start gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-8 h-8 rounded-xl bg-[#F1F0F8] text-[#393185] flex items-center justify-center shrink-0 mt-0.5">
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
@@ -313,7 +313,7 @@ export default function AgentDashboardPage() {
                     <span className="font-bold text-beige-text truncate">
                       {visit.customerName}
                     </span>
-                    <span className="text-[10px] font-mono text-[#1E3F35] bg-[#EAF2EC] px-1.5 py-0.2 rounded border border-[#CDE1D2] shrink-0">
+                    <span className="text-[10px] font-mono text-[#393185] bg-[#F1F0F8] px-1.5 py-0.2 rounded border border-[#D7D4EE] shrink-0">
                       Completed
                     </span>
                   </div>
@@ -323,7 +323,7 @@ export default function AgentDashboardPage() {
                 </div>
               </div>
 
-              <span className="text-[11px] font-semibold text-[#1E3F35] shrink-0">
+              <span className="text-[11px] font-semibold text-[#393185] shrink-0">
                 Details →
               </span>
             </div>

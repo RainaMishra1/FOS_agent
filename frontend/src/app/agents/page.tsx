@@ -462,7 +462,7 @@ export default function AgentsPage() {
                         </button>
                         <button
                           onClick={() => setRegionAgent({ id: agent.id, name: agent.name, agent_code: agent.agentCode ?? null })}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#1E3F35] bg-[#EAF2EC] hover:bg-[#DDEBE1] border border-[#CDE1D2] transition"
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#393185] bg-[#F1F0F8] hover:bg-[#DDEBE1] border border-[#D7D4EE] transition"
                         >
                           Region
                         </button>

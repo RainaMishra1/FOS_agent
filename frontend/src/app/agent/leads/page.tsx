@@ -26,14 +26,14 @@ interface GpsFix {
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-amber-50 text-amber-800 border-amber-200",
-  approved: "bg-[#EAF2EC] text-[#1E3F35] border-[#CDE1D2]",
+  approved: "bg-[#F1F0F8] text-[#393185] border-[#D7D4EE]",
   rejected: "bg-rose-50 text-rose-700 border-rose-200",
 };
 const STATUS_LABEL: Record<string, string> = { pending: "Waiting for admin", approved: "Verified", rejected: "Rejected" };
 
 const inputClass =
-  "w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3 py-2.5 text-[#1A201C] placeholder-[#A39E95] focus:outline-none focus:border-[#2E5A44] focus:bg-white";
-const labelClass = "block text-xs font-semibold text-[#1A201C] mb-1.5";
+  "w-full text-sm rounded-xl border border-[#E3E2EE] bg-[#FAFAFD] px-3 py-2.5 text-[#16151F] placeholder-[#9A98AE] focus:outline-none focus:border-[#393185] focus:bg-white";
+const labelClass = "block text-xs font-semibold text-[#16151F] mb-1.5";
 
 function getFreshFix(): Promise<GpsFix> {
   return new Promise((resolve, reject) => {
@@ -229,10 +229,10 @@ export default function AgentLeadsPage() {
     <div className="space-y-4 pb-10">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-[#1A201C] flex items-center gap-2">
+          <h1 className="text-xl font-bold text-[#16151F] flex items-center gap-2">
             <ClipboardList className="h-5 w-5" /> My leads
           </h1>
-          <p className="text-xs text-[#756F66] mt-0.5">
+          <p className="text-xs text-[#62607A] mt-0.5">
             Create leads while you&apos;re at the customer, inside your territory. Your admin verifies each one.
           </p>
         </div>
@@ -242,7 +242,7 @@ export default function AgentLeadsPage() {
               setFormOpen(true);
               setNotice(null);
             }}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#2E5A44] px-3.5 py-2.5 text-xs font-bold text-white hover:bg-[#234837]"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#393185] px-3.5 py-2.5 text-xs font-bold text-white hover:bg-[#006F34]"
           >
             <Plus className="h-4 w-4" /> New lead
           </button>
@@ -254,22 +254,22 @@ export default function AgentLeadsPage() {
           <AlertCircle className="h-4 w-4 shrink-0" /> {loadError}
         </div>
       )}
-      {notice && <div className="rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-3.5 py-2.5 text-xs text-[#1E3F35]">{notice}</div>}
+      {notice && <div className="rounded-xl border border-[#D7D4EE] bg-[#F1F0F8] px-3.5 py-2.5 text-xs text-[#393185]">{notice}</div>}
 
       {/* Territory + GPS status */}
-      <div className="rounded-2xl border border-[#E6DFD3] bg-white p-3 space-y-3">
+      <div className="rounded-2xl border border-[#E3E2EE] bg-white p-3 space-y-3">
         {!loading && !hasTerritory ? (
           <p className="flex items-center gap-1.5 text-xs text-amber-800">
             <AlertCircle className="h-4 w-4" /> You don&apos;t have a territory yet. Ask your admin to assign one before creating leads.
           </p>
         ) : (
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-semibold text-[#1A201C]">
+            <span className="font-semibold text-[#16151F]">
               Your territor{territories.length === 1 ? "y" : "ies"}: {territories.map((t) => t.name).join(", ") || "…"}
             </span>
             {gps ? (
               currentTerritory ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[#CDE1D2] bg-[#EAF2EC] px-2.5 py-1 font-semibold text-[#1E3F35]">
+                <span className="inline-flex items-center gap-1 rounded-full border border-[#D7D4EE] bg-[#F1F0F8] px-2.5 py-1 font-semibold text-[#393185]">
                   <CheckCircle2 className="h-3.5 w-3.5" /> You&apos;re inside {currentTerritory.name}
                 </span>
               ) : (
@@ -279,19 +279,19 @@ export default function AgentLeadsPage() {
                 </span>
               )
             ) : (
-              <span className="inline-flex items-center gap-1 text-[#756F66]">
+              <span className="inline-flex items-center gap-1 text-[#62607A]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> {gpsError || "Getting your GPS location…"}
               </span>
             )}
-            {gps && <span className="text-[#A39E95]">GPS ±{Math.round(gps.accuracy)}m</span>}
+            {gps && <span className="text-[#9A98AE]">GPS ±{Math.round(gps.accuracy)}m</span>}
           </div>
         )}
         {territories.some((t) => describeTerritory(t)) && (
-          <ul className="space-y-0.5 text-[11px] text-[#756F66]">
+          <ul className="space-y-0.5 text-[11px] text-[#62607A]">
             {territories.map((t) =>
               describeTerritory(t) ? (
                 <li key={t.id}>
-                  <strong className="text-[#1A201C]">{t.name}:</strong> {describeTerritory(t)}
+                  <strong className="text-[#16151F]">{t.name}:</strong> {describeTerritory(t)}
                 </li>
               ) : null
             )}
@@ -308,9 +308,9 @@ export default function AgentLeadsPage() {
 
       {/* New lead form */}
       {formOpen && (
-        <form onSubmit={submit} className="rounded-2xl border border-[#E6DFD3] bg-white p-4 space-y-3">
+        <form onSubmit={submit} className="rounded-2xl border border-[#E3E2EE] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-[#1A201C]">New lead</h2>
+            <h2 className="text-sm font-bold text-[#16151F]">New lead</h2>
             <button
               type="button"
               aria-label="Close"
@@ -318,13 +318,13 @@ export default function AgentLeadsPage() {
                 setFormOpen(false);
                 resetForm();
               }}
-              className="rounded-lg p-1 text-[#756F66] hover:text-[#1A201C]"
+              className="rounded-lg p-1 text-[#62607A] hover:text-[#16151F]"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="rounded-xl bg-[#FAF7F0] px-3 py-2 text-[11px] text-[#756F66] flex items-start gap-1.5">
+          <div className="rounded-xl bg-[#F7F7FB] px-3 py-2 text-[11px] text-[#62607A] flex items-start gap-1.5">
             <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             The lead is saved at your current GPS location. You must be at the customer and inside your territory.
           </div>
@@ -353,7 +353,7 @@ export default function AgentLeadsPage() {
                   type="button"
                   onClick={fillAddressFromGps}
                   disabled={!gps || filling}
-                  className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#2E5A44] disabled:opacity-50"
+                  className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#393185] disabled:opacity-50"
                 >
                   {filling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5" />}
                   Use my current address
@@ -374,7 +374,7 @@ export default function AgentLeadsPage() {
                     type="button"
                     onClick={() => setPriority(level)}
                     className={`rounded-xl border px-2 py-2.5 text-xs font-semibold capitalize ${
-                      priority === level ? "border-[#2E5A44] bg-[#EAF2EC] text-[#1E3F35]" : "border-[#E6DFD3] bg-[#FCFAF6] text-[#756F66]"
+                      priority === level ? "border-[#393185] bg-[#F1F0F8] text-[#393185]" : "border-[#E3E2EE] bg-[#FAFAFD] text-[#62607A]"
                     }`}
                   >
                     {level}
@@ -402,7 +402,7 @@ export default function AgentLeadsPage() {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2E5A44] px-4 py-3 text-sm font-bold text-white hover:bg-[#234837] disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#393185] px-4 py-3 text-sm font-bold text-white hover:bg-[#006F34] disabled:opacity-50"
           >
             {submitting ? (
               <>
@@ -416,30 +416,30 @@ export default function AgentLeadsPage() {
       )}
 
       {/* My leads */}
-      <div className="rounded-2xl border border-[#E6DFD3] bg-white p-3 space-y-2">
-        <h2 className="px-1 text-sm font-bold text-[#1A201C]">Submitted leads</h2>
+      <div className="rounded-2xl border border-[#E3E2EE] bg-white p-3 space-y-2">
+        <h2 className="px-1 text-sm font-bold text-[#16151F]">Submitted leads</h2>
         {loading && (
-          <p className="flex items-center gap-1.5 px-1 text-xs text-[#756F66]">
+          <p className="flex items-center gap-1.5 px-1 text-xs text-[#62607A]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
           </p>
         )}
-        {!loading && leads.length === 0 && <p className="px-1 text-xs text-[#756F66]">No leads yet.</p>}
+        {!loading && leads.length === 0 && <p className="px-1 text-xs text-[#62607A]">No leads yet.</p>}
         {leads.map((lead) => (
-          <div key={lead.id} className="rounded-xl border border-[#EFE8DD] bg-[#FCFAF6] p-3 text-xs">
+          <div key={lead.id} className="rounded-xl border border-[#EDECF5] bg-[#FAFAFD] p-3 text-xs">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="font-bold text-[#1A201C]">{lead.customer_name}</div>
-                <div className="text-[#756F66]">{lead.phone} · {lead.territory_name || "—"}</div>
+                <div className="font-bold text-[#16151F]">{lead.customer_name}</div>
+                <div className="text-[#62607A]">{lead.phone} · {lead.territory_name || "—"}</div>
               </div>
               <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[lead.verification_status] || ""}`}>
                 {STATUS_LABEL[lead.verification_status] || lead.verification_status}
               </span>
             </div>
-            <div className="mt-1 text-[#756F66]">{lead.address}</div>
+            <div className="mt-1 text-[#62607A]">{lead.address}</div>
             {lead.verification_status === "rejected" && lead.rejection_reason && (
               <div className="mt-1.5 rounded-lg bg-rose-50 px-2 py-1.5 text-rose-700">Reason: {lead.rejection_reason}</div>
             )}
-            <div className="mt-1 text-[11px] text-[#A39E95]">
+            <div className="mt-1 text-[11px] text-[#9A98AE]">
               Submitted {lead.submitted_at ? new Date(lead.submitted_at).toLocaleString() : "—"}
             </div>
           </div>

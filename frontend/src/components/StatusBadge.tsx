@@ -18,14 +18,14 @@ export default function StatusBadge({ status, size = "md", className = "" }: Sta
       case "active":
       case "completed":
       case "low":
-        return "bg-[#EAF2EC] text-[#1E3F35] border-[#D0E2D5] font-semibold";
+        return "bg-[#F1F0F8] text-[#393185] border-[#D7D4EE] font-semibold";
       case "in_progress":
-        return "bg-[#EAF2EC] text-[#1E3F35] border-[#D0E2D5] font-semibold";
+        return "bg-[#F1F0F8] text-[#393185] border-[#D7D4EE] font-semibold";
       case "assigned":
       case "pending":
       case "medium":
       case "busy":
-        return "bg-[#F8EFE2] text-[#9E6924] border-[#EAD4B4] font-semibold";
+        return "bg-[#F8EFE2] text-[#9E6924] border-[#E3E1F2] font-semibold";
       case "delayed":
       case "high":
         return "bg-[#FDF2F2] text-[#9E3F3F] border-[#F2C6C6] font-semibold";
@@ -33,7 +33,7 @@ export default function StatusBadge({ status, size = "md", className = "" }: Sta
         return "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE] font-semibold";
       case "inactive":
       default:
-        return "bg-[#EFEBE2] text-[#756F66] border-[#E6DFD3] font-medium";
+        return "bg-[#F1F0F8] text-[#62607A] border-[#E3E2EE] font-medium";
     }
   };
 
@@ -43,7 +43,7 @@ export default function StatusBadge({ status, size = "md", className = "" }: Sta
       case "completed":
       case "low":
       case "in_progress":
-        return "bg-[#1E3F35]";
+        return "bg-[#00843E]";
       case "assigned":
       case "pending":
       case "medium":
@@ -56,7 +56,7 @@ export default function StatusBadge({ status, size = "md", className = "" }: Sta
         return "bg-[#2563EB]";
       case "inactive":
       default:
-        return "bg-[#756F66]";
+        return "bg-[#62607A]";
     }
   };
 

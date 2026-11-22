@@ -306,7 +306,7 @@ export default function LocationPickerMap({
       )}
 
       {/* Interactive Map Canvas */}
-      <div className={`relative w-full ${height} rounded-xl overflow-hidden border border-beige-border bg-[#EBE4D5]`}>
+      <div className={`relative w-full ${height} rounded-xl overflow-hidden border border-beige-border bg-[#EDECF5]`}>
         {!isLeafletReady && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-beige-card/80 text-beige-muted text-xs gap-2">
             <Loader2 className="w-5 h-5 animate-spin text-beige-terracotta" />

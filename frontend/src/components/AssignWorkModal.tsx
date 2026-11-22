@@ -80,8 +80,8 @@ const isValidPoint = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && !(lat === 0 && lng === 0);
 
 const inputClass =
-  "w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3.5 py-2.5 text-[#1A201C] placeholder-[#A39E95] focus:outline-none focus:border-[#2E5A44] focus:bg-white transition disabled:opacity-60";
-const labelClass = "block text-xs font-semibold text-[#1A201C] mb-1.5";
+  "w-full text-sm rounded-xl border border-[#E3E2EE] bg-[#FAFAFD] px-3.5 py-2.5 text-[#16151F] placeholder-[#9A98AE] focus:outline-none focus:border-[#393185] focus:bg-white transition disabled:opacity-60";
+const labelClass = "block text-xs font-semibold text-[#16151F] mb-1.5";
 
 function StepCard({
   step,
@@ -97,18 +97,18 @@ function StepCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-[#E6DFD3] bg-white p-4 sm:p-5 space-y-4 shadow-2xs">
+    <section className="rounded-2xl border border-[#E3E2EE] bg-white p-4 sm:p-5 space-y-4 shadow-2xs">
       <header className="flex items-start gap-3">
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-            done ? "bg-[#2E5A44] text-white" : "bg-[#EFE8DD] text-[#4A3B2C]"
+            done ? "bg-[#393185] text-white" : "bg-[#EDECF5] text-[#4A3B2C]"
           }`}
         >
           {done ? <Check className="h-4 w-4" /> : step}
         </span>
         <div>
-          <h3 className="text-sm font-bold text-[#1A201C]">{title}</h3>
-          {hint && <p className="text-[11px] text-[#756F66] mt-0.5">{hint}</p>}
+          <h3 className="text-sm font-bold text-[#16151F]">{title}</h3>
+          {hint && <p className="text-[11px] text-[#62607A] mt-0.5">{hint}</p>}
         </div>
       </header>
       {children}
@@ -512,18 +512,18 @@ export default function AssignWorkModal({
   // ---------------------------------------------------------------- render
   return (
     <div className="fixed inset-0 z-[10000] overflow-y-auto bg-black/40 backdrop-blur-xs px-3 py-6 sm:px-6 sm:py-8 flex justify-center items-start">
-      <div className="w-full max-w-3xl rounded-3xl border border-[#E6DFD3] bg-[#FAF8F5] p-5 sm:p-8 space-y-5 shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-[#E6DFD3] pb-4">
+      <div className="w-full max-w-3xl rounded-3xl border border-[#E3E2EE] bg-[#FAF8F5] p-5 sm:p-8 space-y-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-[#E3E2EE] pb-4">
           <div>
             <button
               type="button"
               onClick={onClose}
-              className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3F35] hover:underline"
+              className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#393185] hover:underline"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to dashboard
             </button>
-            <h2 className="text-2xl font-bold text-[#1A201C] tracking-tight">New Dispatch</h2>
-            <p className="mt-1 text-xs text-[#756F66]">
+            <h2 className="text-2xl font-bold text-[#16151F] tracking-tight">New Dispatch</h2>
+            <p className="mt-1 text-xs text-[#62607A]">
               Add the customer, find their address on the map, and the agent who owns that territory is picked for you.
             </p>
           </div>
@@ -531,19 +531,19 @@ export default function AssignWorkModal({
             type="button"
             onClick={onClose}
             aria-label="Close dispatch"
-            className="rounded-xl border border-[#E6DFD3] bg-white p-2 text-[#756F66] hover:text-[#1A201C] transition"
+            className="rounded-xl border border-[#E3E2EE] bg-white p-2 text-[#62607A] hover:text-[#16151F] transition"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {feedback ? (
-          <div className="rounded-3xl border border-[#E6DFD3] bg-white p-10 text-center shadow-xs">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#E5F0E8] text-[#2E5A44]">
+          <div className="rounded-3xl border border-[#E3E2EE] bg-white p-10 text-center shadow-xs">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#F1F0F8] text-[#393185]">
               <Check className="h-6 w-6" />
             </div>
-            <h3 className="mt-4 text-lg font-bold text-[#1A201C]">Dispatch created</h3>
-            <p className="mt-2 text-sm text-[#756F66]">{feedback}</p>
+            <h3 className="mt-4 text-lg font-bold text-[#16151F]">Dispatch created</h3>
+            <p className="mt-2 text-sm text-[#62607A]">{feedback}</p>
             <div className="mt-6 flex justify-center gap-3">
               <button
                 type="button"
@@ -552,14 +552,14 @@ export default function AssignWorkModal({
                   setAgentManuallyChosen(false);
                   setSelectedAgentId("");
                 }}
-                className="rounded-xl border border-[#E6DFD3] bg-white px-5 py-2.5 text-xs font-bold text-[#1A201C] hover:bg-[#FAF7F0]"
+                className="rounded-xl border border-[#E3E2EE] bg-white px-5 py-2.5 text-xs font-bold text-[#16151F] hover:bg-[#F7F7FB]"
               >
                 Dispatch another
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl bg-[#2E5A44] hover:bg-[#234837] px-6 py-2.5 text-xs font-bold text-white"
+                className="rounded-xl bg-[#393185] hover:bg-[#006F34] px-6 py-2.5 text-xs font-bold text-white"
               >
                 Done
               </button>
@@ -569,14 +569,14 @@ export default function AssignWorkModal({
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* ------------------------------------------------ 1. Customer */}
             <StepCard step={1} title="Customer details" hint="Who is the visit for?" done={customerDone}>
-              <div className="inline-flex rounded-xl border border-[#E6DFD3] bg-[#FAF7F0] p-1 text-xs font-semibold">
+              <div className="inline-flex rounded-xl border border-[#E3E2EE] bg-[#F7F7FB] p-1 text-xs font-semibold">
                 {(["new", "existing"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => switchCustomerMode(mode)}
                     className={`rounded-lg px-3.5 py-1.5 transition ${
-                      customerMode === mode ? "bg-white text-[#1A201C] shadow-xs" : "text-[#756F66] hover:text-[#1A201C]"
+                      customerMode === mode ? "bg-white text-[#16151F] shadow-xs" : "text-[#62607A] hover:text-[#16151F]"
                     }`}
                   >
                     {mode === "new" ? "New customer" : "Existing customer"}
@@ -605,7 +605,7 @@ export default function AssignWorkModal({
                         </option>
                       ))}
                     </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#756F66]" />
+                    <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#62607A]" />
                   </div>
                 </div>
               )}
@@ -638,7 +638,7 @@ export default function AssignWorkModal({
                   />
                 </div>
                 <div>
-                  <label className={labelClass} htmlFor="dispatch-email">Email <span className="font-normal text-[#A39E95]">(optional)</span></label>
+                  <label className={labelClass} htmlFor="dispatch-email">Email <span className="font-normal text-[#9A98AE]">(optional)</span></label>
                   <input
                     id="dispatch-email"
                     type="email"
@@ -650,7 +650,7 @@ export default function AssignWorkModal({
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={labelClass} htmlFor="dispatch-company">Company <span className="font-normal text-[#A39E95]">(optional)</span></label>
+                  <label className={labelClass} htmlFor="dispatch-company">Company <span className="font-normal text-[#9A98AE]">(optional)</span></label>
                   <input
                     id="dispatch-company"
                     maxLength={255}
@@ -686,13 +686,13 @@ export default function AssignWorkModal({
                     type="button"
                     onClick={locateTypedAddress}
                     disabled={isLocating}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#E6DFD3] bg-white px-3.5 text-xs font-semibold text-[#1A201C] hover:bg-[#FAF7F0] disabled:opacity-60"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#E3E2EE] bg-white px-3.5 text-xs font-semibold text-[#16151F] hover:bg-[#F7F7FB] disabled:opacity-60"
                   >
                     {isLocating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                     Find
                   </button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-[#756F66]">
+                <p className="mt-1.5 text-[11px] text-[#62607A]">
                   Pick a suggestion from the list, or type the address and press Find.
                 </p>
               </div>
@@ -711,7 +711,7 @@ export default function AssignWorkModal({
                         setCandidates([]);
                         setLocateMessage(null);
                       }}
-                      className="w-full text-left rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3 py-2 text-xs text-[#1A201C] hover:border-[#2E5A44]"
+                      className="w-full text-left rounded-xl border border-[#E3E2EE] bg-[#FAFAFD] px-3 py-2 text-xs text-[#16151F] hover:border-[#393185]"
                     >
                       <MapPin className="inline h-3.5 w-3.5 mr-1 text-[#B86F52]" />
                       {c.display_name}
@@ -728,19 +728,19 @@ export default function AssignWorkModal({
               )}
 
               {location && (
-                <div className="rounded-xl border border-[#CDE1D2] bg-[#F4FAF6] p-3 space-y-1">
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#1E3F35]">
+                <div className="rounded-xl border border-[#D7D4EE] bg-[#F7F7FB] p-3 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#393185]">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Located address · used as the geofence point for check-in
                   </div>
-                  <p className="text-xs text-[#1A201C]">{locatedAddress || "Reading the address for this pin…"}</p>
+                  <p className="text-xs text-[#16151F]">{locatedAddress || "Reading the address for this pin…"}</p>
                 </div>
               )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={labelClass} htmlFor="dispatch-unit">
-                    Flat / house no., floor, building <span className="font-normal text-[#A39E95]">(optional)</span>
+                    Flat / house no., floor, building <span className="font-normal text-[#9A98AE]">(optional)</span>
                   </label>
                   <input
                     id="dispatch-unit"
@@ -753,7 +753,7 @@ export default function AssignWorkModal({
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="dispatch-landmark">
-                    Landmark <span className="font-normal text-[#A39E95]">(optional)</span>
+                    Landmark <span className="font-normal text-[#9A98AE]">(optional)</span>
                   </label>
                   <input
                     id="dispatch-landmark"
@@ -764,7 +764,7 @@ export default function AssignWorkModal({
                     placeholder="e.g. Opposite D-Mart"
                   />
                 </div>
-                <p className="sm:col-span-2 -mt-1 text-[11px] text-[#756F66]">
+                <p className="sm:col-span-2 -mt-1 text-[11px] text-[#62607A]">
                   These details are added to the address for the agent. They don&apos;t move the pin.
                 </p>
               </div>
@@ -795,7 +795,7 @@ export default function AssignWorkModal({
               {/* Coordinates (read-only, auto-filled) */}
               <div
                 className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 text-xs ${
-                  location ? "border-[#CDE1D2] bg-[#EAF2EC] text-[#1E3F35]" : "border-[#E6DFD3] bg-[#FAF7F0] text-[#756F66]"
+                  location ? "border-[#D7D4EE] bg-[#F1F0F8] text-[#393185]" : "border-[#E3E2EE] bg-[#F7F7FB] text-[#62607A]"
                 }`}
               >
                 {location ? (
@@ -834,7 +834,7 @@ export default function AssignWorkModal({
                   <button
                     type="button"
                     onClick={applyManualCoords}
-                    className="rounded-xl bg-[#2E5A44] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#234837]"
+                    className="rounded-xl bg-[#393185] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#006F34]"
                   >
                     Use these
                   </button>
@@ -861,7 +861,7 @@ export default function AssignWorkModal({
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#756F66]" />
+                    <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#62607A]" />
                   </div>
                 </div>
                 <div>
@@ -878,8 +878,8 @@ export default function AssignWorkModal({
                               ? "border-rose-300 bg-rose-50 text-rose-700"
                               : level === "medium"
                               ? "border-amber-300 bg-amber-50 text-amber-800"
-                              : "border-[#CDE1D2] bg-[#EAF2EC] text-[#1E3F35]"
-                            : "border-[#E6DFD3] bg-[#FCFAF6] text-[#756F66] hover:text-[#1A201C]"
+                              : "border-[#D7D4EE] bg-[#F1F0F8] text-[#393185]"
+                            : "border-[#E3E2EE] bg-[#FAFAFD] text-[#62607A] hover:text-[#16151F]"
                         }`}
                       >
                         {level}
@@ -902,14 +902,14 @@ export default function AssignWorkModal({
                   </div>
                 </div>
                 <div>
-                  <label className={labelClass} htmlFor="dispatch-time">Time <span className="font-normal text-[#A39E95]">(optional)</span></label>
+                  <label className={labelClass} htmlFor="dispatch-time">Time <span className="font-normal text-[#9A98AE]">(optional)</span></label>
                   <div className="relative">
                     <input id="dispatch-time" type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className={inputClass} />
-                    <Clock className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#756F66]" />
+                    <Clock className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#62607A]" />
                   </div>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={labelClass} htmlFor="dispatch-notes">Instructions for the agent <span className="font-normal text-[#A39E95]">(optional)</span></label>
+                  <label className={labelClass} htmlFor="dispatch-notes">Instructions for the agent <span className="font-normal text-[#9A98AE]">(optional)</span></label>
                   <textarea
                     id="dispatch-notes"
                     rows={2}
@@ -931,13 +931,13 @@ export default function AssignWorkModal({
               done={agentDone}
             >
               {!location && (
-                <p className="flex items-center gap-1.5 text-[11px] text-[#756F66]">
+                <p className="flex items-center gap-1.5 text-[11px] text-[#62607A]">
                   <Sparkles className="h-3.5 w-3.5" />
                   The agent is chosen after the customer&apos;s location is found in step 2.
                 </p>
               )}
               {location && suggestionLoading && (
-                <p className="flex items-center gap-1.5 text-[11px] text-[#756F66]">
+                <p className="flex items-center gap-1.5 text-[11px] text-[#62607A]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Finding the territory that contains this location…
                 </p>
@@ -958,7 +958,7 @@ export default function AssignWorkModal({
                 <div
                   className={`rounded-xl border p-3 text-xs ${
                     suggestion?.inside_territory
-                      ? "border-[#CDE1D2] bg-[#EAF2EC] text-[#1E3F35]"
+                      ? "border-[#D7D4EE] bg-[#F1F0F8] text-[#393185]"
                       : "border-amber-200 bg-amber-50 text-amber-900"
                   }`}
                 >
@@ -985,7 +985,7 @@ export default function AssignWorkModal({
                           setSelectedAgentId(recommendedId!);
                           setAgentManuallyChosen(false);
                         }}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#9CC3A8] bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-[#F4FAF6]"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#9CC3A8] bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-[#F7F7FB]"
                       >
                         <UserCheck className="h-3.5 w-3.5" />
                         Use suggested
@@ -1029,10 +1029,10 @@ export default function AssignWorkModal({
                       );
                     })}
                   </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#756F66]" />
+                  <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[#62607A]" />
                 </div>
                 {!agentsLoading && agents.length === 0 && (
-                  <p className="mt-1.5 text-[11px] text-[#756F66]">Create or activate an agent in Field Agents first.</p>
+                  <p className="mt-1.5 text-[11px] text-[#62607A]">Create or activate an agent in Field Agents first.</p>
                 )}
                 {/* Warn (don't block) when the address is outside the chosen agent's region */}
                 {location && selectedAgent && suggestion && !suggestionLoading && (() => {
@@ -1059,10 +1059,10 @@ export default function AssignWorkModal({
               </div>
 
               {selectedAgent && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-[#FAF7F0] px-3 py-2 text-[11px] text-[#756F66]">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-[#F7F7FB] px-3 py-2 text-[11px] text-[#62607A]">
                   <span className="inline-flex items-center gap-1">
                     <User className="h-3.5 w-3.5" />
-                    <strong className="text-[#1A201C]">{selectedAgent.name}</strong>
+                    <strong className="text-[#16151F]">{selectedAgent.name}</strong>
                   </span>
                   <span>Territory: {selectedAgent.territory || "not set"}</span>
                   <span>
@@ -1082,18 +1082,18 @@ export default function AssignWorkModal({
               </div>
             )}
 
-            <div className="flex flex-col-reverse gap-3 border-t border-[#E6DFD3] pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-[11px] text-[#756F66]">
+            <div className="flex flex-col-reverse gap-3 border-t border-[#E3E2EE] pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-[#62607A]">
                 {missing.length ? `Still needed: ${missing.join(", ")}.` : "Everything is ready to dispatch."}
               </p>
               <div className="flex items-center justify-end gap-3">
-                <button type="button" onClick={onClose} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-[#756F66] hover:text-[#1A201C]">
+                <button type="button" onClick={onClose} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-[#62607A] hover:text-[#16151F]">
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!canSubmit}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2E5A44] px-6 py-2.5 text-xs font-bold text-white shadow-xs transition hover:bg-[#234837] disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#393185] px-6 py-2.5 text-xs font-bold text-white shadow-xs transition hover:bg-[#006F34] disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <>

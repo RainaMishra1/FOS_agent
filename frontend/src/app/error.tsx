@@ -16,13 +16,13 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-[#F5F2EB] flex items-center justify-center p-4">
-      <div className="max-w-md w-full rounded-2xl bg-white border border-[#E6DFD3] p-6 shadow-xl text-center space-y-4">
+    <div className="min-h-screen bg-[#F5F5FA] flex items-center justify-center p-4">
+      <div className="max-w-md w-full rounded-2xl bg-white border border-[#E3E2EE] p-6 shadow-xl text-center space-y-4">
         <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto shadow-2xs">
           <AlertTriangle className="w-6 h-6" />
         </div>
         <div className="space-y-1">
-          <h2 className="text-lg font-bold text-[#1E3F35]">Something went wrong</h2>
+          <h2 className="text-lg font-bold text-[#393185]">Something went wrong</h2>
           <p className="text-xs text-beige-muted">
             {error?.message || "A client-side error occurred. You can retry or reload the page."}
           </p>
@@ -30,14 +30,14 @@ export default function GlobalError({
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             onClick={() => reset()}
-            className="px-4 py-2 rounded-xl bg-[#1E3F35] text-white text-xs font-semibold hover:bg-[#162F27] transition flex items-center gap-2 cursor-pointer shadow-xs"
+            className="px-4 py-2 rounded-xl bg-[#00843E] text-white text-xs font-semibold hover:bg-[#006F34] transition flex items-center gap-2 cursor-pointer shadow-xs"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Try Again</span>
           </button>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 rounded-xl bg-white border border-[#E6DFD3] text-xs font-semibold text-beige-text hover:bg-beige-sand transition shadow-2xs cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-white border border-[#E3E2EE] text-xs font-semibold text-beige-text hover:bg-beige-sand transition shadow-2xs cursor-pointer"
           >
             Reload Page
           </button>
