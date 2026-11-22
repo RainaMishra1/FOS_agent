@@ -13,6 +13,7 @@ import {
   Route,
   History,
   User,
+  ClipboardList,
   Power,
   ShieldCheck,
   ChevronRight,
@@ -112,6 +113,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     { name: "Dashboard", href: "/agent/dashboard", icon: LayoutDashboard },
     { name: "My Visits", href: "/agent/visits", icon: CalendarCheck, badge: stats.todayRemaining || 0 },
     { name: "My Routes", href: "/agent/routes", icon: Route },
+    { name: "My Leads", href: "/agent/leads", icon: ClipboardList },
     { name: "Visit History", href: "/agent/history", icon: History },
     { name: "My Profile", href: "/agent/profile", icon: User },
   ];

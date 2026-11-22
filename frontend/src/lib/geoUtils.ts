@@ -188,3 +188,60 @@ export function isPointInPolygon(latitude: number, longitude: number, points: nu
   }
   return inside;
 }
+
+const EARTH_RADIUS_M = 6_371_000;
+const M_PER_DEG_LAT = (EARTH_RADIUS_M * Math.PI) / 180;
+
+/** [south, west, north, east] of the box with `start` and `end` at opposite corners, grown by `marginM`. */
+export function boxBounds(start: [number, number], end: [number, number], marginM: number): [number, number, number, number] {
+  const kx = Math.cos((((start[0] + end[0]) / 2) * Math.PI) / 180) * M_PER_DEG_LAT;
+  return [
+    Math.min(start[0], end[0]) - marginM / M_PER_DEG_LAT,
+    Math.min(start[1], end[1]) - marginM / kx,
+    Math.max(start[0], end[0]) + marginM / M_PER_DEG_LAT,
+    Math.max(start[1], end[1]) + marginM / kx,
+  ];
+}
+
+/**
+ * Outline ([lat, lng] points) of a region defined by addresses. Mirrors the
+ * server's area_ring(): a circle of `radiusM` around `start`, or, with `end`,
+ * the box with both places at opposite corners plus a `radiusM` margin.
+ */
+export function areaOutline(start: [number, number], end: [number, number] | null, radiusM: number, segments = 64): number[][] {
+  if (end) {
+    const [s, w, n, e] = boxBounds(start, end, radiusM);
+    return [
+      [s, w],
+      [s, e],
+      [n, e],
+      [n, w],
+    ];
+  }
+  const kx = Math.cos((start[0] * Math.PI) / 180) * M_PER_DEG_LAT;
+  const points: number[][] = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (2 * Math.PI * i) / segments;
+    points.push([start[0] + (radiusM * Math.sin(angle)) / M_PER_DEG_LAT, start[1] + (radiusM * Math.cos(angle)) / kx]);
+  }
+  return points;
+}
+
+/** Metres a point lies outside a radius or box region; 0 when inside. */
+export function distanceOutsideArea(
+  point: [number, number],
+  start: [number, number],
+  end: [number, number] | null,
+  radiusM: number
+): number {
+  const kx = Math.cos((point[0] * Math.PI) / 180) * M_PER_DEG_LAT;
+  if (!end) {
+    const dy = (point[0] - start[0]) * M_PER_DEG_LAT;
+    const dx = (point[1] - start[1]) * kx;
+    return Math.max(0, Math.hypot(dx, dy) - radiusM);
+  }
+  const [s, w, n, e] = boxBounds(start, end, radiusM);
+  const dy = Math.max(s - point[0], 0, point[0] - n) * M_PER_DEG_LAT;
+  const dx = Math.max(w - point[1], 0, point[1] - e) * kx;
+  return Math.hypot(dx, dy);
+}

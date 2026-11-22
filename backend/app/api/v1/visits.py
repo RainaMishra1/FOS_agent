@@ -29,6 +29,7 @@ from app.schemas.visit import (
 from app.models.territory import Territory
 from app.services.territory_rules import TerritoryMatch, rank_by_territory
 from geoalchemy2 import Geography
+GEOGRAPHY = Geography(geometry_type="GEOMETRY", srid=4326)  # WGS84; casts without an SRID fail in PostGIS
 from sqlalchemy import cast
 from app.core.auth import require_authenticated, require_admin
 
@@ -370,7 +371,7 @@ async def suggest_agent_for_new_lead(
             Agent.agent_code,
             Profile.full_name,
             func.ST_Covers(Territory.boundary, point).label("covers"),
-            func.ST_Distance(cast(Territory.boundary, Geography), cast(point, Geography)).label("distance_m"),
+            func.ST_Distance(cast(Territory.boundary, GEOGRAPHY), cast(point, GEOGRAPHY)).label("distance_m"),
         )
         .join(Agent, Agent.id == Territory.agent_id)
         .outerjoin(Profile, Profile.id == Agent.profile_id)

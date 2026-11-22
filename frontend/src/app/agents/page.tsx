@@ -5,6 +5,7 @@ import { Agent } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import AssignWorkModal from "@/components/AssignWorkModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
+import AgentRegionModal from "@/components/AgentRegionModal";
 import { fetchAgents, inviteAgentAccount, AgentApiItem, ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -53,6 +54,7 @@ export default function AgentsPage() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [assigningAgent, setAssigningAgent] = useState<Agent | null>(null);
+  const [regionAgent, setRegionAgent] = useState<{ id: string; name: string; agent_code?: string | null } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [invitingAgentIds, setInvitingAgentIds] = useState<Set<string>>(new Set());
 
@@ -459,6 +461,12 @@ export default function AgentsPage() {
                           View Details
                         </button>
                         <button
+                          onClick={() => setRegionAgent({ id: agent.id, name: agent.name, agent_code: agent.agentCode ?? null })}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#1E3F35] bg-[#EAF2EC] hover:bg-[#DDEBE1] border border-[#CDE1D2] transition"
+                        >
+                          Region
+                        </button>
+                        <button
                           onClick={() => handleOpenAssign(agent)}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-beige-terracotta hover:bg-beige-terracotta/90 transition"
                         >
@@ -659,8 +667,21 @@ export default function AgentsPage() {
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={(created) => {
           setToastMessage(
-            `Agent ${created.name} (${created.agent_code || "Active"}) registered successfully in database.`
+            `Agent ${created.name} (${created.agent_code || "Active"}) registered. Now assign their region.`
           );
+          loadAgents();
+          // Region is part of setting up an agent: open it straight away.
+          setRegionAgent({ id: created.id, name: created.name, agent_code: created.agent_code });
+        }}
+      />
+
+      {/* One region per agent */}
+      <AgentRegionModal
+        isOpen={Boolean(regionAgent)}
+        agent={regionAgent}
+        onClose={() => setRegionAgent(null)}
+        onSaved={(msg) => {
+          setToastMessage(msg);
           loadAgents();
         }}
       />

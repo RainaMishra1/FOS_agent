@@ -1,8 +1,19 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Layers, Loader2, Pencil, Plus, Save, Trash2, Undo2, X } from "lucide-react";
+import { AlertCircle, Layers, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import TerritoryMap, { MapTerritory } from "@/components/TerritoryMap";
+import RegionEditor, {
+  PickTarget,
+  RegionDraft,
+  applyMapClick,
+  emptyRegion,
+  regionBoundary,
+  regionFromTerritory,
+  regionMarkers,
+  regionOutline,
+  suggestedRegionName,
+} from "@/components/RegionEditor";
 import { useAuth } from "@/context/AuthContext";
 import {
   AgentApiItem,
@@ -14,10 +25,11 @@ import {
   fetchTerritories,
   updateTerritory,
 } from "@/lib/api";
+import { describeTerritory } from "@/lib/territoryText";
 
 const COLORS = ["#2E5A44", "#B86F52", "#C48A3F", "#4A6B82", "#7A5A85", "#5C7C64", "#B04A5A", "#3E7C8C"];
 
-type Mode = { kind: "view" } | { kind: "create" } | { kind: "edit"; id: string; redraw: boolean };
+type Mode = { kind: "view" } | { kind: "create" } | { kind: "edit"; id: string; changeArea: boolean };
 
 const inputClass =
   "w-full text-sm rounded-xl border border-[#E6DFD3] bg-[#FCFAF6] px-3 py-2 text-[#1A201C] focus:outline-none focus:border-[#2E5A44]";
@@ -33,10 +45,12 @@ export default function TerritoriesPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>({ kind: "view" });
-  const [draft, setDraft] = useState<number[][]>([]);
   const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
   const [agentId, setAgentId] = useState("");
   const [color, setColor] = useState(COLORS[0]);
+  const [region, setRegion] = useState<RegionDraft>(emptyRegion());
+  const [pickTarget, setPickTarget] = useState<PickTarget>(null);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fitKey, setFitKey] = useState(0);
@@ -44,14 +58,13 @@ export default function TerritoriesPage() {
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    setError(null);
     try {
       const [t, a] = await Promise.all([fetchTerritories(token), fetchAgents(token, { limit: 100 })]);
       setTerritories(t);
       setAgents(a.items);
       setFitKey((k) => k + 1);
     } catch (err) {
-      setError(apiErrorMessage(err, "Could not load territories."));
+      setError(apiErrorMessage(err, "Could not load regions."));
     } finally {
       setLoading(false);
     }
@@ -61,26 +74,41 @@ export default function TerritoriesPage() {
     void load();
   }, [load]);
 
-  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const editingId = mode.kind === "edit" ? mode.id : null;
-  const isDrawing = mode.kind === "create" || (mode.kind === "edit" && mode.redraw);
+  const defining = mode.kind === "create" || (mode.kind === "edit" && mode.changeArea);
+  const regionByAgent = useMemo(() => new Map(territories.map((t) => [t.agent_id, t])), [territories]);
+
+  // Suggest a name like "Kalyan – Thane" until the admin types their own.
+  useEffect(() => {
+    if (!defining || nameTouched) return;
+    const suggestion = suggestedRegionName(region);
+    if (suggestion) setName(suggestion);
+  }, [defining, nameTouched, region]);
+
+  const preview = defining ? regionOutline(region) : [];
+  const previewKey = preview.map((p) => p.join(",")).join(";");
+  useEffect(() => {
+    if (defining && region.kind !== "drawn" && preview.length) setFitKey((k) => k + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey]);
 
   const mapTerritories: MapTerritory[] = territories
-    .filter((t) => !(isDrawing && t.id === editingId))
+    .filter((t) => !(defining && t.id === editingId))
     .map((t) => ({
       id: t.id,
       name: t.name,
       color: t.color,
-      subtitle: t.agent_name ? `${t.agent_name}${t.agent_code ? ` (${t.agent_code})` : ""}` : null,
+      subtitle: [t.agent_name, describeTerritory(t)].filter(Boolean).join(" · ") || null,
       points: t.points,
     }));
 
   const resetForm = () => {
     setMode({ kind: "view" });
-    setDraft([]);
     setName("");
+    setNameTouched(false);
     setAgentId("");
-    setColor(COLORS[territories.length % COLORS.length]);
+    setRegion(emptyRegion());
+    setPickTarget(null);
     setError(null);
   };
 
@@ -92,72 +120,69 @@ export default function TerritoriesPage() {
   };
 
   const startEdit = (t: TerritoryApiItem) => {
-    setMode({ kind: "edit", id: t.id, redraw: false });
+    resetForm();
+    setMode({ kind: "edit", id: t.id, changeArea: false });
     setName(t.name);
+    setNameTouched(true);
     setAgentId(t.agent_id);
     setColor(t.color);
-    setDraft([]);
+    setRegion(regionFromTerritory(t));
     setSelectedId(t.id);
     setNotice(null);
-    setError(null);
   };
 
   const save = async () => {
     setError(null);
-    if (!name.trim()) return setError("Give the territory a name.");
-    if (!agentId) return setError("Choose the agent who owns this territory.");
-    if (isDrawing && draft.length < 3) return setError("Click at least 3 corners on the map.");
+    if (!agentId) return setError("Choose the agent for this region.");
+    if (!name.trim()) return setError("Give the region a name.");
+    let boundary = {};
+    if (defining) {
+      const result = regionBoundary(region);
+      if ("error" in result) return setError(result.error);
+      boundary = result;
+    }
     setSaving(true);
     try {
       if (mode.kind === "create") {
-        const created = await createTerritory({ name: name.trim(), agent_id: agentId, color, points: draft }, token);
-        setNotice(`Territory "${created.name}" saved for ${created.agent_name || "the agent"}.`);
+        const created = await createTerritory({ name: name.trim(), agent_id: agentId, color, ...boundary }, token);
+        setNotice(`Region "${created.name}" assigned to ${created.agent_name || "the agent"}.`);
       } else if (mode.kind === "edit") {
-        const updated = await updateTerritory(
-          mode.id,
-          { name: name.trim(), agent_id: agentId, color, ...(mode.redraw ? { points: draft } : {}) },
-          token
-        );
-        setNotice(`Territory "${updated.name}" updated.`);
+        const updated = await updateTerritory(mode.id, { name: name.trim(), agent_id: agentId, color, ...boundary }, token);
+        setNotice(`Region "${updated.name}" updated.`);
       }
       resetForm();
       await load();
     } catch (err) {
-      setError(apiErrorMessage(err, "Could not save the territory."));
+      setError(apiErrorMessage(err, "Could not save the region."));
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (t: TerritoryApiItem) => {
-    if (!window.confirm(`Delete territory "${t.name}"? ${t.agent_name || "The agent"} will no longer be able to create leads there.`)) return;
+    if (!window.confirm(`Remove region "${t.name}"? ${t.agent_name || "The agent"} won't be able to create leads until they get a new one.`)) return;
     try {
       await deleteTerritory(t.id, token);
-      setNotice(`Territory "${t.name}" deleted.`);
+      setNotice(`Region "${t.name}" removed.`);
       if (editingId === t.id) resetForm();
       await load();
     } catch (err) {
-      setError(apiErrorMessage(err, "Could not delete the territory."));
+      setError(apiErrorMessage(err, "Could not remove the region."));
     }
   };
 
-  const territoriesByAgent = useMemo(() => {
-    const counts = new Map<string, number>();
-    territories.forEach((t) => counts.set(t.agent_id, (counts.get(t.agent_id) || 0) + 1));
-    return counts;
-  }, [territories]);
-  const agentsWithout = agents.filter((a) => a.status === "active" && !territoriesByAgent.has(a.id));
+  const agentsWithout = agents.filter((a) => a.status === "active" && !regionByAgent.has(a.id));
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-[#1A201C] flex items-center gap-2">
-            <Layers className="h-6 w-6" /> Territories
+            <Layers className="h-6 w-6" /> Agent regions
           </h1>
           <p className="text-sm text-[#756F66] mt-1">
-            Draw each agent&apos;s area on the map. Agents can only create leads inside their own territory, and new
-            dispatches are suggested to the agent whose territory contains the address.
+            Each agent gets one region, and regions can&apos;t overlap. Agents create leads only inside their region, and new
+            dispatches go to the agent whose region contains the address.
           </p>
         </div>
         {mode.kind === "view" && (
@@ -165,76 +190,87 @@ export default function TerritoriesPage() {
             onClick={startCreate}
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#2E5A44] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#234837]"
           >
-            <Plus className="h-4 w-4" /> New territory
+            <Plus className="h-4 w-4" /> Assign a region
           </button>
         )}
       </div>
 
-      {notice && (
-        <div className="rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-3.5 py-2.5 text-xs text-[#1E3F35]">{notice}</div>
-      )}
+      {notice && <div className="rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] px-3.5 py-2.5 text-xs text-[#1E3F35]">{notice}</div>}
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-2">
-          {isDrawing && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              <span className="font-semibold">Drawing:</span>
-              <span>click the map to add corners ({draft.length} so far). The shape closes automatically.</span>
-              <button
-                type="button"
-                onClick={() => setDraft((d) => d.slice(0, -1))}
-                disabled={draft.length === 0}
-                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 py-1 font-semibold disabled:opacity-50"
-              >
-                <Undo2 className="h-3.5 w-3.5" /> Undo
-              </button>
-              <button
-                type="button"
-                onClick={() => setDraft([])}
-                disabled={draft.length === 0}
-                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 py-1 font-semibold disabled:opacity-50"
-              >
-                <X className="h-3.5 w-3.5" /> Clear
-              </button>
-            </div>
-          )}
-          <TerritoryMap
-            territories={mapTerritories}
-            draftPoints={draft}
-            draftColor={color}
-            onMapClick={isDrawing ? (lat, lng) => setDraft((d) => [...d, [lat, lng]]) : undefined}
-            highlightId={selectedId}
-            onTerritoryClick={(id) => setSelectedId(id)}
-            fitKey={fitKey}
-            heightClass="h-[520px]"
-          />
-        </div>
+      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <TerritoryMap
+          territories={mapTerritories}
+          draftPoints={preview}
+          draftColor={color}
+          showDraftCorners={region.kind === "drawn"}
+          onMapClick={
+            defining && (region.kind === "drawn" || pickTarget)
+              ? (lat, lng) => {
+                  void applyMapClick(region, pickTarget, lat, lng, setRegion);
+                  setPickTarget(null);
+                }
+              : undefined
+          }
+          markers={defining ? regionMarkers(region) : []}
+          highlightId={selectedId}
+          onTerritoryClick={(id) => setSelectedId(id)}
+          fitKey={fitKey}
+          heightClass="h-[560px]"
+        />
 
         <div className="space-y-4">
           {mode.kind !== "view" && (
             <div className="rounded-2xl border border-[#E6DFD3] bg-white p-4 space-y-3">
-              <h2 className="text-sm font-bold text-[#1A201C]">
-                {mode.kind === "create" ? "New territory" : "Edit territory"}
-              </h2>
-              <div>
-                <label className="block text-xs font-semibold text-[#1A201C] mb-1">Name *</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} className={inputClass} placeholder="e.g. Kalyan West" />
-              </div>
+              <h2 className="text-sm font-bold text-[#1A201C]">{mode.kind === "create" ? "Assign a region" : "Edit region"}</h2>
               <div>
                 <label className="block text-xs font-semibold text-[#1A201C] mb-1">Agent *</label>
                 <select value={agentId} onChange={(e) => setAgentId(e.target.value)} className={inputClass}>
                   <option value="">Choose the agent…</option>
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.agent_code || a.id.slice(0, 8)}){a.status !== "active" ? ` · ${a.status}` : ""}
-                    </option>
-                  ))}
+                  {agents.map((a) => {
+                    const existing = regionByAgent.get(a.id);
+                    const taken = Boolean(existing && existing.id !== editingId);
+                    return (
+                      <option key={a.id} value={a.id} disabled={taken}>
+                        {a.name} ({a.agent_code || a.id.slice(0, 8)}){taken ? ` · has "${existing!.name}"` : ""}
+                        {a.status !== "active" ? ` · ${a.status}` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+              </div>
+
+              {defining ? (
+                <RegionEditor value={region} onChange={setRegion} pickTarget={pickTarget} onPickTargetChange={setPickTarget} />
+              ) : (
+                <div className="rounded-xl bg-[#FAF7F0] px-3 py-2 text-xs text-[#1A201C]">
+                  {describeTerritory(territories.find((t) => t.id === editingId)!) || "Drawn on the map"}
+                  <button
+                    type="button"
+                    onClick={() => mode.kind === "edit" && setMode({ ...mode, changeArea: true })}
+                    className="ml-2 inline-flex items-center gap-1 font-semibold text-[#2E5A44] underline underline-offset-2"
+                  >
+                    <Pencil className="h-3 w-3" /> Change the area
+                  </button>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1A201C] mb-1">Region name *</label>
+                <input
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setNameTouched(true);
+                  }}
+                  maxLength={120}
+                  className={inputClass}
+                  placeholder="e.g. Kalyan – Thane"
+                />
               </div>
               <div>
                 <span className="block text-xs font-semibold text-[#1A201C] mb-1">Colour</span>
@@ -251,18 +287,6 @@ export default function TerritoriesPage() {
                   ))}
                 </div>
               </div>
-              {mode.kind === "edit" && !mode.redraw && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode({ ...mode, redraw: true });
-                    setDraft([]);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#2E5A44] underline underline-offset-2"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> Redraw the boundary
-                </button>
-              )}
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={resetForm} className="rounded-xl px-3 py-2 text-xs font-semibold text-[#756F66]">
                   Cancel
@@ -281,7 +305,7 @@ export default function TerritoriesPage() {
 
           <div className="rounded-2xl border border-[#E6DFD3] bg-white p-4 space-y-3">
             <h2 className="text-sm font-bold text-[#1A201C]">
-              {territories.length} territor{territories.length === 1 ? "y" : "ies"}
+              {territories.length} region{territories.length === 1 ? "" : "s"}
             </h2>
             {loading && (
               <p className="flex items-center gap-1.5 text-xs text-[#756F66]">
@@ -289,7 +313,7 @@ export default function TerritoriesPage() {
               </p>
             )}
             {!loading && territories.length === 0 && (
-              <p className="text-xs text-[#756F66]">No territories yet. Click &quot;New territory&quot; and draw one on the map.</p>
+              <p className="text-xs text-[#756F66]">No regions yet. Click &quot;Assign a region&quot;.</p>
             )}
             <ul className="space-y-2">
               {territories.map((t) => (
@@ -305,9 +329,10 @@ export default function TerritoriesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-[#1A201C] truncate">{t.name}</div>
                       <div className="text-[#756F66]">
-                        {agentById.get(t.agent_id)?.name || t.agent_name || "Unknown agent"}
+                        {t.agent_name || "Unknown agent"}
                         {t.agent_code ? ` · ${t.agent_code}` : ""}
                       </div>
+                      {describeTerritory(t) && <div className="text-[11px] text-[#1A201C]">{describeTerritory(t)}</div>}
                       <div className="text-[11px] text-[#A39E95]">
                         {t.area_sq_km != null ? `${t.area_sq_km.toFixed(2)} km²` : ""} · {t.lead_count} lead{t.lead_count === 1 ? "" : "s"}
                       </div>
@@ -327,7 +352,7 @@ export default function TerritoriesPage() {
                         </button>
                         <button
                           type="button"
-                          aria-label={`Delete ${t.name}`}
+                          aria-label={`Remove ${t.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             void remove(t);
@@ -344,7 +369,7 @@ export default function TerritoriesPage() {
             </ul>
             {agentsWithout.length > 0 && (
               <p className="rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">
-                No territory yet: {agentsWithout.map((a) => a.name).join(", ")}. They can&apos;t create leads until they have one.
+                No region yet: {agentsWithout.map((a) => a.name).join(", ")}. They can&apos;t create leads until they get one.
               </p>
             )}
           </div>

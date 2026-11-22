@@ -102,3 +102,50 @@ def test_agent_with_several_territories_uses_the_best_one():
         _match("A", "Andheri West", True, 0.0),
     ])
     assert len(ranked) == 1 and ranked[0].territory_name == "Andheri West" and ranked[0].inside
+
+
+# ---------------------------------------------------------------- address-based areas
+from app.services.territory_rules import area_ring, distance_outside_area_m, haversine_m  # noqa: E402
+
+KALYAN = (19.2437, 73.1355)
+THANE = (19.2183, 72.9781)
+
+
+def test_radius_area_is_a_closed_circle_of_the_right_size():
+    ring = area_ring(KALYAN, None, 3000)
+    assert ring[0] == ring[-1] and len(ring) > 40
+    for lng, lat in ring[:-1]:
+        assert abs(haversine_m(KALYAN[0], KALYAN[1], lat, lng) - 3000) < 15  # within 0.5%
+
+
+def test_box_has_both_places_inside_with_margin():
+    ring = area_ring(KALYAN, THANE, 2000)
+    assert len(ring) == 5 and ring[0] == ring[-1]
+    lngs = [lng for lng, _ in ring]
+    lats = [lat for _, lat in ring]
+    for lat, lng in (KALYAN, THANE):
+        assert min(lats) < lat < max(lats) and min(lngs) < lng < max(lngs)
+    # margin: the southern edge is ~2 km south of the southernmost place
+    assert abs(haversine_m(min(lats), THANE[1], THANE[0], THANE[1]) - 2000) < 10
+
+
+def test_distance_outside_area():
+    assert distance_outside_area_m(KALYAN, KALYAN, None, 3000) == 0
+    north_5km = (KALYAN[0] + 5000 / 111_195, KALYAN[1])
+    assert abs(distance_outside_area_m(north_5km, KALYAN, None, 3000) - 2000) < 20
+    midway = ((THANE[0] + KALYAN[0]) / 2, (THANE[1] + KALYAN[1]) / 2)
+    assert distance_outside_area_m(midway, THANE, KALYAN, 1000) == 0
+    # 3 km north of the box's northern edge (Kalyan + 1 km margin)
+    north_of_box = (KALYAN[0] + 4000 / 111_195, (THANE[1] + KALYAN[1]) / 2)
+    assert abs(distance_outside_area_m(north_of_box, THANE, KALYAN, 1000) - 3000) < 20
+
+
+@pytest.mark.parametrize("radius", [50, 60_000])
+def test_radius_limits(radius):
+    with pytest.raises(RuleViolation, match="Radius"):
+        area_ring(KALYAN, None, radius)
+
+
+def test_box_size_limit():
+    with pytest.raises(RuleViolation, match="apart"):
+        area_ring((19.0, 72.8), (21.5, 72.8), 1000)  # ~280 km

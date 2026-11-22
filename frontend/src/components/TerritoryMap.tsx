@@ -33,6 +33,8 @@ interface TerritoryMapProps {
   markers?: MapMarker[];
   /** Changing this value re-fits the view to territories, draft and markers. */
   fitKey?: string | number;
+  /** Show a dot on every corner of the draft (useful when drawing by hand). */
+  showDraftCorners?: boolean;
   heightClass?: string;
 }
 
@@ -55,10 +57,12 @@ export default function TerritoryMap({
   markers = [],
   fitKey,
   heightClass = "h-[420px]",
+  showDraftCorners = true,
 }: TerritoryMapProps) {
   const elementRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
+  const resizeRef = useRef<ResizeObserver | null>(null);
   const clickRef = useRef(onMapClick);
   const territoryClickRef = useRef(onTerritoryClick);
   const [ready, setReady] = useState(false);
@@ -82,11 +86,17 @@ export default function TerritoryMap({
         layerRef.current = L.layerGroup().addTo(map);
         mapRef.current = map;
         setTimeout(() => map.invalidateSize(), 150);
+        // Maps inside dialogs or tabs start at the wrong size; keep tiles in step with the box.
+        if (typeof ResizeObserver !== "undefined" && elementRef.current) {
+          resizeRef.current = new ResizeObserver(() => map.invalidateSize());
+          resizeRef.current.observe(elementRef.current);
+        }
         setReady(true);
       })
       .catch(() => !cancelled && setLoadError("The map could not be loaded. Check your internet connection."));
     return () => {
       cancelled = true;
+      resizeRef.current?.disconnect();
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -127,7 +137,7 @@ export default function TerritoryMap({
       } else {
         L.polyline(draftPoints, { ...style, interactive: false }).addTo(layer);
       }
-      draftPoints.forEach((p, i) =>
+      if (showDraftCorners) draftPoints.forEach((p, i) =>
         L.circleMarker(p, {
           radius: i === 0 ? 7 : 5,
           color: "#ffffff",
@@ -160,7 +170,7 @@ export default function TerritoryMap({
         .bindTooltip(escapeHtml(m.label), { direction: "top" })
         .addTo(layer);
     }
-  }, [ready, territories, draftPoints, draftColor, markers, highlightId, drawing]);
+  }, [ready, territories, draftPoints, draftColor, markers, highlightId, drawing, showDraftCorners]);
 
   // Fit the view when asked
   useEffect(() => {

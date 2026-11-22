@@ -9,6 +9,7 @@ from app.api.v1 import agent
 from app.api.v1 import territories
 from app.api.v1 import leads
 from app.api.v1 import agent_leads
+from app.api.v1 import dispatch
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -21,4 +22,5 @@ api_router.include_router(agent.router)
 api_router.include_router(agent_leads.router)
 api_router.include_router(territories.router)
 api_router.include_router(leads.router)
+api_router.include_router(dispatch.router)
 

@@ -524,7 +524,7 @@ export default function AssignWorkModal({
             </button>
             <h2 className="text-2xl font-bold text-[#1A201C] tracking-tight">New Dispatch</h2>
             <p className="mt-1 text-xs text-[#756F66]">
-              Add the customer, find their address on the map, and the nearest agent is picked for you.
+              Add the customer, find their address on the map, and the agent who owns that territory is picked for you.
             </p>
           </div>
           <button
@@ -927,7 +927,7 @@ export default function AssignWorkModal({
             <StepCard
               step={4}
               title="Assign agent"
-              hint="Picked automatically from the agent whose work area is nearest. You can change it."
+              hint="Picked automatically: the agent whose territory contains this address. You can change it."
               done={agentDone}
             >
               {!location && (
@@ -939,7 +939,7 @@ export default function AssignWorkModal({
               {location && suggestionLoading && (
                 <p className="flex items-center gap-1.5 text-[11px] text-[#756F66]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Finding the agent whose work area covers this location…
+                  Finding the territory that contains this location…
                 </p>
               )}
               {location && !suggestionLoading && suggestionError && (
@@ -955,7 +955,13 @@ export default function AssignWorkModal({
                 </p>
               )}
               {location && !suggestionLoading && recommended && (
-                <div className="rounded-xl border border-[#CDE1D2] bg-[#EAF2EC] p-3 text-xs text-[#1E3F35]">
+                <div
+                  className={`rounded-xl border p-3 text-xs ${
+                    suggestion?.inside_territory
+                      ? "border-[#CDE1D2] bg-[#EAF2EC] text-[#1E3F35]"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
                   <div className="flex items-start gap-2">
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
                     <div className="flex-1">
@@ -964,9 +970,12 @@ export default function AssignWorkModal({
                           ? `Auto-selected: ${recommended.name}`
                           : `Suggested: ${recommended.name} (you picked someone else)`}
                       </strong>
-                      <div className="mt-0.5 text-[11px] text-[#3C5A4F]">
-                        {formatKm(recommended.distance_to_area_meters)} from their work area · {formatKm(recommended.distance_to_agent_meters)} from
-                        their location · {recommended.open_visits} open visit{recommended.open_visits === 1 ? "" : "s"}
+                      <div className="mt-0.5 text-[11px]">
+                        {suggestion?.inside_territory
+                          ? `This address is inside ${recommended.territory_name}, their territory.`
+                          : `Outside every territory. ${recommended.territory_name} is the nearest, ${formatKm(recommended.distance_to_territory_meters)} away.`}
+                        {" · "}
+                        {recommended.open_visits} open visit{recommended.open_visits === 1 ? "" : "s"}
                       </div>
                     </div>
                     {selectedAgentId !== recommendedId && (
@@ -1014,7 +1023,7 @@ export default function AssignWorkModal({
                       return (
                         <option key={agent.id} value={agent.id}>
                           {agent.name} ({agent.agent_code || agent.id.slice(0, 8)})
-                          {fit ? ` — ${formatKm(fit.distance_to_area_meters)} away` : ""}
+                          {fit ? (fit.inside_territory ? ` — ${fit.territory_name}` : ` — ${formatKm(fit.distance_to_territory_meters)} from ${fit.territory_name}`) : ""}
                           {agent.id === recommendedId ? " ★ suggested" : ""}
                         </option>
                       );
@@ -1025,6 +1034,28 @@ export default function AssignWorkModal({
                 {!agentsLoading && agents.length === 0 && (
                   <p className="mt-1.5 text-[11px] text-[#756F66]">Create or activate an agent in Field Agents first.</p>
                 )}
+                {/* Warn (don't block) when the address is outside the chosen agent's region */}
+                {location && selectedAgent && suggestion && !suggestionLoading && (() => {
+                  const fit = suggestionByAgent.get(selectedAgent.id);
+                  if (fit?.inside_territory) return null;
+                  const owner = suggestion.suggestions.find((item) => item.inside_territory);
+                  return (
+                    <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {fit
+                          ? `This address is outside ${selectedAgent.name}'s region (${fit.territory_name}).`
+                          : `${selectedAgent.name} has no region yet.`}{" "}
+                        {owner && owner.agent_id !== selectedAgent.id
+                          ? `It's inside ${owner.territory_name}, which belongs to ${owner.name}.`
+                          : !owner
+                          ? "It isn't inside any agent's region."
+                          : ""}{" "}
+                        You can still dispatch it.
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {selectedAgent && (

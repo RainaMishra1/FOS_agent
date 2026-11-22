@@ -2,18 +2,40 @@ import uuid
 from datetime import date, datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 HEX_COLOR = r"^#[0-9A-Fa-f]{6}$"
 
 
 # ------------------------------------------------------------------ territories
+class PlaceSpec(BaseModel):
+    """A geocoded place: full address (incl. minor details) and its coordinates."""
+    label: str = Field(..., min_length=2, max_length=500)
+    latitude: float = Field(..., ge=-85, le=85)
+    longitude: float = Field(..., ge=-180, le=180)
+
+
+class TerritoryAreaSpec(BaseModel):
+    """Radius around `start`, or the box with `start` and `end` at opposite corners (radius = margin)."""
+    start: PlaceSpec
+    end: Optional[PlaceSpec] = None
+    radius_meters: float = Field(..., ge=100, le=50_000)
+
+
 class TerritoryCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     agent_id: uuid.UUID
     color: str = Field("#2E5A44", pattern=HEX_COLOR)
-    # Outline as [latitude, longitude] points in drawing order.
-    points: List[List[float]] = Field(..., min_length=3, max_length=500)
+    # Either an outline drawn on the map ([latitude, longitude] points) ...
+    points: Optional[List[List[float]]] = Field(None, min_length=3, max_length=500)
+    # ... or an address-based area. Exactly one of the two is required.
+    area: Optional[TerritoryAreaSpec] = None
+
+    @model_validator(mode="after")
+    def one_boundary(self):
+        if (self.points is None) == (self.area is None):
+            raise ValueError("Give either drawn points or an address-based area, not both.")
+        return self
 
 
 class TerritoryUpdateRequest(BaseModel):
@@ -21,6 +43,13 @@ class TerritoryUpdateRequest(BaseModel):
     agent_id: Optional[uuid.UUID] = None
     color: Optional[str] = Field(None, pattern=HEX_COLOR)
     points: Optional[List[List[float]]] = Field(None, min_length=3, max_length=500)
+    area: Optional[TerritoryAreaSpec] = None
+
+    @model_validator(mode="after")
+    def at_most_one_boundary(self):
+        if self.points is not None and self.area is not None:
+            raise ValueError("Give either drawn points or an address-based area, not both.")
+        return self
 
 
 class TerritoryResponse(BaseModel):
@@ -34,6 +63,14 @@ class TerritoryResponse(BaseModel):
     # Outline as [latitude, longitude] points (closing point omitted).
     points: List[List[float]]
     lead_count: int = 0
+    definition_type: str = "drawn"
+    start_label: Optional[str] = None
+    start_latitude: Optional[float] = None
+    start_longitude: Optional[float] = None
+    end_label: Optional[str] = None
+    end_latitude: Optional[float] = None
+    end_longitude: Optional[float] = None
+    radius_meters: Optional[float] = None
     created_at: datetime
 
 

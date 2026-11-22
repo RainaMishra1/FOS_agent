@@ -163,3 +163,89 @@ def rank_by_territory(matches: Iterable[TerritoryMatch]) -> tuple[Optional[str],
     if not ranked:
         return None, False, []
     return ranked[0].agent_id, ranked[0].inside, ranked
+
+
+# --------------------------------------------------------------------------
+# Territories defined by addresses: a radius around one place, or the box
+# ("from - to") with the two places at opposite corners, plus a margin.
+# --------------------------------------------------------------------------
+
+MIN_RADIUS_M = 100.0
+MAX_RADIUS_M = 50_000.0
+MAX_BOX_DIAGONAL_M = 200_000.0
+
+
+def _metres_per_degree(ref_lat: float) -> tuple[float, float]:
+    ky = EARTH_RADIUS_M * math.pi / 180
+    return math.cos(math.radians(ref_lat)) * ky, ky
+
+
+def _check_place(lat: float, lng: float) -> None:
+    if not (math.isfinite(lat) and math.isfinite(lng) and -85 <= lat <= 85 and -180 <= lng <= 180):
+        raise RuleViolation("A territory location has an invalid latitude or longitude.")
+
+
+def box_bounds(
+    start: tuple[float, float], end: tuple[float, float], margin_m: float
+) -> tuple[float, float, float, float]:
+    """(south, west, north, east) of the box with `start` and `end` at opposite corners, grown by `margin_m`."""
+    kx, ky = _metres_per_degree((start[0] + end[0]) / 2)
+    south, north = min(start[0], end[0]) - margin_m / ky, max(start[0], end[0]) + margin_m / ky
+    west, east = min(start[1], end[1]) - margin_m / kx, max(start[1], end[1]) + margin_m / kx
+    return south, west, north, east
+
+
+def area_ring(
+    start: tuple[float, float],
+    end: Optional[tuple[float, float]],
+    radius_m: float,
+    segments: int = 64,
+) -> list[tuple[float, float]]:
+    """Closed (longitude, latitude) ring for a territory defined by addresses.
+
+    `start`/`end` are (latitude, longitude).
+    - Without `end`: a circle of `radius_m` around `start` (64 sides, edge
+      within 0.2% of the true radius).
+    - With `end`: the north-south / east-west box that has `start` and `end`
+      at opposite corners, extended by `radius_m` on every side.
+    """
+    if not (MIN_RADIUS_M <= radius_m <= MAX_RADIUS_M):
+        label = "Margin" if end else "Radius"
+        raise RuleViolation(f"{label} must be between {MIN_RADIUS_M / 1000:g} km and {MAX_RADIUS_M / 1000:g} km.")
+    _check_place(*start)
+
+    if end is not None:
+        _check_place(*end)
+        diagonal = haversine_m(start[0], start[1], end[0], end[1])
+        if diagonal > MAX_BOX_DIAGONAL_M:
+            raise RuleViolation(
+                f"From and to are {diagonal / 1000:.0f} km apart; the maximum is {MAX_BOX_DIAGONAL_M / 1000:.0f} km."
+            )
+        south, west, north, east = box_bounds(start, end, radius_m)
+        corners = [(west, south), (east, south), (east, north), (west, north), (west, south)]
+        return [(round(lng, 7), round(lat, 7)) for lng, lat in corners]
+
+    kx, ky = _metres_per_degree(start[0])
+    cx, cy = start[1] * kx, start[0] * ky
+    ring = []
+    for i in range(segments):
+        angle = 2 * math.pi * i / segments
+        ring.append((round((cx + radius_m * math.cos(angle)) / kx, 7), round((cy + radius_m * math.sin(angle)) / ky, 7)))
+    ring.append(ring[0])
+    return ring
+
+
+def distance_outside_area_m(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: Optional[tuple[float, float]],
+    radius_m: float,
+) -> float:
+    """Metres a (lat, lng) point lies outside a radius or box area (0 if inside)."""
+    kx, ky = _metres_per_degree(point[0])
+    if end is None:
+        return max(0.0, haversine_m(point[0], point[1], start[0], start[1]) - radius_m)
+    south, west, north, east = box_bounds(start, end, radius_m)
+    dy = max(south - point[0], 0.0, point[0] - north) * ky
+    dx = max(west - point[1], 0.0, point[1] - east) * kx
+    return math.hypot(dx, dy)

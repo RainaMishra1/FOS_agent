@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from geoalchemy2 import Geography
+GEOGRAPHY = Geography(geometry_type="GEOMETRY", srid=4326)  # WGS84; casts without an SRID fail in PostGIS
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,12 +123,27 @@ async def create_lead(
     )
     if territory is None:
         nearest = (await db.execute(
-            select(Territory.name, func.ST_Distance(cast(Territory.boundary, Geography), cast(lead_pt, Geography)))
+            select(
+                Territory.name,
+                func.ST_Distance(cast(Territory.boundary, GEOGRAPHY), cast(lead_pt, GEOGRAPHY)),
+                Territory.definition_type,
+                Territory.radius_meters,
+                Territory.start_label,
+                Territory.end_label,
+            )
             .where(Territory.agent_id == agent.id, Territory.is_active.is_(True))
-            .order_by(func.ST_Distance(cast(Territory.boundary, Geography), cast(lead_pt, Geography)))
+            .order_by(func.ST_Distance(cast(Territory.boundary, GEOGRAPHY), cast(lead_pt, GEOGRAPHY)))
             .limit(1)
         )).first()
-        where = f" The nearest edge of {nearest[0]} is {nearest[1]:.0f}m away." if nearest and nearest[1] else ""
+        where = ""
+        if nearest:
+            name, edge_m, kind, radius, start_label, end_label = nearest
+            if kind == "radius" and radius:
+                where = f" {name} covers {radius / 1000:g} km around {start_label}."
+            elif kind == "box" and radius:
+                where = f" {name} covers the area from {start_label} to {end_label} (plus {radius / 1000:g} km)."
+            if edge_m:
+                where += f" The lead is {edge_m:.0f}m outside it."
         raise HTTPException(
             status_code=403,
             detail="Leads can only be created inside your assigned territory, and you must be inside it too." + where,

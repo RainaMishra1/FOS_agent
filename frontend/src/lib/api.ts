@@ -175,7 +175,7 @@ async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {},
   token?: string | null,
-  timeoutMs: number = 10000
+  timeoutMs: number = 30000
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -810,14 +810,37 @@ export interface TerritoryApiItem {
   /** Outline as [latitude, longitude] points (not closed). */
   points: number[][];
   lead_count: number;
+  definition_type: "drawn" | "radius" | "corridor" | string;
+  start_label?: string | null;
+  start_latitude?: number | null;
+  start_longitude?: number | null;
+  end_label?: string | null;
+  end_latitude?: number | null;
+  end_longitude?: number | null;
+  radius_meters?: number | null;
   created_at: string;
+}
+
+export interface PlaceSpec {
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** Radius around `start`, or a corridor from `start` to `end` (radius = half-width). */
+export interface TerritoryAreaSpec {
+  start: PlaceSpec;
+  end?: PlaceSpec | null;
+  radius_meters: number;
 }
 
 export interface TerritoryPayload {
   name: string;
   agent_id: string;
   color: string;
-  points: number[][];
+  /** Drawn outline, [lat, lng] points. Send either this or `area`. */
+  points?: number[][];
+  area?: TerritoryAreaSpec;
 }
 
 export async function fetchTerritories(token?: string | null): Promise<TerritoryApiItem[]> {
@@ -930,7 +953,7 @@ export async function fetchMyLeads(token?: string | null): Promise<LeadReviewLis
 }
 
 export async function createAgentLead(payload: AgentLeadPayload, token?: string | null): Promise<LeadReviewItem> {
-  return await apiFetch<LeadReviewItem>("/agent/leads", { method: "POST", body: JSON.stringify(payload) }, token, 20000);
+  return await apiFetch<LeadReviewItem>("/agent/leads", { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
 /** Best human-readable message from an API error (server detail first). */
@@ -938,4 +961,51 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.detail || err.message || fallback;
   if (err instanceof Error) return err.message || fallback;
   return fallback;
+}
+
+// ---------------------------------------------------------------- dispatch view (read-only)
+export type DispatchStage = "awaiting_verification" | "unassigned" | "assigned" | "in_progress" | "completed";
+
+export interface DispatchLead {
+  id: string;
+  lead_code?: string | null;
+  stage: DispatchStage;
+  priority: string;
+  source: string;
+  customer_name: string;
+  company?: string | null;
+  address: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  assigned_agent_id?: string | null;
+  created_by_agent_id?: string | null;
+  territory_id?: string | null;
+  next_visit_date?: string | null;
+  created_at: string;
+  waiting_hours?: number | null;
+  /** Set only on the illustrative example shown when there are no leads. */
+  is_example?: boolean;
+}
+
+export interface DispatchAgent {
+  id: string;
+  name: string;
+  agent_code?: string | null;
+  status: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  last_location_update?: string | null;
+  territory_id?: string | null;
+  territory_name?: string | null;
+}
+
+export interface DispatchOverview {
+  generated_at: string;
+  leads: DispatchLead[];
+  agents: DispatchAgent[];
+}
+
+export async function fetchDispatchOverview(token?: string | null): Promise<DispatchOverview> {
+  return await apiFetch<DispatchOverview>("/dispatch/overview", {}, token);
 }

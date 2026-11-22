@@ -38,6 +38,16 @@ class Territory(Base, TimestampMixin):
         comment="Territory polygon in WGS84 (longitude, latitude)",
     )
     area_sq_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # How the boundary was defined: "drawn" on the map, a "radius" around an
+    # address, or a "box" with two addresses at opposite corners (radius = margin).
+    definition_type: Mapped[str] = mapped_column(String(20), nullable=False, default="drawn", server_default="drawn")
+    start_label: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    start_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    start_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_label: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    end_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    radius_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True

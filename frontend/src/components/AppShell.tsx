@@ -21,6 +21,9 @@ import {
   Smartphone,
   ShieldCheck,
   MapPin,
+  Layers,
+  ClipboardCheck,
+  Hexagon,
 } from "lucide-react";
 import HealthChecker from "./HealthChecker";
 import { useAuth } from "@/context/AuthContext";
@@ -117,6 +120,9 @@ export default function AppShell({ children }: AppShellProps) {
     { name: "Live Operations Map", href: "/map", icon: Map },
     { name: "Field Agents", href: "/agents", icon: Users },
     { name: "Agent Live Tracking", href: "/tracking", icon: Navigation },
+    { name: "Dispatch View", href: "/view", icon: Hexagon },
+    { name: "Territories", href: "/territories", icon: Layers },
+    { name: "Lead Approvals", href: "/leads", icon: ClipboardCheck },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
