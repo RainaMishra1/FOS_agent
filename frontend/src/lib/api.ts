@@ -1043,3 +1043,20 @@ export interface OperatingSettings {
 export async function fetchOperatingSettings(token?: string | null): Promise<OperatingSettings> {
   return await apiFetch<OperatingSettings>(`/settings`, { method: "GET" }, token);
 }
+
+export interface AdminNotification {
+  id: string;
+  kind: "started" | "completed";
+  at: string;
+  visit_id: string;
+  visit_code?: string | null;
+  agent_name: string;
+  agent_code?: string | null;
+  customer_name: string;
+  geofence_verified: boolean;
+}
+
+/** Agent check-ins and completions, newest first. */
+export async function fetchAdminNotifications(token?: string | null): Promise<{ items: AdminNotification[]; server_time: string }> {
+  return await apiFetch(`/notifications?days=7&limit=40`, { method: "GET" }, token);
+}

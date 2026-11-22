@@ -11,6 +11,7 @@ from app.api.v1 import leads
 from app.api.v1 import agent_leads
 from app.api.v1 import dispatch
 from app.api.v1 import settings_view
+from app.api.v1 import notifications
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -25,4 +26,5 @@ api_router.include_router(territories.router)
 api_router.include_router(leads.router)
 api_router.include_router(dispatch.router)
 api_router.include_router(settings_view.router)
+api_router.include_router(notifications.router)
 

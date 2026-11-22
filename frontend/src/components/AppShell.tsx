@@ -27,6 +27,9 @@ import {
 } from "lucide-react";
 import HealthChecker from "./HealthChecker";
 import BrandMark from "./shell/BrandMark";
+import NotificationBell, { NotificationToasts } from "./shell/NotificationBell";
+import { useAdminNotifications } from "@/hooks/useAdminNotifications";
+import type { AdminNotification } from "@/lib/api";
 import PageBand from "./shell/PageBand";
 import { useAuth } from "@/context/AuthContext";
 import { useOperations } from "@/context/OperationsContext";
@@ -38,7 +41,7 @@ interface AppShellProps {
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, role, isAuthenticated, isLoading, signOut } = useAuth();
+  const { user, profile, role, isAuthenticated, isLoading, signOut, session } = useAuth();
   const { agents, loadAgents } = useOperations();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -46,7 +49,17 @@ export default function AppShell({ children }: AppShellProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(3);
+  const [toasts, setToasts] = useState<AdminNotification[]>([]);
+  const alerts = useAdminNotifications(role === "admin" ? session?.access_token : null, (fresh) => {
+    setToasts((current) => [...fresh.slice(0, 3), ...current].slice(0, 3));
+    fresh.slice(0, 3).forEach((item) => {
+      setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== item.id)), 7000);
+    });
+  });
+  const toggleAlerts = () => {
+    setShowNotifications((open) => !open);
+    alerts.markSeen();
+  };
   const [globalSearch, setGlobalSearch] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const agentSearchLoadedRef = React.useRef(false);
@@ -199,6 +212,7 @@ export default function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-[#F5F5FA] text-[#16151F] antialiased font-sans">
+      <NotificationToasts toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
       {/* Close floating menus when clicking elsewhere */}
       {(isSearchOpen || showUserMenu || showNotifications) && (
         <div
@@ -255,29 +269,16 @@ export default function AppShell({ children }: AppShellProps) {
           <div className="ml-auto flex items-center gap-3">
             <div className="relative z-30 w-56 xl:w-72">{searchBox}</div>
 
-            <div className="relative z-30">
-              <button
-                onClick={() => {
-                  setShowNotifications(!showNotifications);
-                  setUnreadNotifications(0);
-                }}
-                className="relative h-10 w-10 rounded-full hover:bg-[#F1F0F8] text-[#16151F] flex items-center justify-center transition cursor-pointer"
-                aria-label="Notifications"
-              >
-                <Bell className="w-5 h-5" />
-                {unreadNotifications > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#00843E] text-white text-[10px] font-bold flex items-center justify-center">
-                    {unreadNotifications}
-                  </span>
-                )}
-              </button>
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-white border border-[#E3E2EE] shadow-xl p-4 text-sm animate-rise">
-                  <div className="font-bold">Alerts</div>
-                  <div className="py-5 text-center text-[#62607A]">No alerts</div>
-                </div>
-              )}
-            </div>
+            <NotificationBell
+              items={alerts.items}
+              unread={alerts.unread}
+              seenAt={alerts.seenAt}
+              open={showNotifications}
+              onToggle={toggleAlerts}
+              onClose={() => setShowNotifications(false)}
+              permission={alerts.permission}
+              onEnableDesktop={alerts.enableDesktopAlerts}
+            />
 
             <div className="relative z-30">
               <button
@@ -325,6 +326,17 @@ export default function AppShell({ children }: AppShellProps) {
       >
         <BrandMark size={30} withText={false} light />
         <h1 key={pageTitle} className="flex-1 text-lg font-bold tracking-tight truncate animate-rise">{pageTitle}</h1>
+        <NotificationBell
+          items={alerts.items}
+          unread={alerts.unread}
+          seenAt={alerts.seenAt}
+          open={showNotifications}
+          onToggle={toggleAlerts}
+          onClose={() => setShowNotifications(false)}
+          permission={alerts.permission}
+          onEnableDesktop={alerts.enableDesktopAlerts}
+          light
+        />
         <button onClick={() => setMobileMenuOpen(true)} className="p-2 -mr-2 rounded-full hover:bg-white/10" aria-label="Menu">
           <Menu className="w-5 h-5" />
         </button>
