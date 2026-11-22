@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   MapPin,
   Navigation,
@@ -16,8 +17,10 @@ import {
   ExternalLink,
   X,
   ListOrdered,
-  ShieldCheck,
-  Zap,
+  Phone,
+  ChevronDown,
+  ChevronsRight,
+  Flag,
 } from "lucide-react";
 import { RouteLeg, RouteStep, TrafficSpeedInterval } from "@/lib/api";
 
@@ -25,6 +28,7 @@ export interface RouteMapStop {
   id: string;
   customer_name?: string | null;
   customer_address?: string | null;
+  customer_phone?: string | null;
   customer_latitude?: number | null;
   customer_longitude?: number | null;
   status: string;
@@ -34,6 +38,16 @@ export interface RouteMapStop {
 }
 
 const EMPTY_TRAFFIC_INTERVALS: TrafficSpeedInterval[] = [];
+const CHECK_IN_RADIUS_METERS = 750;
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 interface AgentRoadRouteMapProps {
   origin: { latitude: number; longitude: number } | null;
@@ -99,9 +113,50 @@ export default function AgentRoadRouteMap({
   const vehicleMarkerRef = useRef<any>(null);
 
   const [ready, setReady] = useState(false);
-  const [showStepsDrawer, setShowStepsDrawer] = useState(false);
-  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
   const [userPannedAway, setUserPannedAway] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => setPortalReady(true), []);
+
+  // Full-screen trip mode: lock page scroll, keep the screen awake, start following the agent.
+  useEffect(() => {
+    if (!isNavigating) return;
+    setUserPannedAway(false);
+    setSheetExpanded(false);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    let wakeLock: any = null;
+    let cancelled = false;
+    const requestWakeLock = async () => {
+      try {
+        const nav = navigator as any;
+        if (nav.wakeLock?.request && document.visibilityState === "visible") {
+          wakeLock = await nav.wakeLock.request("screen");
+          if (cancelled) wakeLock?.release?.();
+        }
+      } catch {
+        // Wake lock is optional (unsupported browser or battery saver).
+      }
+    };
+    void requestWakeLock();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void requestWakeLock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("visibilitychange", onVisible);
+      try {
+        wakeLock?.release?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, [isNavigating]);
 
   // Load Leaflet dynamically
   useEffect(() => {
@@ -220,6 +275,19 @@ export default function AgentRoadRouteMap({
 
   const currentStep = currentStepIndex == null ? null : navigationSteps[currentStepIndex];
 
+  const distanceToManeuver = useMemo(() => {
+    if (!currentPos || !currentStep?.location) return null;
+    return distanceMeters(currentPos[0], currentPos[1], currentStep.location[1], currentStep.location[0]);
+  }, [currentPos, currentStep]);
+
+  const distanceToDestination = useMemo(() => {
+    if (!currentPos || activeDestinationStop?.customer_latitude == null || activeDestinationStop?.customer_longitude == null) return null;
+    return distanceMeters(currentPos[0], currentPos[1], activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude);
+  }, [currentPos, activeDestinationStop?.customer_latitude, activeDestinationStop?.customer_longitude]);
+
+  // Same 750 m radius the server uses for check-in (testing value).
+  const arrivalZone = distanceToDestination != null && distanceToDestination <= CHECK_IN_RADIUS_METERS;
+
   const nextStep = useMemo(() => {
     if (currentStepIndex == null || currentStepIndex + 1 >= navigationSteps.length) return null;
     return navigationSteps[currentStepIndex + 1];
@@ -297,9 +365,12 @@ export default function AgentRoadRouteMap({
           attributionControl: true,
         });
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+        // Clean, low-contrast base map (like ride-hailing apps) so the route stands out.
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+          maxZoom: 20,
+          subdomains: "abcd",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
         }).addTo(map);
 
         map.on("dragstart", () => {
@@ -335,7 +406,19 @@ export default function AgentRoadRouteMap({
       const labelText = isDestination ? "🎯" : isNearest ? `★ ${stopBadge}` : `${stopBadge}`;
       const opacityStyle = isNavigating && !isDestination ? "opacity: 0.5; transform: scale(0.85);" : "";
 
-      const customIcon = L.divIcon({
+      const customIcon = isDestination ? L.divIcon({
+        className: "custom-task-marker",
+        html: `
+          <div style="position: relative; width: 34px; height: 44px;">
+            <div style="position: absolute; left: 3px; top: 0; width: 28px; height: 28px; background: #000; border: 3px solid #fff; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center;">
+              <div style="width: 8px; height: 8px; background: #fff; border-radius: 1px;"></div>
+            </div>
+            <div style="position: absolute; left: 16px; top: 28px; width: 2px; height: 14px; background: #000;"></div>
+          </div>
+        `,
+        iconSize: [34, 44],
+        iconAnchor: [17, 43],
+      }) : L.divIcon({
         className: "custom-task-marker",
         html: `
           <div style="
@@ -363,7 +446,7 @@ export default function AgentRoadRouteMap({
 
       const marker = L.marker(pos, { icon: customIcon, zIndexOffset: isDestination ? 1500 : isSelected ? 1000 : 500 });
       marker.bindTooltip(
-        `<div style="font-size: 11px; font-weight: 600;">${stop.customer_name || "Customer Site"}<br/><span style="color: #666; font-weight: normal;">${stop.customer_address || ""}</span></div>`,
+        `<div style="font-size: 11px; font-weight: 600;">${escapeHtml(stop.customer_name || "Customer Site")}<br/><span style="color: #666; font-weight: normal;">${escapeHtml(stop.customer_address || "")}</span></div>`,
         { direction: "top" }
       );
       marker.on("click", () => onSelectStop?.(stop));
@@ -379,9 +462,9 @@ export default function AgentRoadRouteMap({
     if (routeLatLngs.length > 1) {
       // Glow background line
       L.polyline(routeLatLngs, {
-        color: "#1E3F35",
-        weight: isNavigating ? 8 : 6,
-        opacity: isNavigating ? 0.35 : 0.2,
+        color: isNavigating ? "#FFFFFF" : "#1E3F35",
+        weight: isNavigating ? 11 : 6,
+        opacity: isNavigating ? 0.95 : 0.2,
         lineCap: "round",
         lineJoin: "round",
       }).addTo(layer);
@@ -405,7 +488,7 @@ export default function AgentRoadRouteMap({
         }
       } else {
         L.polyline(routeLatLngs, {
-          color: isNavigating ? "#2D6A4F" : "#2D6A4F",
+          color: isNavigating ? "#111111" : "#2D6A4F",
           weight: isNavigating ? 6 : 4,
           opacity: 0.95,
           lineCap: "round",
@@ -418,9 +501,9 @@ export default function AgentRoadRouteMap({
     const vehicleIconHtml = isNavigating
       ? `
         <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;">
-          <div style="position: absolute; inset: 0; background: rgba(30, 63, 53, 0.25); border-radius: 50%; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+          <div style="position: absolute; inset: 0; background: rgba(39, 110, 241, 0.25); border-radius: 50%; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
           <div class="vehicle-arrow" style="
-            background: #1E3F35;
+            background: #276EF1;
             color: #ffffff;
             width: 36px;
             height: 36px;
@@ -489,12 +572,12 @@ export default function AgentRoadRouteMap({
       if (!userPannedAway) {
         if (navBounds.length > 1) {
           map.fitBounds(L.latLngBounds(navBounds), {
-            paddingTopLeft: [70, 30],
-            paddingBottomRight: [120, 30],
-            maxZoom: 16,
+            paddingTopLeft: [40, 170],
+            paddingBottomRight: [80, 300],
+            maxZoom: 17,
           });
         } else if (currentPos) {
-          map.setView(currentPos, 16, { animate: true });
+          map.setView(currentPos, 17, { animate: true });
         }
       }
     } else {
@@ -537,261 +620,369 @@ export default function AgentRoadRouteMap({
     ? `https://www.google.com/maps/dir/?api=1${currentPos ? `&origin=${currentPos[0]},${currentPos[1]}` : ""}&destination=${googleDestination.customer_latitude},${googleDestination.customer_longitude}${googleWaypoints ? `&waypoints=${encodeURIComponent(googleWaypoints)}` : ""}&travelmode=driving`
     : "https://www.google.com/maps";
 
-  return (
-    <div className={`relative isolate z-0 overflow-hidden rounded-2xl border border-[#E6DFD3] bg-[#F5F2EB] shadow-xs transition-all duration-300 ${isNavigating ? "h-[540px] sm:h-[600px]" : "h-[440px]"}`}>
+  const sheetContent = (
+    <div className={`relative isolate overflow-hidden bg-[#EEF0F2] transition-all duration-300 ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-screen" : "z-0 h-[440px] rounded-2xl border border-[#E6DFD3] shadow-xs"}`}>
       {/* Map DOM Element */}
       <div ref={mapRef} className="absolute inset-0" />
 
       {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#F5F2EB]/90 text-xs font-semibold text-beige-muted">
-          Loading OpenStreetMap Navigation…
+        <div className="absolute inset-0 flex items-center justify-center bg-[#EEF0F2]/90 text-xs font-semibold text-neutral-500">
+          Loading map…
         </div>
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODE A: GOOGLE MAPS ACTIVE DRIVING HUD (isNavigating = true)
+          MODE A: FULL-SCREEN TRIP SCREEN (Uber / Ola style)
          ───────────────────────────────────────────────────────────── */}
       {isNavigating && (
         <>
-          {/* 1. TOP MANEUVER BANNER (Google Maps Dark Emerald Card) */}
-          <div className="absolute top-3 left-3 right-3 z-[1000] max-w-lg mx-auto">
-            <div className="rounded-2xl bg-[#15332A] text-white p-3.5 sm:p-4 shadow-xl border border-white/10 backdrop-blur-md flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Big Direction Icon */}
-                <div className="w-12 h-12 rounded-2xl bg-white/15 text-white flex items-center justify-center shrink-0 border border-white/20 shadow-inner">
-                  {currentStep?.iconType === "left" ? (
-                    <CornerUpLeft className="w-6 h-6 text-[#9AE6B4]" />
-                  ) : currentStep?.iconType === "right" ? (
-                    <CornerUpRight className="w-6 h-6 text-[#9AE6B4]" />
-                  ) : currentStep?.iconType === "arrive" ? (
-                    <MapPin className="w-6 h-6 text-[#9AE6B4]" />
-                  ) : (
-                    <ArrowUp className="w-6 h-6 text-[#9AE6B4]" />
-                  )}
+          {/* 1. TOP MANEUVER CARD */}
+          <div
+            className="absolute inset-x-0 top-0 z-[1000] px-3"
+            style={{ paddingTop: "max(env(safe-area-inset-top), 12px)" }}
+          >
+            <div className="mx-auto max-w-lg overflow-hidden rounded-2xl bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center gap-3.5 px-4 py-3.5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/10">
+                  <ManeuverIcon type={currentStep?.iconType} className="h-7 w-7 text-white" />
                 </div>
-
-                {/* Turn Instruction Text */}
-                <div className="min-w-0">
-                  <div className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
-                    {currentStep?.instruction || "Follow the highlighted route"}
-                  </div>
-                  {nextStep && (
-                    <div className="text-[11px] text-[#A0AEC0] flex items-center gap-1.5 mt-0.5 truncate">
-                      <span>Then</span>
-                      <span className="text-white/90 truncate">{nextStep.instruction}</span>
+                <div className="min-w-0 flex-1">
+                  {distanceToManeuver != null && currentStep?.iconType !== "arrive" && (
+                    <div className="text-2xl font-extrabold leading-none tracking-tight">
+                      {formatDist(distanceToManeuver)}
                     </div>
                   )}
+                  <div className="mt-1 truncate text-[15px] font-semibold leading-snug text-white/90">
+                    {currentStep?.instruction || "Follow the highlighted route"}
+                  </div>
                 </div>
               </div>
-
-              {/* Speed & GPS Indicator */}
-              <div className="text-right shrink-0 border-l border-white/15 pl-3">
-                <span className="text-[10px] font-mono font-bold text-[#9AE6B4] block">{trafficAware ? "TRAFFIC AWARE" : "NO LIVE TRAFFIC"}</span>
-                <span className="text-[9px] uppercase tracking-wider text-white/70 font-semibold block">{navigationSteps.length ? "Turn-by-Turn" : "Route Guidance"}</span>
-              </div>
+              {nextStep && (
+                <div className="flex items-center gap-2 border-t border-white/10 bg-[#1A1A1A] px-4 py-2 text-xs text-white/70">
+                  <span className="font-semibold text-white/50">Then</span>
+                  <ManeuverIcon type={nextStep.iconType} className="h-4 w-4 shrink-0 text-white" />
+                  <span className="truncate text-white/85">{nextStep.instruction}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* 2. FLOATING QUICK ACTION BUTTONS (Right Side) */}
-          <div className="absolute right-3 top-24 z-[1000] flex flex-col gap-2">
-            {/* Re-center Button */}
-            {userPannedAway && (
-              <button
-                type="button"
-                onClick={handleRecenter}
-                className="w-10 h-10 rounded-xl bg-white border border-[#E6DFD3] text-[#1E3F35] shadow-lg flex items-center justify-center hover:bg-[#F9F7F2] transition cursor-pointer"
-                title="Re-center on vehicle"
-              >
-                <LocateFixed className="w-5 h-5 text-[#1E3F35]" />
-              </button>
-            )}
-
-            {/* Turn-by-Turn Steps List Modal Toggle */}
-            <button
-              type="button"
-              onClick={() => setShowStepsDrawer(!showStepsDrawer)}
-              className="w-10 h-10 rounded-xl bg-white border border-[#E6DFD3] text-[#1E3F35] shadow-lg flex items-center justify-center hover:bg-[#F9F7F2] transition cursor-pointer"
-              title="Show turn-by-turn directions"
-            >
-              <ListOrdered className="w-5 h-5 text-[#1E3F35]" />
-            </button>
-
-            {/* Open directly in Google Maps Mobile / Web */}
+          {/* 2. FLOATING ROUND BUTTONS */}
+          <div className="absolute right-3 z-[1000] flex flex-col gap-2.5" style={{ bottom: sheetExpanded ? "62dvh" : "calc(env(safe-area-inset-bottom) + 270px)" }}>
             <a
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-10 h-10 rounded-xl bg-white border border-[#E6DFD3] text-[#1E3F35] shadow-lg flex items-center justify-center hover:bg-[#F9F7F2] transition cursor-pointer"
-              title="Open Navigation in Google Maps"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-black shadow-[0_4px_14px_rgba(0,0,0,0.22)] transition active:scale-95"
+              title="Open in Google Maps"
+              aria-label="Open in Google Maps"
             >
-              <ExternalLink className="w-4 h-4 text-[#1E3F35]" />
+              <ExternalLink className="h-5 w-5" />
             </a>
+            <button
+              type="button"
+              onClick={handleRecenter}
+              className={`flex h-12 w-12 items-center justify-center rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.22)] transition active:scale-95 cursor-pointer ${userPannedAway ? "bg-black text-white" : "bg-white text-black"}`}
+              title="Re-center on my location"
+              aria-label="Re-center on my location"
+            >
+              <LocateFixed className="h-5 w-5" />
+            </button>
           </div>
 
           {trafficAware && trafficSpeedIntervals.length > 0 && (
-            <div className="absolute bottom-28 left-3 z-[1000] flex items-center gap-2 rounded-xl border border-[#E6DFD3] bg-white/95 px-3 py-2 text-[10px] font-semibold text-beige-text shadow-lg">
+            <div className="absolute left-3 z-[1000] flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-neutral-700 shadow-md" style={{ bottom: "calc(env(safe-area-inset-bottom) + 270px)" }}>
               <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-[#188038]" /> Clear</span>
               <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-[#F9AB00]" /> Slow</span>
               <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-[#D93025]" /> Heavy</span>
             </div>
           )}
 
-          {/* 3. BOTTOM FLOATING HUD (Google Maps ETA & Controls Card) */}
-          <div className="absolute bottom-3 left-3 right-3 z-[1000] max-w-lg mx-auto">
-            <div className="rounded-2xl bg-white/95 backdrop-blur-md border border-[#E6DFD3] p-4 shadow-xl">
-              <div className="flex items-center justify-between gap-3">
-                {/* Left: ETA, Remaining Time, Remaining Distance */}
-                <div className="space-y-0.5 min-w-0">
+          {/* 3. BOTTOM SHEET */}
+          <div className="absolute inset-x-0 bottom-0 z-[1001]">
+            <div
+              className="mx-auto flex max-w-lg flex-col rounded-t-[28px] bg-white shadow-[0_-10px_40px_rgba(0,0,0,0.18)]"
+              style={{ paddingBottom: "max(env(safe-area-inset-bottom), 14px)", maxHeight: sheetExpanded ? "60dvh" : undefined }}
+            >
+              {/* Drag handle */}
+              <button
+                type="button"
+                onClick={() => setSheetExpanded((v) => !v)}
+                className="flex w-full flex-col items-center pt-2.5 pb-1 cursor-pointer"
+                aria-label={sheetExpanded ? "Hide directions" : "Show all directions"}
+              >
+                <span className="h-1.5 w-10 rounded-full bg-neutral-300" />
+              </button>
+
+              {/* ETA row */}
+              <div className="flex items-center justify-between gap-3 px-5 pt-1">
+                <div className="min-w-0">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-xl sm:text-2xl font-black text-[#1E3F35] tracking-tight">
-                      {etaString}
+                    <span className="text-[28px] font-extrabold leading-none tracking-tight text-black">
+                      {remainingSeconds != null ? formatDuration(remainingSeconds) : formatDist(remainingDistanceMeters)}
                     </span>
-                    {remainingSeconds != null && <span className="text-xs font-bold text-[#1E3F35]">{Math.ceil(remainingSeconds / 60)} min</span>}
-                    <span className="text-xs text-beige-muted">·</span>
-                    <span className="text-xs font-semibold text-beige-muted">
-                      {formatDist(remainingDistanceMeters)}
-                    </span>
+                    {arrivalZone && (
+                      <span className="rounded-full bg-[#E7F6EC] px-2 py-0.5 text-[11px] font-bold text-[#05813F]">
+                        In check-in zone
+                      </span>
+                    )}
                   </div>
-                  <div className="text-xs font-bold text-beige-text truncate">
-                    Destination: {activeDestinationStop?.customer_name || "Assigned Task Site"}
+                  <div className="mt-1 text-[13px] font-medium text-neutral-500">
+                    {formatDist(remainingDistanceMeters)}
+                    {remainingSeconds != null && <> · Arrive {etaString}</>}
+                    {!trafficAware && <> · No live traffic</>}
                   </div>
-                </div>
-
-                {/* Right: Exit / Stop Button */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {onCheckIn && activeDestinationStop && (
-                    <button
-                      type="button"
-                      onClick={() => onCheckIn(activeDestinationStop)}
-                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#EAF2EC] text-[#1E3F35] border border-[#CDE1D2] hover:bg-[#D8E9DC] transition cursor-pointer"
-                    >
-                      Check In
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={onStopNavigation}
-                    className="w-10 h-10 rounded-xl bg-red-600 hover:bg-red-700 text-white shadow-md flex items-center justify-center transition cursor-pointer"
-                    title="Exit Navigation"
-                  >
-                    <X className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Route status bar */}
-              <div className="mt-2.5 pt-2 border-t border-[#E6DFD3]/60 flex items-center justify-between text-[11px] text-beige-muted">
-                <span className="flex items-center gap-1.5 font-medium text-[#1E3F35]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#1E3F35] animate-pulse" />
-                  {trafficAware && trafficSpeedIntervals.length > 0
-                    ? "Live traffic conditions"
-                    : trafficAware
-                    ? "Traffic-aware ETA"
-                    : "Traffic data unavailable"}
-                </span>
-                <span className="truncate max-w-[200px]">
-                  {activeDestinationStop?.customer_address || "En route"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 4. TURN-BY-TURN STEPS OVERLAY DRAWER */}
-          {showStepsDrawer && (
-            <div className="absolute inset-x-3 bottom-24 top-20 z-[1001] bg-white/98 backdrop-blur-md rounded-2xl border border-[#E6DFD3] shadow-2xl p-4 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200">
-              <div className="flex items-center justify-between pb-3 border-b border-[#E6DFD3]">
-                <div className="flex items-center gap-2">
-                  <ListOrdered className="w-4 h-4 text-[#1E3F35]" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#1E3F35]">
-                    Turn-by-Turn Directions
-                  </h4>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowStepsDrawer(false)}
-                  className="p-1 rounded-lg hover:bg-gray-100 text-gray-500"
+                  onClick={() => setSheetExpanded((v) => !v)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-black transition active:scale-95 cursor-pointer"
+                  title="Directions list"
+                  aria-label="Directions list"
                 >
-                  <X className="w-4 h-4" />
+                  {sheetExpanded ? <ChevronDown className="h-5 w-5" /> : <ListOrdered className="h-5 w-5" />}
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-[#E6DFD3]/60 py-2 space-y-1">
-                {navigationSteps.map((step, idx) => (
-                  <div key={step.id} className="py-2.5 flex items-start gap-3 text-xs">
-                    <span className="w-6 h-6 rounded-lg bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-beige-text leading-tight">{step.instruction}</p>
-                      <p className="text-[10px] text-beige-muted mt-0.5">{formatDist(step.distanceMeters)}</p>
-                    </div>
+              {/* Destination card */}
+              <div className="mx-5 mt-4 flex items-center gap-3 rounded-2xl bg-neutral-50 p-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black text-sm font-bold text-white">
+                  {initialsOf(activeDestinationStop?.customer_name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-bold text-black">
+                    {activeDestinationStop?.customer_name || "Customer visit"}
                   </div>
-                ))}
+                  <div className="truncate text-xs text-neutral-500">
+                    {activeDestinationStop?.customer_address || "Destination"}
+                  </div>
+                </div>
+                {activeDestinationStop?.customer_phone && (
+                  <a
+                    href={`tel:${activeDestinationStop.customer_phone.replace(/[^\d+]/g, "")}`}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-black shadow-sm ring-1 ring-neutral-200 transition active:scale-95"
+                    title="Call customer"
+                    aria-label="Call customer"
+                  >
+                    <Phone className="h-[18px] w-[18px]" />
+                  </a>
+                )}
               </div>
 
-              <div className="pt-2 border-t border-[#E6DFD3] text-center">
-                <a
-                  href={googleMapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold text-[#1E3F35] hover:underline inline-flex items-center gap-1"
+              {/* Expanded directions list */}
+              {sheetExpanded && (
+                <div className="mx-5 mt-3 min-h-0 flex-1 overflow-y-auto">
+                  {navigationSteps.length === 0 && (
+                    <p className="py-4 text-center text-xs text-neutral-500">Turn-by-turn steps are not available for this route.</p>
+                  )}
+                  <ol>
+                    {navigationSteps.map((step, idx) => (
+                      <li
+                        key={step.id}
+                        className={`flex items-center gap-3 border-b border-neutral-100 py-3 text-sm ${idx === currentStepIndex ? "font-bold text-black" : "text-neutral-700"}`}
+                      >
+                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${idx === currentStepIndex ? "bg-black text-white" : "bg-neutral-100 text-black"}`}>
+                          <ManeuverIcon type={step.iconType} className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0 flex-1 leading-snug">{step.instruction}</span>
+                        <span className="shrink-0 text-xs text-neutral-400">{formatDist(step.distanceMeters)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="mt-4 flex items-center gap-2.5 px-5">
+                {onCheckIn && activeDestinationStop ? (
+                  <SwipeToConfirm
+                    label={arrivalZone ? "Swipe to check in" : `Swipe to check in · ${distanceToDestination != null ? formatDist(distanceToDestination) : ""} away`}
+                    tone={arrivalZone ? "go" : "dark"}
+                    onConfirm={() => onCheckIn(activeDestinationStop)}
+                  />
+                ) : (
+                  <div className="flex-1" />
+                )}
+                <button
+                  type="button"
+                  onClick={onStopNavigation}
+                  className="flex h-14 shrink-0 items-center justify-center rounded-full bg-[#FDECEC] px-5 text-sm font-bold text-[#C62828] transition active:scale-95 cursor-pointer"
+                  title="End trip"
                 >
-                  <span>Open in Google Maps App</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                  End
+                </button>
               </div>
             </div>
-          )}
+          </div>
         </>
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODE B: NORMAL OVERVIEW MAP (isNavigating = false)
+          MODE B: TRIP PREVIEW (isNavigating = false)
          ───────────────────────────────────────────────────────────── */}
       {!isNavigating && (
         <>
-          {/* Header Legend */}
-          <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-[#E6DFD3] bg-white/95 px-3 py-2 text-xs font-semibold shadow-xs backdrop-blur-md">
-            <span className="flex items-center gap-1.5 text-beige-text">
-              <Navigation className="h-4 w-4 text-[#1E3F35]" />
-              {singleDestinationMode ? "Direct Route" : "All Stops Route"}
-            </span>
-            <span className="text-beige-muted">·</span>
-            <span className="flex items-center gap-1 text-[#1E3F35]">
-              <span className="h-2 w-2 rounded-full bg-[#1E3F35] inline-block" />
-              {origin ? "Your GPS Location" : "GPS Unavailable"}
-            </span>
-            {activeDestinationStop && (
-              <>
-                <span className="text-beige-muted">·</span>
-                <span className="flex items-center gap-1 text-[#1E3F35] font-bold truncate max-w-[160px]">
-                  <MapPin className="h-3.5 w-3.5 text-[#1E3F35]" />
-                  {activeDestinationStop.customer_name}
-                </span>
-              </>
-            )}
+          <div className="absolute left-3 top-3 z-[1000] flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-neutral-800 shadow-md">
+            <span className={`h-2 w-2 rounded-full ${origin ? "bg-[#05A357]" : "bg-neutral-400"}`} />
+            {origin ? "GPS on" : "GPS unavailable"}
+            <span className="text-neutral-300">·</span>
+            {singleDestinationMode ? "Direct route" : `${stops.length} stops`}
           </div>
 
-          {/* Start Driving Navigation Prominent Button on Map */}
-          {activeDestinationStop && onStartNavigation && (
-            <div className="absolute right-3 top-3 z-10">
+          {activeDestinationStop && onStartNavigation ? (
+            <div className="absolute inset-x-3 bottom-3 z-[1000] mx-auto max-w-md rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+              <div className="flex items-stretch gap-3">
+                <div className="flex flex-col items-center py-1">
+                  <span className="h-2.5 w-2.5 rounded-full bg-black" />
+                  <span className="my-1 w-px flex-1 bg-neutral-300" />
+                  <span className="h-2.5 w-2.5 bg-black" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-2.5">
+                  <div className="truncate text-xs font-medium text-neutral-500">
+                    {origin ? "Your current location" : "Location unavailable"}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-black">{activeDestinationStop.customer_name || "Customer visit"}</div>
+                    <div className="truncate text-[11px] text-neutral-500">{activeDestinationStop.customer_address || ""}</div>
+                  </div>
+                </div>
+                {(remainingSeconds != null || remainingDistanceMeters > 0) && (
+                  <div className="shrink-0 text-right">
+                    {remainingSeconds != null && <div className="text-lg font-extrabold leading-none text-black">{formatDuration(remainingSeconds)}</div>}
+                    {remainingDistanceMeters > 0 && <div className="mt-1 text-[11px] font-medium text-neutral-500">{formatDist(remainingDistanceMeters)}</div>}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => onStartNavigation(activeDestinationStop)}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1E3F35] hover:bg-[#162F27] text-white font-bold text-xs shadow-md transition transform hover:scale-102 cursor-pointer"
+                className="mt-3.5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99] cursor-pointer"
               >
-                <Navigation className="w-4 h-4 text-white" />
-                <span>Start Navigation</span>
+                <Navigation className="h-4 w-4" />
+                Start navigation
               </button>
             </div>
+          ) : (
+            <div className="pointer-events-none absolute bottom-3 right-3 z-[1000] rounded-full bg-white/90 px-2.5 py-1 text-[10px] text-neutral-500 shadow-sm">
+              Tap a stop to preview its route
+            </div>
           )}
-
-          {/* Hint overlay at bottom */}
-          <div className="absolute right-3 bottom-3 z-10 rounded-lg border border-[#E6DFD3] bg-white/90 px-2.5 py-1 text-[10px] text-beige-muted shadow-xs pointer-events-none">
-            Click marker to select task · OSRM Road Geometry
-          </div>
         </>
       )}
+    </div>
+  );
+
+  if (isNavigating && portalReady) {
+    return createPortal(sheetContent, document.body);
+  }
+  return sheetContent;
+}
+
+function ManeuverIcon({ type, className }: { type?: "left" | "right" | "straight" | "arrive"; className?: string }) {
+  if (type === "left") return <CornerUpLeft className={className} />;
+  if (type === "right") return <CornerUpRight className={className} />;
+  if (type === "arrive") return <Flag className={className} />;
+  return <ArrowUp className={className} />;
+}
+
+function initialsOf(name?: string | null) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "•";
+  return parts.slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+/** Uber-style "swipe to confirm" button. Enter/Space also confirm, for keyboard users. */
+function SwipeToConfirm({
+  label,
+  onConfirm,
+  tone = "dark",
+}: {
+  label: string;
+  onConfirm: () => void | Promise<unknown>;
+  tone?: "dark" | "go";
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const startXRef = useRef(0);
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const KNOB = 48;
+
+  const maxOffset = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 8);
+
+  const confirm = async () => {
+    if (busy) return;
+    setBusy(true);
+    setOffset(maxOffset());
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+      setOffset(0);
+    }
+  };
+
+  const bg = tone === "go" ? "bg-[#05A357]" : "bg-black";
+
+  return (
+    <div
+      ref={trackRef}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          void confirm();
+        }
+      }}
+      className={`relative h-14 min-w-0 flex-1 select-none overflow-hidden rounded-full ${bg} text-white touch-none`}
+    >
+      <div
+        className="absolute inset-y-0 left-0 rounded-full bg-white/15"
+        style={{ width: offset + KNOB + 8, transition: dragging ? "none" : "width 0.25s ease" }}
+      />
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center truncate pl-14 pr-4 text-sm font-bold">
+        {busy ? "Verifying GPS…" : label}
+      </span>
+      <div
+        onPointerDown={(e) => {
+          if (busy) return;
+          setDragging(true);
+          startXRef.current = e.clientX - offset;
+          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!dragging) return;
+          setOffset(Math.min(maxOffset(), Math.max(0, e.clientX - startXRef.current)));
+        }}
+        onPointerUp={() => {
+          if (!dragging) return;
+          setDragging(false);
+          if (offset >= maxOffset() * 0.85) void confirm();
+          else setOffset(0);
+        }}
+        onPointerCancel={() => {
+          setDragging(false);
+          setOffset(0);
+        }}
+        className="absolute top-1 left-1 flex h-12 w-12 cursor-grab items-center justify-center rounded-full bg-white text-black shadow-md active:cursor-grabbing"
+        style={{ transform: `translateX(${offset}px)`, transition: dragging ? "none" : "transform 0.25s ease" }}
+      >
+        {busy ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+        ) : (
+          <ChevronsRight className="h-6 w-6" />
+        )}
+      </div>
     </div>
   );
 }
