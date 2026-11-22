@@ -36,3 +36,8 @@ body {
   background: #2D6A4F;
 }
 
+
+/* Softer base map for the agent route / navigation screens */
+.fos-soft-tiles {
+  filter: saturate(0.55) contrast(0.92) brightness(1.04);
+}

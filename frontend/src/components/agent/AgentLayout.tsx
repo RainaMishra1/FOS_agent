@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
 import DutyToggleButton from "@/components/agent/DutyToggleButton";
+import InstallAppBanner from "@/components/agent/InstallAppBanner";
 import { useAuth } from "@/context/AuthContext";
 import {
   Compass,
@@ -270,7 +271,10 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Sticky Header */}
-        <header className="sticky top-0 z-30 bg-[#F5F2EB]/90 backdrop-blur-md border-b border-[#E6DFD3] px-4 sm:px-6 py-3 flex items-center justify-between">
+        <header
+          className="sticky top-0 z-30 bg-[#F5F2EB]/90 backdrop-blur-md border-b border-[#E6DFD3] px-4 sm:px-6 py-3 flex items-center justify-between"
+          style={{ paddingTop: "max(env(safe-area-inset-top), 0.75rem)" }}
+        >
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#EAF2EC] text-[#1E3F35] flex items-center justify-center font-bold text-xs shadow-2xs">
               <Compass className="w-5 h-5" />
@@ -316,12 +320,18 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
         </header>
 
         {/* Page Content Body */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-10">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-10">
+          <div className="md:hidden">
+            <InstallAppBanner />
+          </div>
           {children}
         </main>
 
         {/* Mobile Fixed Bottom Navigation Bar (md:hidden) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E6DFD3] px-2 py-1.5 shadow-[0_-4px_12px_rgba(48,45,40,0.05)]">
+        <nav
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#E6DFD3] px-2 pt-1.5 shadow-[0_-4px_12px_rgba(48,45,40,0.05)]"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.375rem)" }}
+        >
           <div className="flex items-center justify-around">
             {navItems.map((item) => {
               const Icon = item.icon;

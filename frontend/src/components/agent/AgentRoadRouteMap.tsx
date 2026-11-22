@@ -273,12 +273,23 @@ export default function AgentRoadRouteMap({
     return closestIndex;
   }, [navigationSteps, currentPos]);
 
-  const currentStep = currentStepIndex == null ? null : navigationSteps[currentStepIndex];
+  // The banner shows the UPCOMING maneuver: once the agent is at (or past) the closest
+  // maneuver point, advance to the next one, like ride-hailing apps do.
+  const bannerStepIndex = useMemo(() => {
+    if (currentStepIndex == null) return null;
+    const step = navigationSteps[currentStepIndex];
+    if (!currentPos || !step?.location || step.iconType === "arrive") return currentStepIndex;
+    const d = distanceMeters(currentPos[0], currentPos[1], step.location[1], step.location[0]);
+    return d < 30 && currentStepIndex + 1 < navigationSteps.length ? currentStepIndex + 1 : currentStepIndex;
+  }, [currentStepIndex, navigationSteps, currentPos]);
+
+  const bannerStep = bannerStepIndex == null ? null : navigationSteps[bannerStepIndex];
+  const bannerThenStep = bannerStepIndex == null ? null : navigationSteps[bannerStepIndex + 1] ?? null;
 
   const distanceToManeuver = useMemo(() => {
-    if (!currentPos || !currentStep?.location) return null;
-    return distanceMeters(currentPos[0], currentPos[1], currentStep.location[1], currentStep.location[0]);
-  }, [currentPos, currentStep]);
+    if (!currentPos || !bannerStep?.location) return null;
+    return distanceMeters(currentPos[0], currentPos[1], bannerStep.location[1], bannerStep.location[0]);
+  }, [currentPos, bannerStep]);
 
   const distanceToDestination = useMemo(() => {
     if (!currentPos || activeDestinationStop?.customer_latitude == null || activeDestinationStop?.customer_longitude == null) return null;
@@ -365,13 +376,13 @@ export default function AgentRoadRouteMap({
           attributionControl: true,
         });
 
-        // Clean, low-contrast base map (like ride-hailing apps) so the route stands out.
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-          maxZoom: 20,
-          subdomains: "abcd",
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        // OSM tiles, softened with CSS (see globals.css) so the route stands out like in ride-hailing apps.
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          className: "fos-soft-tiles",
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
         }).addTo(map);
+        if (!isNavigating && map.zoomControl) map.zoomControl.setPosition("topright");
 
         map.on("dragstart", () => {
           if (isNavigating) setUserPannedAway(true);
@@ -583,7 +594,12 @@ export default function AgentRoadRouteMap({
     } else {
       if (currentPos) bounds.push(currentPos);
       if (bounds.length > 1) {
-        map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 15 });
+        const hasPreviewCard = Boolean(activeDestinationStop && onStartNavigation);
+        map.fitBounds(L.latLngBounds(bounds), {
+          paddingTopLeft: [40, 60],
+          paddingBottomRight: [40, hasPreviewCard ? 230 : 40],
+          maxZoom: 15,
+        });
       } else if (bounds.length === 1) {
         map.setView(bounds[0], 14);
       }
@@ -621,7 +637,7 @@ export default function AgentRoadRouteMap({
     : "https://www.google.com/maps";
 
   const sheetContent = (
-    <div className={`relative isolate overflow-hidden bg-[#EEF0F2] transition-all duration-300 ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-screen" : "z-0 h-[440px] rounded-2xl border border-[#E6DFD3] shadow-xs"}`}>
+    <div className={`isolate overflow-hidden bg-[#EEF0F2] ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-full" : "relative z-0 h-[440px] rounded-2xl border border-[#E6DFD3] shadow-xs"}`}>
       {/* Map DOM Element */}
       <div ref={mapRef} className="absolute inset-0" />
 
@@ -644,24 +660,24 @@ export default function AgentRoadRouteMap({
             <div className="mx-auto max-w-lg overflow-hidden rounded-2xl bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
               <div className="flex items-center gap-3.5 px-4 py-3.5">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/10">
-                  <ManeuverIcon type={currentStep?.iconType} className="h-7 w-7 text-white" />
+                  <ManeuverIcon type={bannerStep?.iconType} className="h-7 w-7 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  {distanceToManeuver != null && currentStep?.iconType !== "arrive" && (
+                  {distanceToManeuver != null && (
                     <div className="text-2xl font-extrabold leading-none tracking-tight">
                       {formatDist(distanceToManeuver)}
                     </div>
                   )}
                   <div className="mt-1 truncate text-[15px] font-semibold leading-snug text-white/90">
-                    {currentStep?.instruction || "Follow the highlighted route"}
+                    {bannerStep?.instruction || "Follow the highlighted route"}
                   </div>
                 </div>
               </div>
-              {nextStep && (
+              {bannerThenStep && (
                 <div className="flex items-center gap-2 border-t border-white/10 bg-[#1A1A1A] px-4 py-2 text-xs text-white/70">
                   <span className="font-semibold text-white/50">Then</span>
-                  <ManeuverIcon type={nextStep.iconType} className="h-4 w-4 shrink-0 text-white" />
-                  <span className="truncate text-white/85">{nextStep.instruction}</span>
+                  <ManeuverIcon type={bannerThenStep.iconType} className="h-4 w-4 shrink-0 text-white" />
+                  <span className="truncate text-white/85">{bannerThenStep.instruction}</span>
                 </div>
               )}
             </div>
@@ -721,11 +737,15 @@ export default function AgentRoadRouteMap({
                     <span className="text-[28px] font-extrabold leading-none tracking-tight text-black">
                       {remainingSeconds != null ? formatDuration(remainingSeconds) : formatDist(remainingDistanceMeters)}
                     </span>
-                    {arrivalZone && (
+                    {arrivalZone ? (
                       <span className="rounded-full bg-[#E7F6EC] px-2 py-0.5 text-[11px] font-bold text-[#05813F]">
                         In check-in zone
                       </span>
-                    )}
+                    ) : distanceToDestination != null ? (
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-bold text-neutral-600">
+                        {formatDist(distanceToDestination)} away
+                      </span>
+                    ) : null}
                   </div>
                   <div className="mt-1 text-[13px] font-medium text-neutral-500">
                     {formatDist(remainingDistanceMeters)}
@@ -779,9 +799,9 @@ export default function AgentRoadRouteMap({
                     {navigationSteps.map((step, idx) => (
                       <li
                         key={step.id}
-                        className={`flex items-center gap-3 border-b border-neutral-100 py-3 text-sm ${idx === currentStepIndex ? "font-bold text-black" : "text-neutral-700"}`}
+                        className={`flex items-center gap-3 border-b border-neutral-100 py-3 text-sm ${idx === bannerStepIndex ? "font-bold text-black" : "text-neutral-700"}`}
                       >
-                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${idx === currentStepIndex ? "bg-black text-white" : "bg-neutral-100 text-black"}`}>
+                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${idx === bannerStepIndex ? "bg-black text-white" : "bg-neutral-100 text-black"}`}>
                           <ManeuverIcon type={step.iconType} className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1 leading-snug">{step.instruction}</span>
@@ -796,7 +816,7 @@ export default function AgentRoadRouteMap({
               <div className="mt-4 flex items-center gap-2.5 px-5">
                 {onCheckIn && activeDestinationStop ? (
                   <SwipeToConfirm
-                    label={arrivalZone ? "Swipe to check in" : `Swipe to check in · ${distanceToDestination != null ? formatDist(distanceToDestination) : ""} away`}
+                    label="Swipe to check in"
                     tone={arrivalZone ? "go" : "dark"}
                     onConfirm={() => onCheckIn(activeDestinationStop)}
                   />

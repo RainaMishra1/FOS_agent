@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1E3F35" />
+<title>Offline — FOS Agent</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; align-items: center; justify-content: center; background: #F5F2EB; color: #1A201C;
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 24px; box-sizing: border-box; }
+  img { width: 72px; height: 72px; border-radius: 18px; }
+  h1 { font-size: 20px; margin: 18px 0 6px; }
+  p { font-size: 14px; color: #756F66; margin: 0 0 22px; max-width: 300px; }
+  button { border: 0; border-radius: 999px; background: #1E3F35; color: #fff; font-weight: 700; font-size: 15px; padding: 13px 26px; }
+</style>
+</head>
+<body>
+  <main>
+    <img src="/icons/icon-192.png" alt="" />
+    <h1>You're offline</h1>
+    <p>Check-ins and navigation need an internet connection and GPS. Reconnect and try again.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+  </main>
+</body>
+</html>
