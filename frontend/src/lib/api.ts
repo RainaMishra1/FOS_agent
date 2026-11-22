@@ -416,6 +416,7 @@ export interface RouteStep {
     modifier?: string;
     location?: [number, number];
     instruction?: string;
+    exit?: number;
   };
 }
 
@@ -441,6 +442,25 @@ export interface RoadRouteData {
   traffic_aware?: boolean;
   provider?: string;
   traffic_speed_intervals?: TrafficSpeedInterval[];
+  mode?: TravelMode;
+  /** True when the time is an estimate (bike without live traffic). */
+  estimated?: boolean;
+}
+
+export type TravelMode = "car" | "bike" | "walk";
+
+export interface TravelEstimate {
+  distance_meters: number;
+  duration_seconds: number;
+  estimated: boolean;
+}
+
+export async function fetchAgentRouteEstimates(
+  visitIds: string[],
+  token?: string | null
+): Promise<{ estimates: Record<TravelMode, TravelEstimate | null> }> {
+  const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
+  return await apiFetch(`/agent/routes/estimates?${params.toString()}`, { method: "GET" }, token);
 }
 
 export async function fetchAgentTodayRoute(token?: string | null, asOfDate?: string): Promise<AgentRouteData> {
@@ -457,9 +477,10 @@ export async function optimizeAgentTodayRoute(token?: string | null, asOfDate?: 
 
 export async function fetchAgentRouteGeometry(
   visitIds: string[],
-  token?: string | null
+  token?: string | null,
+  mode: TravelMode = "car"
 ): Promise<RoadRouteData> {
-  const params = new URLSearchParams({ visit_ids: visitIds.join(",") });
+  const params = new URLSearchParams({ visit_ids: visitIds.join(","), mode });
   return await apiFetch<RoadRouteData>(`/agent/routes/geometry?${params.toString()}`, { method: "GET" }, token);
 }
 

@@ -30,6 +30,15 @@ from app.schemas.visit import (
 from app.core.auth import require_agent, require_authenticated
 from app.api.v1.visits import _to_visit_response, VALID_VISIT_STATUSES
 from app.api.v1.agents import _to_agent_response
+from app.services.travel_modes import (
+    BIKE_TIME_FACTOR,
+    GOOGLE_TRAVEL_MODE,
+    google_maneuver,
+    normalize_mode,
+    osrm_route_response,
+    osrm_url,
+    scale_route_time,
+)
 
 router = APIRouter(prefix="/agent", tags=["Field Agent Operations"])
 
@@ -216,6 +225,7 @@ async def _google_compute_route(
     intermediates: list[dict],
     *,
     optimize_waypoints: bool = False,
+    travel_mode: str = "car",
 ):
     if not settings.GOOGLE_ROUTES_API_KEY:
         raise RuntimeError("Google Routes API is not configured.")
@@ -227,12 +237,13 @@ async def _google_compute_route(
             {"location": {"latLng": {"latitude": stop["customer_latitude"], "longitude": stop["customer_longitude"]}}}
             for stop in intermediates
         ],
-        "travelMode": "DRIVE",
+        "travelMode": GOOGLE_TRAVEL_MODE.get(travel_mode, "DRIVE"),
         "routingPreference": "TRAFFIC_AWARE",
         "departureTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "extraComputations": ["TRAFFIC_ON_POLYLINE"],
         "optimizeWaypointOrder": optimize_waypoints,
     }
+    if settings.GOOGLE_ROUTES_TRAFFIC_ON_POLYLINE:
+        body["extraComputations"] = ["TRAFFIC_ON_POLYLINE"]
     field_mask = (
         "routes.duration,routes.staticDuration,routes.distanceMeters,"
         "routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex,"
@@ -258,7 +269,7 @@ async def _google_compute_route(
     return routes[0]
 
 
-def _google_route_response(route: dict) -> dict:
+def _google_route_response(route: dict, mode: str = "car") -> dict:
     encoded = (route.get("polyline") or {}).get("encodedPolyline") or ""
     legs = []
     for leg in route.get("legs") or []:
@@ -266,9 +277,7 @@ def _google_route_response(route: dict) -> dict:
         for step in leg.get("steps") or []:
             navigation = step.get("navigationInstruction") or {}
             instruction = navigation.get("instructions") or "Continue on route"
-            maneuver = (navigation.get("maneuver") or "").lower()
-            modifier = "left" if "left" in maneuver else "right" if "right" in maneuver else ""
-            step_type = "arrive" if "destination" in maneuver or "arrive" in maneuver else "turn"
+            step_type, modifier = google_maneuver(navigation.get("maneuver") or "")
             step_points = _decode_google_polyline(((step.get("polyline") or {}).get("encodedPolyline") or ""))
             steps.append({
                 "distance": step.get("distanceMeters", 0),
@@ -296,7 +305,38 @@ def _google_route_response(route: dict) -> dict:
         "traffic_aware": True,
         "provider": "Google Routes",
         "traffic_speed_intervals": (route.get("travelAdvisory") or {}).get("speedReadingIntervals", []),
+        "mode": mode,
+        "estimated": False,
     }
+
+
+async def _osrm_route(mode: str, coordinates: list[tuple[float, float]], *, full: bool = True) -> dict:
+    """Fetch one OSRM route for a travel mode. coordinates are (longitude, latitude)."""
+    coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
+    base = osrm_url(mode, settings.OSRM_BASE_URL, settings.OSRM_FOOT_URL)
+    params = {"overview": "full", "geometries": "geojson", "steps": "true"} if full else {"overview": "false"}
+    async with httpx.AsyncClient(timeout=15.0, headers={"User-Agent": settings.GEOCODING_USER_AGENT}) as client:
+        response = await client.get(f"{base}/route/v1/driving/{coord_path}", params=params)
+        response.raise_for_status()
+        result = response.json()
+    if result.get("code") != "Ok" or not result.get("routes"):
+        raise ValueError("No road route")
+    route = result["routes"][0]
+    return scale_route_time(route, BIKE_TIME_FACTOR) if mode == "bike" else route
+
+
+async def _ordered_route_visits(agent: Agent, db: AsyncSession, visit_ids: str) -> list[Visit]:
+    ids = [part.strip() for part in visit_ids.split(",") if part.strip()]
+    if not ids:
+        return []
+    visits = (await db.execute(select(Visit).options(joinedload(Visit.customer)).where(Visit.agent_id == agent.id, Visit.id.in_(ids)))).unique().scalars().all()
+    by_id = {str(v.id): v for v in visits}
+    if len(by_id) != len(set(ids)):
+        raise HTTPException(status_code=403, detail="Route contains a visit that is not assigned to your account.")
+    ordered = [by_id[item] for item in ids]
+    if any(v.customer.latitude is None or v.customer.longitude is None for v in ordered):
+        raise HTTPException(status_code=409, detail="One or more assigned customer addresses do not have mapped coordinates.")
+    return ordered
 
 
 @router.get("/routes/today")
@@ -419,57 +459,79 @@ async def optimize_today_agent_route(
 @router.get("/routes/geometry")
 async def get_agent_route_geometry(
     visit_ids: str = Query(..., description="Comma-separated visit UUIDs in the requested display order"),
+    mode: str = Query("car", description="Travel mode: car, bike or walk"),
     current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
 ):
     agent = current_user.agent
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
+    try:
+        mode = normalize_mode(mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     origin = await _agent_route_origin(agent, db, require_planning_accuracy=False)
-    ids = [part.strip() for part in visit_ids.split(",") if part.strip()]
-    if not ids:
-        return {"geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": []}
-    visits = (await db.execute(select(Visit).options(joinedload(Visit.customer)).where(Visit.agent_id == agent.id, Visit.id.in_(ids)))).unique().scalars().all()
-    by_id = {str(v.id): v for v in visits}
-    if len(by_id) != len(set(ids)):
-        raise HTTPException(status_code=403, detail="Route contains a visit that is not assigned to your account.")
-    ordered = [by_id[item] for item in ids]
-    if any(v.customer.latitude is None or v.customer.longitude is None for v in ordered):
-        raise HTTPException(status_code=409, detail="One or more assigned customer addresses do not have mapped coordinates.")
-    if settings.GOOGLE_ROUTES_API_KEY:
-        route_origin = {"latitude": origin["latitude"], "longitude": origin["longitude"]}
+    ordered = await _ordered_route_visits(agent, db, visit_ids)
+    if not ordered:
+        return {"geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": [], "mode": mode}
+
+    # Live traffic (Google) for car and bike. Walking has no traffic, so it always uses the free router.
+    if settings.GOOGLE_ROUTES_API_KEY and mode in ("car", "bike"):
         destination_visit = ordered[-1]
         try:
             route = await _google_compute_route(
-                route_origin,
+                {"latitude": origin["latitude"], "longitude": origin["longitude"]},
                 {"latitude": destination_visit.customer.latitude, "longitude": destination_visit.customer.longitude},
                 [
                     {"customer_latitude": visit.customer.latitude, "customer_longitude": visit.customer.longitude}
                     for visit in ordered[:-1]
                 ],
+                travel_mode=mode,
             )
-            return _google_route_response(route)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-            raise HTTPException(status_code=502, detail="Traffic-aware road routing is temporarily unavailable.") from exc
+            return _google_route_response(route, mode)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError):
+            # Quota used up or Google unavailable: fall back to the free road router below.
+            pass
 
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
-    coord_path = ";".join(f"{lon},{lat}" for lon, lat in coordinates)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                f"{settings.OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord_path}",
-                params={"overview": "full", "geometries": "geojson", "steps": "true"},
-            )
-            response.raise_for_status()
-            result = response.json()
-        if result.get("code") != "Ok" or not result.get("routes"):
-            raise ValueError("No road route")
+        route = await _osrm_route(mode, coordinates)
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=502, detail="Road route is temporarily unavailable.") from exc
-    route = result["routes"][0]
-    return {"geometry": route["geometry"], "distance_meters": route["distance"],
-            "duration_seconds": route["duration"], "legs": route.get("legs", []),
-            "static_duration_seconds": route["duration"], "traffic_aware": False,
-            "provider": "OSRM", "traffic_speed_intervals": []}
+    return osrm_route_response(route, mode, estimated=(mode == "bike"))
+
+
+@router.get("/routes/estimates")
+async def get_agent_route_estimates(
+    visit_ids: str = Query(..., description="Comma-separated visit UUIDs in route order"),
+    current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
+):
+    """Distance and travel time for car, bike and walk, from the free road router (no traffic, no API cost)."""
+    agent = current_user.agent
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent profile not found.")
+    origin = await _agent_route_origin(agent, db, require_planning_accuracy=False)
+    ordered = await _ordered_route_visits(agent, db, visit_ids)
+    estimates: dict[str, Optional[dict]] = {"car": None, "bike": None, "walk": None}
+    if not ordered:
+        return {"estimates": estimates}
+    coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+
+    try:
+        car = await _osrm_route("car", coordinates, full=False)
+        estimates["car"] = {"distance_meters": car["distance"], "duration_seconds": car["duration"], "estimated": False}
+        estimates["bike"] = {
+            "distance_meters": car["distance"],
+            "duration_seconds": car["duration"] * BIKE_TIME_FACTOR,
+            "estimated": True,
+        }
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        walk = await _osrm_route("walk", coordinates, full=False)
+        estimates["walk"] = {"distance_meters": walk["distance"], "duration_seconds": walk["duration"], "estimated": False}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        pass
+    return {"estimates": estimates}
 
 
 @router.get("/me", response_model=AgentResponse)

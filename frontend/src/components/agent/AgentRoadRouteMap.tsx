@@ -11,8 +11,14 @@ import {
   CornerUpLeft,
   ArrowUp,
   RotateCcw,
+  RotateCw,
+  ArrowUpLeft,
+  ArrowUpRight,
   Volume2,
   VolumeX,
+  Car,
+  Bike,
+  Footprints,
   LocateFixed,
   ExternalLink,
   X,
@@ -22,7 +28,19 @@ import {
   ChevronsRight,
   Flag,
 } from "lucide-react";
-import { RouteLeg, RouteStep, TrafficSpeedInterval } from "@/lib/api";
+import { RouteLeg, TrafficSpeedInterval, TravelEstimate, TravelMode } from "@/lib/api";
+import {
+  ManeuverKind,
+  announceThresholds,
+  buildInstruction,
+  distanceMeters,
+  formatDuration,
+  maneuverKind,
+  nextAnnouncement,
+  remainingRoute,
+  routeProgress,
+} from "@/lib/navigation";
+import { useVoiceGuidance } from "@/hooks/useVoiceGuidance";
 
 export interface RouteMapStop {
   id: string;
@@ -64,31 +82,30 @@ interface AgentRoadRouteMapProps {
   isNavigating?: boolean;
   onStartNavigation?: (stop?: RouteMapStop | null) => void;
   onStopNavigation?: () => void;
-  onCheckIn?: (stop: RouteMapStop) => void;
-}
-
-function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const y = Math.sin(((lon2 - lon1) * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180);
-  const x =
-    Math.cos((lat1 * Math.PI) / 180) * Math.sin((lat2 * Math.PI) / 180) -
-    Math.sin((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.cos(((lon2 - lon1) * Math.PI) / 180);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  onCheckIn?: (stop: RouteMapStop) => void | Promise<unknown>;
+  /** Car / bike / walk. */
+  travelMode?: TravelMode;
+  onTravelModeChange?: (mode: TravelMode) => void;
+  /** Time and distance for each mode, shown on the mode picker. */
+  modeEstimates?: Partial<Record<TravelMode, TravelEstimate | null>>;
+  /** True when the route time is an estimate (bike without live traffic). */
+  routeEstimated?: boolean;
+  /** Called when the agent has left the route and a new one is needed. */
+  onReroute?: () => void;
+  gpsHeading?: number | null;
+  gpsSpeedMps?: number | null;
 }
 
 function formatDist(meters: number) {
-  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  return `${meters >= 100 ? Math.round(meters / 10) * 10 : Math.round(meters)} m`;
 }
+
+const MODE_OPTIONS: { mode: TravelMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { mode: "car", label: "Car", Icon: Car },
+  { mode: "bike", label: "Bike", Icon: Bike },
+  { mode: "walk", label: "Walk", Icon: Footprints },
+];
 
 export default function AgentRoadRouteMap({
   origin,
@@ -106,11 +123,21 @@ export default function AgentRoadRouteMap({
   onStartNavigation,
   onStopNavigation,
   onCheckIn,
+  travelMode = "car",
+  onTravelModeChange,
+  modeEstimates,
+  routeEstimated = false,
+  onReroute,
+  gpsHeading = null,
+  gpsSpeedMps = null,
 }: AgentRoadRouteMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
   const vehicleMarkerRef = useRef<any>(null);
+  const routeCasingRef = useRef<any>(null);
+  const routeLineRef = useRef<any>(null);
+  const { supported: voiceSupported, muted: voiceMuted, setMuted: setVoiceMuted, speak } = useVoiceGuidance();
 
   const [ready, setReady] = useState(false);
   const [sheetExpanded, setSheetExpanded] = useState(false);
@@ -195,137 +222,172 @@ export default function AgentRoadRouteMap({
     return geometry.map(([lon, lat]) => [lat, lon]);
   }, [geometry]);
 
-  // Current active navigation position (stays at agent's real GPS position)
-  const currentPos = useMemo<[number, number] | null>(() => {
+  // Raw GPS position of the agent
+  const gpsPos = useMemo<[number, number] | null>(() => {
     if (origin) return [origin.latitude, origin.longitude];
     if (routeLatLngs.length > 0) return routeLatLngs[0];
     return null;
   }, [origin, routeLatLngs]);
 
-  // Bearing towards next road segment
+  // Where the agent is along the route (snapped point, distance left, off-route distance)
+  const progress = useMemo(() => (gpsPos && routeLatLngs.length > 1 ? routeProgress(routeLatLngs, gpsPos) : null), [routeLatLngs, gpsPos]);
+
+  const offRouteLimit = travelMode === "walk" ? 35 : 60;
+  // While navigating, show the puck on the road (like ride-hailing apps) when GPS is close to the route.
+  const currentPos = useMemo<[number, number] | null>(() => {
+    if (isNavigating && progress && progress.offRouteMeters < 30) return progress.snapped;
+    return gpsPos;
+  }, [isNavigating, progress, gpsPos]);
+
+  // Heading: device compass/GPS heading when moving, otherwise the direction of the road.
   const currentBearing = useMemo(() => {
-    if (!currentPos || routeLatLngs.length < 2) return 0;
-    let nearestIndex = 0;
-    let nearestDistance = Infinity;
-    routeLatLngs.forEach((point, index) => {
-      const distance = distanceMeters(currentPos[0], currentPos[1], point[0], point[1]);
-      if (distance < nearestDistance) {
-        nearestIndex = index;
-        nearestDistance = distance;
-      }
-    });
-    const nextPoint = routeLatLngs[Math.min(nearestIndex + 1, routeLatLngs.length - 1)];
-    return calculateBearing(currentPos[0], currentPos[1], nextPoint[0], nextPoint[1]);
-  }, [routeLatLngs, currentPos]);
+    if (gpsHeading != null && !Number.isNaN(gpsHeading) && (gpsSpeedMps ?? 0) > 1.5) return gpsHeading;
+    return progress?.bearing ?? 0;
+  }, [gpsHeading, gpsSpeedMps, progress]);
 
-  // Derived turn-by-turn steps from OSRM or synthesized from route coordinates
+  // Turn-by-turn steps from OSRM / Google, with their position along the route
   const navigationSteps = useMemo(() => {
-    if (legs && legs.length > 0 && legs[0].steps && legs[0].steps.length > 0) {
-      return legs[0].steps.map((st, i) => {
-        const mod = st.maneuver?.modifier || "";
-        const type = st.maneuver?.type || "";
-        const name = st.name || (i === 0 ? "Current Road" : "Connecting Road");
-        let instruction = "";
-        let iconType: "left" | "right" | "straight" | "arrive" = "straight";
-
-        if (type === "arrive") {
-          instruction = st.maneuver?.instruction || `Arrive at ${activeDestinationStop?.customer_name || "destination"}`;
-          iconType = "arrive";
-        } else if (mod.includes("left")) {
-          instruction = st.maneuver?.instruction || `Turn left onto ${name}`;
-          iconType = "left";
-        } else if (mod.includes("right")) {
-          instruction = st.maneuver?.instruction || `Turn right onto ${name}`;
-          iconType = "right";
-        } else {
-          instruction = st.maneuver?.instruction || (i === 0 ? `Head towards ${name}` : `Continue straight on ${name}`);
-          iconType = "straight";
-        }
-
-        return {
-          id: `step-${i}`,
-          instruction,
-          distanceMeters: st.distance,
-          iconType,
-          name,
-          location: st.maneuver?.location,
-        };
+    const allSteps = (legs || []).flatMap((leg) => leg.steps || []);
+    return allSteps.map((st, i) => {
+      const kind = maneuverKind(st.maneuver?.type, st.maneuver?.modifier);
+      const instruction = buildInstruction({
+        type: st.maneuver?.type,
+        modifier: st.maneuver?.modifier,
+        name: st.name,
+        exit: st.maneuver?.exit,
+        provided: st.maneuver?.instruction,
+        destinationName: activeDestinationStop?.customer_name || undefined,
       });
-    }
-
-    return [];
-  }, [legs, activeDestinationStop]);
-
-  // Current maneuver based on active route
-  const currentStepIndex = useMemo(() => {
-    if (!navigationSteps.length) return null;
-    if (!currentPos) return 0;
-    let closestIndex = 0;
-    let closestDistance = Infinity;
-    navigationSteps.forEach((step, index) => {
-      if (!step.location) return;
-      const distance = distanceMeters(currentPos[0], currentPos[1], step.location[1], step.location[0]);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = index;
-      }
+      const location = st.maneuver?.location;
+      const alongMeters =
+        location && routeLatLngs.length > 1 ? routeProgress(routeLatLngs, [location[1], location[0]])?.traveledMeters ?? null : null;
+      return {
+        id: `step-${i}`,
+        instruction,
+        distanceMeters: st.distance,
+        iconType: kind,
+        location,
+        alongMeters,
+      };
     });
-    return closestIndex;
-  }, [navigationSteps, currentPos]);
+  }, [legs, activeDestinationStop?.customer_name, routeLatLngs]);
 
-  // The banner shows the UPCOMING maneuver: once the agent is at (or past) the closest
-  // maneuver point, advance to the next one, like ride-hailing apps do.
+  // The UPCOMING maneuver: first step whose point on the route is still ahead of the agent.
   const bannerStepIndex = useMemo(() => {
-    if (currentStepIndex == null) return null;
-    const step = navigationSteps[currentStepIndex];
-    if (!currentPos || !step?.location || step.iconType === "arrive") return currentStepIndex;
-    const d = distanceMeters(currentPos[0], currentPos[1], step.location[1], step.location[0]);
-    return d < 30 && currentStepIndex + 1 < navigationSteps.length ? currentStepIndex + 1 : currentStepIndex;
-  }, [currentStepIndex, navigationSteps, currentPos]);
+    if (!navigationSteps.length) return null;
+    const traveled = progress?.traveledMeters ?? 0;
+    const index = navigationSteps.findIndex(
+      (step, i) => i > 0 && step.alongMeters != null && step.alongMeters > traveled + 8
+    );
+    if (index >= 0) return index;
+    return navigationSteps.length - 1;
+  }, [navigationSteps, progress]);
 
   const bannerStep = bannerStepIndex == null ? null : navigationSteps[bannerStepIndex];
   const bannerThenStep = bannerStepIndex == null ? null : navigationSteps[bannerStepIndex + 1] ?? null;
 
+  // Distance along the road to the next maneuver
   const distanceToManeuver = useMemo(() => {
-    if (!currentPos || !bannerStep?.location) return null;
+    if (!bannerStep) return null;
+    if (progress && bannerStep.alongMeters != null) return Math.max(0, bannerStep.alongMeters - progress.traveledMeters);
+    if (!currentPos || !bannerStep.location) return null;
     return distanceMeters(currentPos[0], currentPos[1], bannerStep.location[1], bannerStep.location[0]);
-  }, [currentPos, bannerStep]);
+  }, [progress, bannerStep, currentPos]);
 
   const distanceToDestination = useMemo(() => {
-    if (!currentPos || activeDestinationStop?.customer_latitude == null || activeDestinationStop?.customer_longitude == null) return null;
-    return distanceMeters(currentPos[0], currentPos[1], activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude);
-  }, [currentPos, activeDestinationStop?.customer_latitude, activeDestinationStop?.customer_longitude]);
+    if (!gpsPos || activeDestinationStop?.customer_latitude == null || activeDestinationStop?.customer_longitude == null) return null;
+    return distanceMeters(gpsPos[0], gpsPos[1], activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude);
+  }, [gpsPos, activeDestinationStop?.customer_latitude, activeDestinationStop?.customer_longitude]);
 
   // Same 750 m radius the server uses for check-in (testing value).
   const arrivalZone = distanceToDestination != null && distanceToDestination <= CHECK_IN_RADIUS_METERS;
 
-  const nextStep = useMemo(() => {
-    if (currentStepIndex == null || currentStepIndex + 1 >= navigationSteps.length) return null;
-    return navigationSteps[currentStepIndex + 1];
-  }, [navigationSteps, currentStepIndex]);
+  // Total route size and time from the router
+  const totalRouteMeters = legs.length ? legs.reduce((sum, leg) => sum + (leg.distance || 0), 0) : progress?.totalMeters ?? 0;
+  const totalRouteSeconds = legs.length ? legs.reduce((sum, leg) => sum + (leg.duration || 0), 0) : null;
 
-  // Calculate remaining distance and ETA to destination
+  // Distance and time left, shrinking as the agent moves along the route
   const remainingDistanceMeters = useMemo(() => {
-    if (legs && legs.length > 0 && legs[0].distance) {
-      return legs[0].distance;
-    }
-    if (routeLatLngs.length > 1) {
-      let dist = 0;
-      for (let i = 0; i < routeLatLngs.length - 1; i++) {
-        dist += distanceMeters(routeLatLngs[i][0], routeLatLngs[i][1], routeLatLngs[i + 1][0], routeLatLngs[i + 1][1]);
-      }
-      return dist;
-    }
-    return 0;
-  }, [legs, routeLatLngs, activeDestinationStop]);
+    if (isNavigating && progress) return progress.remainingMeters;
+    return totalRouteMeters;
+  }, [isNavigating, progress, totalRouteMeters]);
 
-  const remainingSeconds = legs[0]?.duration ?? null;
+  const remainingSeconds = useMemo(() => {
+    if (totalRouteSeconds == null) return null;
+    if (isNavigating && progress && progress.totalMeters > 0) {
+      return totalRouteSeconds * (progress.remainingMeters / progress.totalMeters);
+    }
+    return totalRouteSeconds;
+  }, [totalRouteSeconds, isNavigating, progress]);
 
   const etaString = useMemo(() => {
     if (remainingSeconds == null) return "—";
     const etaDate = new Date(Date.now() + remainingSeconds * 1000);
     return etaDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }, [remainingSeconds]);
+
+  // ── Voice guidance ────────────────────────────────────────────────
+  const spokenRef = useRef<Map<string, Set<number>>>(new Map());
+  const startedSpeechRef = useRef(false);
+  const arrivedSpokenRef = useRef(false);
+
+  useEffect(() => {
+    if (!isNavigating) {
+      spokenRef.current = new Map();
+      startedSpeechRef.current = false;
+      arrivedSpokenRef.current = false;
+      return;
+    }
+    if (!startedSpeechRef.current && bannerStep) {
+      startedSpeechRef.current = true;
+      const name = activeDestinationStop?.customer_name || "the customer";
+      const lead = remainingSeconds != null ? `${formatDuration(remainingSeconds).replace("min", "minutes").replace("hr", "hours")} to ${name}.` : `Starting route to ${name}.`;
+      const firstStep = navigationSteps[0];
+      speak(`${lead} ${firstStep && firstStep.iconType === "depart" ? firstStep.instruction + "." : ""}`);
+    }
+  }, [isNavigating, bannerStep, navigationSteps, activeDestinationStop?.customer_name, remainingSeconds, speak]);
+
+  useEffect(() => {
+    if (!isNavigating || !bannerStep || distanceToManeuver == null) return;
+    if (bannerStep.iconType === "arrive") return; // arrival has its own message below
+    let spoken = spokenRef.current.get(bannerStep.id);
+    if (!spoken) {
+      spoken = new Set();
+      spokenRef.current.set(bannerStep.id, spoken);
+      // Don't announce the long-range threshold right after the previous turn if we're already past it.
+    }
+    const text = nextAnnouncement(distanceToManeuver, bannerStep.instruction, announceThresholds(travelMode), spoken);
+    if (text) speak(text);
+  }, [isNavigating, bannerStep, distanceToManeuver, travelMode, speak]);
+
+  useEffect(() => {
+    if (!isNavigating || arrivedSpokenRef.current) return;
+    const nearEnd = (progress && progress.remainingMeters < 40) || (distanceToDestination != null && distanceToDestination < 40);
+    if (nearEnd) {
+      arrivedSpokenRef.current = true;
+      speak(`You have arrived at ${activeDestinationStop?.customer_name || "your destination"}. Swipe to check in.`);
+    }
+  }, [isNavigating, progress, distanceToDestination, activeDestinationStop?.customer_name, speak]);
+
+  // ── Automatic re-routing when the agent leaves the route ─────────
+  const offRouteCountRef = useRef(0);
+  const lastRerouteRef = useRef(0);
+  useEffect(() => {
+    if (!isNavigating || !progress || !onReroute) return;
+    if (progress.offRouteMeters > offRouteLimit) {
+      offRouteCountRef.current += 1;
+    } else {
+      offRouteCountRef.current = 0;
+    }
+    const now = Date.now();
+    if (offRouteCountRef.current >= 2 && now - lastRerouteRef.current > 20000) {
+      lastRerouteRef.current = now;
+      offRouteCountRef.current = 0;
+      spokenRef.current = new Map();
+      speak("Rerouting.");
+      onReroute();
+    }
+  }, [isNavigating, progress, offRouteLimit, onReroute, speak]);
 
   // Invalidate map size when toggling navigation mode or container size changes
   useEffect(() => {
@@ -339,16 +401,47 @@ export default function AgentRoadRouteMap({
     };
   }, [isNavigating]);
 
-  // Follow the live GPS position while navigating unless the agent pans the map.
+  // Move the puck smoothly to each new GPS fix and keep the camera on it while navigating.
+  const animationRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!ready || !vehicleMarkerRef.current || !currentPos) return;
-    vehicleMarkerRef.current.setLatLng(currentPos);
-    if (isNavigating && !userPannedAway && instanceRef.current) {
-      instanceRef.current.setView(currentPos, instanceRef.current.getZoom(), { animate: true });
+    const marker = vehicleMarkerRef.current;
+    if (!ready || !marker || !currentPos) return;
+    const from = marker.getLatLng?.();
+    const to = currentPos;
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    const jump = !from || distanceMeters(from.lat, from.lng, to[0], to[1]) > 300;
+    if (jump) {
+      marker.setLatLng(to);
+    } else {
+      const start = performance.now();
+      const duration = 900;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const ease = t * (2 - t);
+        marker.setLatLng([from.lat + (to[0] - from.lat) * ease, from.lng + (to[1] - from.lng) * ease]);
+        if (t < 1) animationRef.current = requestAnimationFrame(step);
+      };
+      animationRef.current = requestAnimationFrame(step);
     }
-  }, [ready, currentPos, isNavigating, userPannedAway]);
+    if (isNavigating && !userPannedAway && instanceRef.current) {
+      const zoom = Math.max(instanceRef.current.getZoom(), travelMode === "walk" ? 18 : 17);
+      instanceRef.current.setView(to, zoom, { animate: true, duration: 0.9 });
+    }
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [ready, currentPos, isNavigating, userPannedAway, travelMode]);
 
-  // Dedicated effect for vehicle arrow bearing rotation
+  // Trim the route behind the agent so only the road ahead is drawn.
+  useEffect(() => {
+    if (!isNavigating || !progress || routeLatLngs.length < 2) return;
+    const ahead = remainingRoute(routeLatLngs, progress);
+    if (trafficAware && trafficSpeedIntervals.length > 0) return; // keep traffic colours aligned
+    routeCasingRef.current?.setLatLngs(ahead);
+    routeLineRef.current?.setLatLngs(ahead);
+  }, [isNavigating, progress, routeLatLngs, trafficAware, trafficSpeedIntervals]);
+
+  // Rotate the vehicle arrow to the direction of travel
   useEffect(() => {
     if (!vehicleMarkerRef.current) return;
     const el = vehicleMarkerRef.current.getElement();
@@ -360,7 +453,24 @@ export default function AgentRoadRouteMap({
     }
   }, [currentBearing]);
 
-  // Initialize and update static map layers (stops, routes, camera bounds)
+  // Latest values for the drawing effect, so it doesn't re-run on every GPS fix.
+  const stopsRef = useRef(stops);
+  stopsRef.current = stops;
+  const currentPosRef = useRef(currentPos);
+  currentPosRef.current = currentPos;
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+  const stopsKey = useMemo(
+    () =>
+      stops
+        .map((s) => `${s.id}:${s.status}:${s.customer_latitude}:${s.customer_longitude}:${s.is_nearest ? 1 : 0}:${s.order_index ?? ""}`)
+        .join("|"),
+    [stops]
+  );
+  const hasPosition = currentPos != null;
+  const navFramedRef = useRef(false);
+
+  // Create the Leaflet map once per container (the full-screen trip view uses its own container).
   useEffect(() => {
     const L = (window as any).L;
     if (!ready || !L || !mapRef.current) return;
@@ -394,12 +504,40 @@ export default function AgentRoadRouteMap({
     } catch (err) {
       console.warn("Leaflet AgentRoadRouteMap init warning:", err);
     }
+    navFramedRef.current = false;
 
+    return () => {
+      if (instanceRef.current) {
+        try {
+          instanceRef.current.remove();
+        } catch {
+          // ignore
+        }
+        instanceRef.current = null;
+        layerRef.current = null;
+        vehicleMarkerRef.current = null;
+        routeCasingRef.current = null;
+        routeLineRef.current = null;
+      }
+    };
+  }, [ready, isNavigating]);
+
+  // Draw stops, route and the agent marker. Re-runs only when the route or stops really change.
+  useEffect(() => {
+    const L = (window as any).L;
     const map = instanceRef.current;
     const layer = layerRef.current;
-    if (!map || !layer) return;
+    if (!ready || !L || !map || !layer) return;
     layer.clearLayers();
     const bounds: [number, number][] = [];
+    const stops = stopsRef.current;
+    const currentPos = currentPosRef.current;
+    const progress = progressRef.current;
+    // While navigating, draw only the road still ahead.
+    const drawnRoute: [number, number][] =
+      isNavigating && progress && !(trafficAware && trafficSpeedIntervals.length > 0)
+        ? remainingRoute(routeLatLngs, progress)
+        : routeLatLngs;
 
     // 1. Draw Destination / Task Markers
     stops.forEach((stop, index) => {
@@ -472,13 +610,14 @@ export default function AgentRoadRouteMap({
     // 2. Draw Polyline Route
     if (routeLatLngs.length > 1) {
       // Glow background line
-      L.polyline(routeLatLngs, {
+      routeCasingRef.current = L.polyline(drawnRoute, {
         color: isNavigating ? "#FFFFFF" : "#1E3F35",
         weight: isNavigating ? 11 : 6,
         opacity: isNavigating ? 0.95 : 0.2,
         lineCap: "round",
         lineJoin: "round",
       }).addTo(layer);
+      routeLineRef.current = null;
 
       if (trafficAware && trafficSpeedIntervals.length > 0) {
         let nextStart = 0;
@@ -498,8 +637,9 @@ export default function AgentRoadRouteMap({
           }).addTo(layer);
         }
       } else {
-        L.polyline(routeLatLngs, {
-          color: isNavigating ? "#111111" : "#2D6A4F",
+        routeLineRef.current = L.polyline(drawnRoute, {
+          color: isNavigating ? (travelMode === "walk" ? "#276EF1" : "#111111") : "#2D6A4F",
+          dashArray: travelMode === "walk" ? "1 12" : undefined,
           weight: isNavigating ? 6 : 4,
           opacity: 0.95,
           lineCap: "round",
@@ -580,7 +720,8 @@ export default function AgentRoadRouteMap({
         }
       }
 
-      if (!userPannedAway) {
+      if (!navFramedRef.current) {
+        navFramedRef.current = true;
         if (navBounds.length > 1) {
           map.fitBounds(L.latLngBounds(navBounds), {
             paddingTopLeft: [40, 170],
@@ -597,7 +738,7 @@ export default function AgentRoadRouteMap({
         const hasPreviewCard = Boolean(activeDestinationStop && onStartNavigation);
         map.fitBounds(L.latLngBounds(bounds), {
           paddingTopLeft: [40, 60],
-          paddingBottomRight: [40, hasPreviewCard ? 230 : 40],
+          paddingBottomRight: [40, hasPreviewCard ? (onTravelModeChange ? 310 : 230) : 40],
           maxZoom: 15,
         });
       } else if (bounds.length === 1) {
@@ -605,24 +746,14 @@ export default function AgentRoadRouteMap({
       }
     }
 
-    setTimeout(() => map.invalidateSize(), 150);
-
-    return () => {
-      if (instanceRef.current) {
-        try {
-          instanceRef.current.remove();
-        } catch {
-          // ignore
-        }
-        instanceRef.current = null;
-      }
-    };
-  }, [ready, stops, routeLatLngs, isNavigating, selectedStopId, activeDestinationStop?.id, trafficAware, trafficSpeedIntervals]);
+    setTimeout(() => instanceRef.current?.invalidateSize(), 150);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, stopsKey, routeLatLngs, isNavigating, selectedStopId, activeDestinationStop?.id, trafficAware, trafficSpeedIntervals, travelMode, hasPosition]);
 
   const handleRecenter = () => {
     setUserPannedAway(false);
     if (instanceRef.current && currentPos) {
-      instanceRef.current.setView(currentPos, 17, { animate: true });
+      instanceRef.current.setView(currentPos, travelMode === "walk" ? 18 : 17, { animate: true });
     }
   };
 
@@ -633,11 +764,11 @@ export default function AgentRoadRouteMap({
   const googleWaypoints = orderedGoogleStops.slice(0, -1).slice(0, 9)
     .map((stop) => `${stop.customer_latitude},${stop.customer_longitude}`).join("|");
   const googleMapsUrl = googleDestination?.customer_latitude != null
-    ? `https://www.google.com/maps/dir/?api=1${currentPos ? `&origin=${currentPos[0]},${currentPos[1]}` : ""}&destination=${googleDestination.customer_latitude},${googleDestination.customer_longitude}${googleWaypoints ? `&waypoints=${encodeURIComponent(googleWaypoints)}` : ""}&travelmode=driving`
+    ? `https://www.google.com/maps/dir/?api=1${currentPos ? `&origin=${currentPos[0]},${currentPos[1]}` : ""}&destination=${googleDestination.customer_latitude},${googleDestination.customer_longitude}${googleWaypoints ? `&waypoints=${encodeURIComponent(googleWaypoints)}` : ""}&travelmode=${travelMode === "walk" ? "walking" : travelMode === "bike" ? "two-wheeler" : "driving"}`
     : "https://www.google.com/maps";
 
   const sheetContent = (
-    <div className={`isolate overflow-hidden bg-[#EEF0F2] ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-full" : "relative z-0 h-[440px] rounded-2xl border border-[#E6DFD3] shadow-xs"}`}>
+    <div className={`isolate overflow-hidden bg-[#EEF0F2] ${isNavigating ? "fixed inset-0 z-[2000] h-[100dvh] w-full" : `relative z-0 ${activeDestinationStop && onStartNavigation && onTravelModeChange ? "h-[540px]" : "h-[440px]"} rounded-2xl border border-[#E6DFD3] shadow-xs`}`}>
       {/* Map DOM Element */}
       <div ref={mapRef} className="absolute inset-0" />
 
@@ -685,6 +816,17 @@ export default function AgentRoadRouteMap({
 
           {/* 2. FLOATING ROUND BUTTONS */}
           <div className="absolute right-3 z-[1000] flex flex-col gap-2.5" style={{ bottom: sheetExpanded ? "62dvh" : "calc(env(safe-area-inset-bottom) + 270px)" }}>
+            {voiceSupported && (
+              <button
+                type="button"
+                onClick={() => setVoiceMuted(!voiceMuted)}
+                className={`flex h-12 w-12 items-center justify-center rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.22)] transition active:scale-95 cursor-pointer ${voiceMuted ? "bg-white text-neutral-400" : "bg-white text-black"}`}
+                title={voiceMuted ? "Turn voice guidance on" : "Mute voice guidance"}
+                aria-label={voiceMuted ? "Turn voice guidance on" : "Mute voice guidance"}
+              >
+                {voiceMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+              </button>
+            )}
             <a
               href={googleMapsUrl}
               target="_blank"
@@ -705,6 +847,17 @@ export default function AgentRoadRouteMap({
               <LocateFixed className="h-5 w-5" />
             </button>
           </div>
+
+          {gpsSpeedMps != null && travelMode !== "walk" && !sheetExpanded && (
+            <div
+              className="absolute left-3 z-[1000] flex h-14 w-14 flex-col items-center justify-center rounded-full border-[3px] border-black bg-white shadow-[0_4px_14px_rgba(0,0,0,0.22)]"
+              style={{ bottom: "calc(env(safe-area-inset-bottom) + 312px)" }}
+              aria-label="Current speed"
+            >
+              <span className="text-lg font-extrabold leading-none text-black">{Math.round(Math.max(0, gpsSpeedMps) * 3.6)}</span>
+              <span className="text-[9px] font-bold uppercase text-neutral-500">km/h</span>
+            </div>
+          )}
 
           {trafficAware && trafficSpeedIntervals.length > 0 && (
             <div className="absolute left-3 z-[1000] flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-neutral-700 shadow-md" style={{ bottom: "calc(env(safe-area-inset-bottom) + 270px)" }}>
@@ -747,10 +900,13 @@ export default function AgentRoadRouteMap({
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-1 text-[13px] font-medium text-neutral-500">
-                    {formatDist(remainingDistanceMeters)}
-                    {remainingSeconds != null && <> · Arrive {etaString}</>}
-                    {!trafficAware && <> · No live traffic</>}
+                  <div className="mt-1 flex items-center gap-1 text-[13px] font-medium text-neutral-500">
+                    <ModeIcon mode={travelMode} className="h-3.5 w-3.5 text-neutral-700" />
+                    <span>
+                      {formatDist(remainingDistanceMeters)}
+                      {remainingSeconds != null && <> · Arrive {etaString}</>}
+                      {routeEstimated ? <> · Est. time</> : travelMode !== "walk" ? (trafficAware ? <> · Live traffic</> : <> · No live traffic</>) : null}
+                    </span>
                   </div>
                 </div>
                 <button
@@ -873,10 +1029,37 @@ export default function AgentRoadRouteMap({
                   </div>
                 )}
               </div>
+              {onTravelModeChange && (
+                <div className="mt-3.5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Travel mode">
+                  {MODE_OPTIONS.map(({ mode, label, Icon }) => {
+                    const selected = mode === travelMode;
+                    const estimate = modeEstimates?.[mode];
+                    const seconds = selected && totalRouteSeconds != null ? totalRouteSeconds : estimate?.duration_seconds;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => onTravelModeChange(mode)}
+                        className={`flex flex-col items-center gap-0.5 rounded-2xl border px-2 py-2 transition active:scale-[0.98] cursor-pointer ${
+                          selected ? "border-black bg-black text-white" : "border-neutral-200 bg-white text-black hover:bg-neutral-50"
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span className="text-[11px] font-bold">{label}</span>
+                        <span className={`text-[11px] ${selected ? "text-white/80" : "text-neutral-500"}`}>
+                          {seconds != null ? formatDuration(seconds) : "—"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => onStartNavigation(activeDestinationStop)}
-                className="mt-3.5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99] cursor-pointer"
+                className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99] cursor-pointer"
               >
                 <Navigation className="h-4 w-4" />
                 Start navigation
@@ -898,25 +1081,39 @@ export default function AgentRoadRouteMap({
   return sheetContent;
 }
 
-function ManeuverIcon({ type, className }: { type?: "left" | "right" | "straight" | "arrive"; className?: string }) {
-  if (type === "left") return <CornerUpLeft className={className} />;
-  if (type === "right") return <CornerUpRight className={className} />;
-  if (type === "arrive") return <Flag className={className} />;
-  return <ArrowUp className={className} />;
+function ManeuverIcon({ type, className }: { type?: ManeuverKind; className?: string }) {
+  switch (type) {
+    case "left":
+    case "sharp-left":
+      return <CornerUpLeft className={className} />;
+    case "right":
+    case "sharp-right":
+      return <CornerUpRight className={className} />;
+    case "slight-left":
+      return <ArrowUpLeft className={className} />;
+    case "slight-right":
+      return <ArrowUpRight className={className} />;
+    case "uturn":
+      return <RotateCcw className={className} />;
+    case "roundabout":
+      return <RotateCw className={className} />;
+    case "arrive":
+      return <Flag className={className} />;
+    default:
+      return <ArrowUp className={className} />;
+  }
+}
+
+function ModeIcon({ mode, className }: { mode: TravelMode; className?: string }) {
+  const option = MODE_OPTIONS.find((o) => o.mode === mode) ?? MODE_OPTIONS[0];
+  const Icon = option.Icon;
+  return <Icon className={className} />;
 }
 
 function initialsOf(name?: string | null) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "•";
   return parts.slice(0, 2).map((p) => p[0]).join("").toUpperCase();
-}
-
-function formatDuration(seconds: number) {
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m ? `${h} hr ${m} min` : `${h} hr`;
 }
 
 /** Uber-style "swipe to confirm" button. Enter/Space also confirm, for keyboard users. */

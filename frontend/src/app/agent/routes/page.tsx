@@ -11,12 +11,15 @@ import StatusBadge from "@/components/StatusBadge";
 import VisitDetailDrawer from "@/components/agent/VisitDetailDrawer";
 import CompleteVisitModal from "@/components/agent/CompleteVisitModal";
 import {
+  fetchAgentRouteEstimates,
   fetchAgentRouteGeometry,
   fetchAgentTodayRoute,
   optimizeAgentTodayRoute,
   updateAgentLocation,
   AgentRouteData,
   RoadRouteData,
+  TravelEstimate,
+  TravelMode,
 } from "@/lib/api";
 import { calculateHaversineDistanceKm } from "@/lib/geoUtils";
 import {
@@ -72,7 +75,28 @@ function AgentRoutePageContent() {
   const [selectedTaskStopId, setSelectedTaskStopId] = useState<string | null>(preselectedVisitId);
   const [isSingleTaskRoute, setIsSingleTaskRoute] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [liveGpsCoords, setLiveGpsCoords] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
+  const [liveGpsCoords, setLiveGpsCoords] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    heading?: number | null;
+    speed?: number | null;
+  } | null>(null);
+  const [travelMode, setTravelMode] = useState<TravelMode>("car");
+  const travelModeRef = useRef<TravelMode>("car");
+  const [modeEstimates, setModeEstimates] = useState<Partial<Record<TravelMode, TravelEstimate | null>>>({});
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("fos-travel-mode");
+      if (saved === "car" || saved === "bike" || saved === "walk") {
+        travelModeRef.current = saved;
+        setTravelMode(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -96,13 +120,18 @@ function AgentRoutePageContent() {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
         });
       },
       (err) => console.warn("GPS watch notice:", err.message),
-      { enableHighAccuracy: false, maximumAge: 30000, timeout: 15000 }
+      // Turn-by-turn needs fresh, precise fixes; the overview can save battery.
+      isNavigating
+        ? { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+        : { enableHighAccuracy: false, maximumAge: 30000, timeout: 15000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnDuty]);
+  }, [isOnDuty, isNavigating]);
 
   // Sync GPS location in the background if moved
   const syncLocationIfMoved = useCallback(async (token: string, lat: number, lng: number, accuracy?: number) => {
@@ -184,7 +213,7 @@ function AgentRoutePageContent() {
           setIsSingleTaskRoute(true);
           const stop = (result.stops || []).find((s) => s.id === targetId);
           try {
-            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token);
+            const geom = await fetchAgentRouteGeometry([targetId], session?.access_token, travelModeRef.current);
             setRoadRoute(geom);
             if (autoStart) {
               setIsNavigating(true);
@@ -205,7 +234,7 @@ function AgentRoutePageContent() {
 
           if (geometryIds.length > 0 && result.origin) {
             try {
-              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+              const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, travelModeRef.current);
               setRoadRoute(geom);
             } catch {
               setRoadRoute(null);
@@ -299,6 +328,25 @@ function AgentRoutePageContent() {
     return stopsWithDistances.find((s) => s.id === selectedTaskStopId) || null;
   }, [stopsWithDistances, selectedTaskStopId]);
 
+  // Car / bike / walk times for the selected visit (free road router, no traffic cost)
+  useEffect(() => {
+    if (!session?.access_token || !selectedTaskStopId || !isSingleTaskRoute) {
+      setModeEstimates({});
+      return;
+    }
+    let cancelled = false;
+    fetchAgentRouteEstimates([selectedTaskStopId], session.access_token)
+      .then((result) => {
+        if (!cancelled) setModeEstimates(result.estimates || {});
+      })
+      .catch(() => {
+        if (!cancelled) setModeEstimates({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token, selectedTaskStopId, isSingleTaskRoute]);
+
   // Fetch or refresh road route for a specific selected task
   const handleGetRouteForTask = async (taskStop: RouteMapStop, forceRefresh = false): Promise<boolean> => {
     if (!forceRefresh && !routeData?.origin) {
@@ -316,7 +364,7 @@ function AgentRoutePageContent() {
     const last = lastRoutedLocationRef.current;
     if (
       !forceRefresh && last &&
-      lastRoutedTargetRef.current === taskStop.id &&
+      lastRoutedTargetRef.current === `${taskStop.id}:${travelModeRef.current}` &&
       Math.abs(last.lat - originLat) < 0.0002 &&
       Math.abs(last.lng - originLng) < 0.0002 &&
       roadRoute
@@ -332,10 +380,10 @@ function AgentRoutePageContent() {
     setError(null);
 
     try {
-      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token);
+      const geom = await fetchAgentRouteGeometry([taskStop.id], session?.access_token, travelModeRef.current);
       setRoadRoute(geom);
       lastRoutedLocationRef.current = { lat: originLat, lng: originLng };
-      lastRoutedTargetRef.current = taskStop.id;
+      lastRoutedTargetRef.current = `${taskStop.id}:${travelModeRef.current}`;
       return true;
     } catch (err: any) {
       setError(err?.detail || err?.message || "Could not calculate the road route to this customer.");
@@ -417,6 +465,41 @@ function AgentRoutePageContent() {
     setIsNavigating(false);
   };
 
+  const handleTravelModeChange = async (mode: TravelMode) => {
+    if (mode === travelModeRef.current) return;
+    travelModeRef.current = mode;
+    setTravelMode(mode);
+    try {
+      window.localStorage.setItem("fos-travel-mode", mode);
+    } catch {
+      // ignore
+    }
+    if (isSingleTaskRoute && activeDestinationStop) {
+      await handleGetRouteForTask(activeDestinationStop, true);
+    } else if (roadRoute) {
+      await handleViewFullRoute();
+    }
+  };
+
+  // Called by the map when the agent has left the route: send the fresh GPS fix, then fetch a new route.
+  const rerouteInFlightRef = useRef(false);
+  const handleReroute = async () => {
+    if (rerouteInFlightRef.current || !activeDestinationStop) return;
+    rerouteInFlightRef.current = true;
+    try {
+      await syncCurrentGpsForRoute();
+      // Fetch directly (not via handleGetRouteForTask) so a failed reroute keeps the current route on screen.
+      const ids = isSingleTaskRoute
+        ? [activeDestinationStop.id]
+        : orderedIds.filter((id) => pendingTasksList.some((stop) => stop.id === id));
+      if (ids.length) setRoadRoute(await fetchAgentRouteGeometry(ids, session?.access_token, travelModeRef.current));
+    } catch {
+      // Keep the current route; the map will try again after the cooldown.
+    } finally {
+      rerouteInFlightRef.current = false;
+    }
+  };
+
   // View full day multi-stop sequence route
   const handleViewFullRoute = async () => {
     if (!routeData?.origin) return;
@@ -432,7 +515,7 @@ function AgentRoutePageContent() {
       });
 
       if (geometryIds.length > 0) {
-        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+        const geom = await fetchAgentRouteGeometry(geometryIds, session?.access_token, travelModeRef.current);
         setRoadRoute(geom);
       } else {
         setRoadRoute(null);
@@ -500,7 +583,7 @@ function AgentRoutePageContent() {
       if (!geometryIds.length) {
         throw new Error("Your visits need saved map locations before a route can be started.");
       }
-      const geometry = await fetchAgentRouteGeometry(geometryIds, session?.access_token);
+      const geometry = await fetchAgentRouteGeometry(geometryIds, session?.access_token, travelModeRef.current);
       setRoadRoute(geometry);
       setIsSingleTaskRoute(false);
       setSelectedTaskStopId(geometryIds[0]);
@@ -749,6 +832,13 @@ function AgentRoutePageContent() {
               isNavigating={isNavigating}
               onStartNavigation={handleStartNavigation}
               onStopNavigation={handleStopNavigation}
+              travelMode={travelMode}
+              onTravelModeChange={handleTravelModeChange}
+              modeEstimates={modeEstimates}
+              routeEstimated={Boolean(roadRoute?.estimated)}
+              onReroute={handleReroute}
+              gpsHeading={liveGpsCoords?.heading ?? null}
+              gpsSpeedMps={liveGpsCoords?.speed ?? null}
               onCheckIn={async (stop) => {
                 if (isOnDuty) {
                   const res = await checkInVisit(stop.id);
