@@ -9,7 +9,7 @@ import {
   Map,
   Users,
   Navigation,
-  Settings,
+  UserCircle,
   Menu,
   X,
   Bell,
@@ -124,8 +124,9 @@ export default function AppShell({ children }: AppShellProps) {
     { name: "Dispatch View", href: "/view", icon: Hexagon },
     { name: "Territories", href: "/territories", icon: Layers },
     { name: "Lead Approvals", href: "/leads", icon: ClipboardCheck },
-    { name: "Settings", href: "/settings", icon: Settings },
   ];
+  // Settings live on the Profile page (opened from the avatar menu, or the phone menu).
+  const profileItem = { name: "Profile", href: "/profile", icon: UserCircle };
 
   const currentDate = new Intl.DateTimeFormat("en-US", {
     weekday: "short",
@@ -148,7 +149,7 @@ export default function AppShell({ children }: AppShellProps) {
     .toUpperCase() || "FA";
 
   const isActive = (href: string) => pathname === href || Boolean(pathname?.startsWith(href + "/"));
-  const pageTitle = navItems.find((item) => isActive(item.href))?.name ?? "FOS";
+  const pageTitle = [...navItems, profileItem].find((item) => isActive(item.href))?.name ?? "FOS";
   const mobileTabs = [navItems[0], navItems[1], navItems[2], navItems[6]].filter(Boolean);
 
   const searchBox = (
@@ -234,7 +235,7 @@ export default function AppShell({ children }: AppShellProps) {
           <Link href="/admin/dashboard" aria-label="Overview" className="shrink-0">
             <BrandMark />
           </Link>
-          <nav className="flex h-full items-stretch gap-0.5 overflow-x-auto" aria-label="Main">
+          <nav className="flex h-full items-stretch gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Main">
             {navItems.map((item) => {
               const active = isActive(item.href);
               return (
@@ -293,12 +294,12 @@ export default function AppShell({ children }: AppShellProps) {
                     <p className="text-xs text-[#62607A] truncate">{user?.email}</p>
                   </div>
                   <Link
-                    href="/settings"
+                    href="/profile"
                     onClick={() => setShowUserMenu(false)}
                     className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-[#F1F0F8] transition"
                   >
-                    <Settings className="w-4 h-4 text-[#62607A]" />
-                    Settings
+                    <UserCircle className="w-4 h-4 text-[#62607A]" />
+                    Profile &amp; settings
                   </Link>
                   <button
                     onClick={() => {
@@ -340,7 +341,7 @@ export default function AppShell({ children }: AppShellProps) {
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-[#E3E2EE]" />
             <div className="mb-3">{searchBox}</div>
             <nav className="grid grid-cols-2 gap-2">
-              {navItems.map((item) => {
+              {[...navItems, profileItem].map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
                 return (

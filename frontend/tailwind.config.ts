@@ -54,11 +54,12 @@ const config: Config = {
         },
       },
       keyframes: {
-        rise: { "0%": { opacity: "0", transform: "translateY(10px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+        rise: { "0%": { opacity: "0", transform: "translateY(10px)" }, "100%": { opacity: "1", transform: "none" } },
         floaty: { "0%,100%": { transform: "translate(0,0)" }, "50%": { transform: "translate(12px,-10px)" } },
       },
       animation: {
-        rise: "rise .45s cubic-bezier(.2,.7,.2,1) both",
+        // "backwards": no transform is left on the element afterwards, so pop-ups inside it can cover the whole screen.
+        rise: "rise .45s cubic-bezier(.2,.7,.2,1) backwards",
         floaty: "floaty 9s ease-in-out infinite",
       },
     },

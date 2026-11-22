@@ -44,7 +44,9 @@ body {
 
 /* ── Motion (SK-style theme) ───────────────────────────── */
 /* Page content fades up, children one after another. */
-.page-rise > * { animation: rise .45s cubic-bezier(.2,.7,.2,1) both; }
+/* "backwards" (not "both"): once finished, no transform stays on the page, otherwise
+   full-screen pop-ups inside it get trapped inside the page box. */
+.page-rise > * { animation: rise .45s cubic-bezier(.2,.7,.2,1) backwards; }
 .page-rise > *:nth-child(2) { animation-delay: .05s; }
 .page-rise > *:nth-child(3) { animation-delay: .1s; }
 .page-rise > *:nth-child(4) { animation-delay: .15s; }
@@ -57,7 +59,7 @@ body {
 }
 /* Sliding underline for header navigation. */
 .nav-link { position: relative; }
-.nav-link::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: #00843E; transform: scaleX(0); transform-origin: center; transition: transform .25s ease; }
+.nav-link::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: #00843E; transform: scaleX(0); transform-origin: center; transition: transform .25s ease; }
 .nav-link:hover::after, .nav-link[aria-current="page"]::after { transform: scaleX(1); }
 @media (prefers-reduced-motion: reduce) {
   .page-rise > *, .animate-rise, .animate-floaty { animation: none !important; }

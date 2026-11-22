@@ -1030,3 +1030,16 @@ export interface DispatchOverview {
 export async function fetchDispatchOverview(token?: string | null): Promise<DispatchOverview> {
   return await apiFetch<DispatchOverview>("/dispatch/overview", {}, token);
 }
+
+export interface OperatingSettings {
+  check_in_radius_meters: number;
+  max_gps_accuracy_meters: number;
+  location_timeout_seconds: number;
+  routing_provider: string;
+  live_traffic: boolean;
+}
+
+/** The settings the server is actually using (read-only). */
+export async function fetchOperatingSettings(token?: string | null): Promise<OperatingSettings> {
+  return await apiFetch<OperatingSettings>(`/settings`, { method: "GET" }, token);
+}
