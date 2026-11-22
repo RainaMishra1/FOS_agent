@@ -54,11 +54,32 @@ interface AgentContextType {
   };
   liveGpsCoords: { lat: number; lng: number; accuracy?: number } | null;
   refreshLiveGps: () => Promise<{ lat: number; lng: number; accuracy?: number } | null>;
+  /** Whether this device is giving us location: granted, blocked, GPS off, etc. */
+  locationStatus: LocationStatus;
+  /** Ask for location (call from a button tap — phones prompt more reliably then). */
+  requestLocation: () => Promise<boolean>;
   isLoading: boolean;
   error: string | null;
   isLiveBackend: boolean;
   refreshAgentData: (showLoader?: boolean) => Promise<void>;
 }
+
+export type LocationStatus = "checking" | "granted" | "prompt" | "denied" | "unavailable" | "unsupported" | "insecure";
+
+type Fix = { lat: number; lng: number; accuracy: number; at: number };
+
+class LocationError extends Error {
+  constructor(public reason: "denied" | "unavailable" | "timeout" | "unsupported", message: string) {
+    super(message);
+  }
+}
+
+const LOCATION_MESSAGES = {
+  denied: "Location is blocked for this app. Allow it, then try again.",
+  unavailable: "Your phone's location (GPS) seems to be off. Turn it on and try again.",
+  timeout: "Still finding your location. Move near a window or outdoors and try again.",
+  unsupported: "This browser can't share location.",
+};
 
 export const AgentContext = createContext<AgentContextType | undefined>(undefined);
 
@@ -258,39 +279,115 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [liveGpsCoords, setLiveGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const liveGpsCoordsRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
 
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>("checking");
+  const liveFixRef = useRef<Fix | null>(null);
+  const [watchKey, setWatchKey] = useState(0);
+
+  const acceptPosition = useCallback((pos: GeolocationPosition) => {
+    const fix: Fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, at: Date.now() };
+    liveFixRef.current = fix;
+    const coords = { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy };
+    liveGpsCoordsRef.current = coords;
+    setLiveGpsCoords(coords);
+    setLocationStatus("granted");
+    setCurrentAgent((prev) => ({ ...prev, currentCoordinates: { lat: fix.lat, lng: fix.lng } }));
+    return fix;
+  }, []);
+
+  const rejectPosition = useCallback((err: GeolocationPositionError) => {
+    if (err.code === err.PERMISSION_DENIED) setLocationStatus("denied");
+    else if (err.code === err.POSITION_UNAVAILABLE && !liveFixRef.current) setLocationStatus("unavailable");
+    // TIMEOUT: keep waiting; the watch keeps trying.
+  }, []);
+
+  // Know the permission state up front (and when the user changes it in settings).
   useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-
-    const handlePos = (pos: GeolocationPosition) => {
-      const coords = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-      };
-      liveGpsCoordsRef.current = coords;
-      setLiveGpsCoords(coords);
-      setCurrentAgent((prev) => ({
-        ...prev,
-        currentCoordinates: { lat: coords.lat, lng: coords.lng },
-      }));
+    if (typeof window === "undefined") return;
+    if (!window.isSecureContext) return setLocationStatus("insecure");
+    if (!navigator.geolocation) return setLocationStatus("unsupported");
+    let permission: PermissionStatus | null = null;
+    const apply = () => {
+      if (!permission) return;
+      if (permission.state === "denied") setLocationStatus("denied");
+      else if (permission.state === "prompt") setLocationStatus((current) => (current === "granted" ? current : "prompt"));
+      else setWatchKey((key) => key + 1); // granted (possibly just now): restart tracking
     };
-
-    navigator.geolocation.getCurrentPosition(
-      handlePos,
-      (err) => console.warn("[AgentContext] Initial GPS notice:", err.message),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 }
-    );
-
-    const watchId = navigator.geolocation.watchPosition(
-      handlePos,
-      (err) => console.warn("[AgentContext] GPS watch error:", err.message),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-    );
-
+    navigator.permissions
+      ?.query({ name: "geolocation" as PermissionName })
+      .then((status) => {
+        permission = status;
+        apply();
+        status.onchange = apply;
+      })
+      .catch(() => undefined); // Older Safari: no Permissions API; the watch below tells us instead.
     return () => {
-      navigator.geolocation.clearWatch(watchId);
+      if (permission) permission.onchange = null;
     };
   }, []);
+
+  // One live GPS watch for the whole agent app.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation || (typeof window !== "undefined" && !window.isSecureContext)) return;
+    const watchId = navigator.geolocation.watchPosition(acceptPosition, rejectPosition, {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 5000,
+    });
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [acceptPosition, rejectPosition, watchKey]);
+
+  /** Best current position: a fix from the last 20 s, otherwise ask the device (up to `waitMs`). */
+  const getFix = useCallback(
+    async (waitMs = 15000): Promise<Fix> => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        throw new LocationError("unsupported", LOCATION_MESSAGES.unsupported);
+      }
+      const recent = liveFixRef.current;
+      if (recent && Date.now() - recent.at < 20000) return recent;
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          const timer = setTimeout(() => reject({ code: 3 }), waitMs + 1000);
+          navigator.geolocation.getCurrentPosition(
+            (p) => {
+              clearTimeout(timer);
+              resolve(p);
+            },
+            (e) => {
+              clearTimeout(timer);
+              reject(e);
+            },
+            { enableHighAccuracy: true, timeout: waitMs, maximumAge: 10000 }
+          );
+        });
+        return acceptPosition(pos);
+      } catch (err: any) {
+        if (err?.code === 1) {
+          setLocationStatus("denied");
+          throw new LocationError("denied", LOCATION_MESSAGES.denied);
+        }
+        // Slow GPS: a fix from the last 2 minutes is still usable; the server checks freshness too.
+        const older = liveFixRef.current;
+        if (older && Date.now() - older.at < 120000) return older;
+        if (err?.code === 2) {
+          setLocationStatus("unavailable");
+          throw new LocationError("unavailable", LOCATION_MESSAGES.unavailable);
+        }
+        throw new LocationError("timeout", LOCATION_MESSAGES.timeout);
+      }
+    },
+    [acceptPosition]
+  );
+
+  const requestLocation = useCallback(async () => {
+    try {
+      await getFix(20000);
+      setWatchKey((key) => key + 1);
+      return true;
+    } catch (err: any) {
+      showNotification("error", err?.message || LOCATION_MESSAGES.timeout);
+      return false;
+    }
+  }, [getFix, showNotification]);
 
   const refreshLiveGps = useCallback(async (): Promise<{ lat: number; lng: number; accuracy?: number } | null> => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return null;
@@ -443,42 +540,16 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       (custCoords.lat !== 0 || custCoords.lng !== 0)
     );
 
-    let liveBrowserCoords: { lat: number; lng: number } | null = liveGpsCoordsRef.current;
-    let liveAccuracy: number | undefined = liveGpsCoordsRef.current?.accuracy;
-    if (typeof navigator !== "undefined" && navigator.geolocation) {
-      try {
-        const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve(pos),
-            () => resolve(null),
-            { enableHighAccuracy: true, timeout: 6_000, maximumAge: 5_000 }
-          );
-        });
-        if (freshFix && freshFix.coords) {
-          liveBrowserCoords = {
-            lat: freshFix.coords.latitude,
-            lng: freshFix.coords.longitude,
-          };
-          liveAccuracy = freshFix.coords.accuracy;
-          liveGpsCoordsRef.current = { ...liveBrowserCoords, accuracy: liveAccuracy };
-          setLiveGpsCoords({
-            lat: freshFix.coords.latitude,
-            lng: freshFix.coords.longitude,
-            accuracy: freshFix.coords.accuracy,
-          });
-        }
-      } catch {
-        // failed to get fresh fix
-      }
-    }
-
-    if (!liveBrowserCoords) {
-      const errorMsg = "Unable to verify geofence: Live GPS coordinates could not be acquired from your device. Please allow location access in your browser and try again.";
+    let liveBrowserCoords: { lat: number; lng: number } | null = null;
+    let liveAccuracy: number | undefined;
+    try {
+      const fix = await getFix();
+      liveBrowserCoords = { lat: fix.lat, lng: fix.lng };
+      liveAccuracy = fix.accuracy;
+    } catch (err: any) {
+      const errorMsg = err?.message || LOCATION_MESSAGES.timeout;
       showNotification("error", errorMsg);
-      return {
-        success: false,
-        message: errorMsg,
-      };
+      return { success: false, message: errorMsg };
     }
 
     const targetLat = liveBrowserCoords.lat;
@@ -580,41 +651,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         (custCoords.lat !== 0 || custCoords.lng !== 0)
       );
 
-      // 1. Acquire fresh live browser GPS
-      let liveBrowserCoords: { lat: number; lng: number } | null = liveGpsCoordsRef.current;
-      if (typeof navigator !== "undefined" && navigator.geolocation) {
-        try {
-          const freshFix = await new Promise<GeolocationPosition | null>((resolve) => {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => resolve(pos),
-              () => resolve(null),
-              { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 }
-            );
-          });
-          if (freshFix && freshFix.coords) {
-            liveBrowserCoords = {
-              lat: freshFix.coords.latitude,
-              lng: freshFix.coords.longitude,
-            };
-            liveGpsCoordsRef.current = liveBrowserCoords;
-            setLiveGpsCoords({
-              lat: freshFix.coords.latitude,
-              lng: freshFix.coords.longitude,
-              accuracy: freshFix.coords.accuracy,
-            });
-          }
-        } catch {
-          // failed to get fresh fix
-        }
-      }
-
-      if (!liveBrowserCoords) {
-        const errorMsg = "Cannot complete visit: Live GPS coordinates could not be acquired from your device. Please allow location access in your browser and try again.";
+      // 1. Current GPS position
+      let liveBrowserCoords: { lat: number; lng: number } | null = null;
+      let liveAccuracy: number | undefined;
+      try {
+        const fix = await getFix();
+        liveBrowserCoords = { lat: fix.lat, lng: fix.lng };
+        liveAccuracy = fix.accuracy;
+      } catch (err: any) {
+        const errorMsg = err?.message || LOCATION_MESSAGES.timeout;
         showNotification("error", errorMsg);
-        return {
-          success: false,
-          message: errorMsg,
-        };
+        return { success: false, message: errorMsg };
       }
 
       // 2. Calculate distance to customer site strictly using live GPS
@@ -647,11 +694,16 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         }));
       }
 
-      // Capture fresh GPS for completion; non-blocking notice
+      // Send the same fix to the server, which re-checks the 750 m zone.
       try {
-        await syncFreshGpsLocation(session.access_token);
-      } catch (gpsErr) {
-        console.warn("GPS sync notice on completion:", gpsErr);
+        await updateAgentLocation(
+          { latitude: liveBrowserCoords.lat, longitude: liveBrowserCoords.lng, gps_accuracy: liveAccuracy, location_source: "gps" },
+          session.access_token
+        );
+      } catch (locErr) {
+        const msg = extractErrorMessage(locErr, "Could not save your GPS location. Try again.");
+        showNotification("error", msg);
+        return { success: false, message: msg };
       }
 
       const updatedApi = await updateAgentVisitStatus(visitId, "completed", notes, session.access_token);
@@ -743,6 +795,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         stats,
         liveGpsCoords,
         refreshLiveGps,
+        locationStatus,
+        requestLocation,
         isLoading,
         error,
         isLiveBackend,

@@ -489,6 +489,10 @@ export default function AgentRoadRouteMap({
         const map = L.map(mapRef.current, {
           zoomControl: !isNavigating,
           attributionControl: true,
+          // On phones the small route map must not steal one-finger page scrolling;
+          // the full-screen trip view stays draggable.
+          dragging: isNavigating || !L.Browser.mobile,
+          tap: false,
         });
 
         // OSM tiles, softened with CSS (see globals.css) so the route stands out like in ride-hailing apps.

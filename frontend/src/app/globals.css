@@ -68,3 +68,29 @@ body {
 
 /* Bell swing when a new alert arrives */
 @keyframes ring { 0%,100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } }
+
+/* ── Phone / installed-app polish ───────────────────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  /* No pull-to-refresh or rubber-band bounce moving the app bars. */
+  overscroll-behavior-y: none;
+  min-height: 100dvh;
+}
+/* No grey flash on tap; no 300 ms double-tap-zoom delay on controls. */
+a, button, [role="button"], label, summary, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+a, button, [role="button"], label, summary {
+  touch-action: manipulation;
+}
+/* iPhone zooms the page when a field with text under 16px is focused. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

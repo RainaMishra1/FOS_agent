@@ -3,50 +3,24 @@
 import React, { useState } from "react";
 import { AgentVisit } from "@/types/agent";
 import { useAgent } from "@/context/AgentContext";
-import { CheckCircle2, Loader2, MapPin, ShieldCheck, AlertCircle, Compass } from "lucide-react";
+import { CheckCircle2, Loader2, MapPin, ShieldCheck } from "lucide-react";
 import { calculateHaversineDistanceKm, formatDistance } from "@/lib/geoUtils";
 
-interface VisitGeofenceCheckInProps {
-  visit: AgentVisit;
-}
+const CHECK_IN_RADIUS_METERS = 750;
 
-export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProps) {
-  const { checkInVisit, isOnDuty, liveGpsCoords } = useAgent();
-  const [deviceCoords, setDeviceCoords] = useState<{ lat: number; lng: number } | null>(liveGpsCoords);
-  const [isAcquiringGps, setIsAcquiringGps] = useState<boolean>(!liveGpsCoords);
+/** Distance to the customer and the check-in button, using the app's live position. */
+export default function VisitGeofenceCheckIn({ visit }: { visit: AgentVisit }) {
+  const { checkInVisit, liveGpsCoords, locationStatus } = useAgent();
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCompleted = visit.status === "completed";
   const isInProgress = visit.status === "in_progress";
 
-  React.useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setIsAcquiringGps(false);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setDeviceCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setIsAcquiringGps(false);
-      },
-      () => setIsAcquiringGps(false),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 3000 }
-    );
-  }, []);
-
-  const activeCoords = deviceCoords || liveGpsCoords;
-  // Calculate live distance from device's true GPS coordinates to customer site
   const distanceKm =
-    visit.hasCoordinates && activeCoords
-      ? calculateHaversineDistanceKm(
-          activeCoords.lat,
-          activeCoords.lng,
-          visit.coordinates.lat,
-          visit.coordinates.lng
-        )
+    visit.hasCoordinates && liveGpsCoords
+      ? calculateHaversineDistanceKm(liveGpsCoords.lat, liveGpsCoords.lng, visit.coordinates.lat, visit.coordinates.lng)
       : null;
-
   const distanceMeters = distanceKm !== null ? Math.round(distanceKm * 1000) : null;
-  const isWithinGeofence = distanceMeters !== null && distanceMeters <= 750;
+  const inZone = distanceMeters !== null && distanceMeters <= CHECK_IN_RADIUS_METERS;
 
   const handleCheckIn = async () => {
     if (isCheckingIn) return;
@@ -58,99 +32,46 @@ export default function VisitGeofenceCheckIn({ visit }: VisitGeofenceCheckInProp
     }
   };
 
+  if (isCompleted) {
+    return visit.geofenceVerified ? (
+      <p className="flex items-center gap-2 rounded-xl bg-[#E6F4EC] px-3 py-2.5 text-sm font-semibold text-[#00843E]">
+        <ShieldCheck className="h-4 w-4" />
+        Location verified
+      </p>
+    ) : null;
+  }
+
   return (
-    <section className="space-y-4 rounded-2xl border border-beige-border bg-beige-card p-4 shadow-xs sm:p-5">
-      <div className="flex items-start gap-3">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${visit.geofenceVerified ? "bg-beige-olive-subtle text-beige-olive" : isWithinGeofence ? "bg-emerald-50 text-emerald-600" : "bg-beige-terracotta-subtle text-beige-terracotta"}`}>
-          {visit.geofenceVerified ? <ShieldCheck className="h-4 w-4" /> : isWithinGeofence ? <Compass className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-bold text-beige-text">
-              750-metre GPS geofence
-            </h4>
-            <span className="rounded border border-beige-border bg-beige-sand px-1.5 py-0.5 text-[10px] font-normal text-beige-muted shrink-0">Server verified</span>
-          </div>
-
-          {/* Live Distance Estimate Banner */}
-          {isAcquiringGps && !isCompleted && (
-            <div className="mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-              <span className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-              <span>Acquiring live device GPS position...</span>
-            </div>
-          )}
-
-          {!isAcquiringGps && !activeCoords && !isCompleted && (
-            <div className="mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
-              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-              <span>Location access required. Allow browser location to verify geofence.</span>
-            </div>
-          )}
-
-          {distanceMeters !== null && !isCompleted && (
-            <div
-              className={`mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${
-                isWithinGeofence
-                  ? "bg-beige-olive-subtle text-beige-olive border border-beige-olive/30"
-                  : "bg-red-50 text-red-700 border border-red-200"
-              }`}
-            >
-              {isWithinGeofence ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-beige-olive shrink-0" />
-                  <span>
-                    You are <strong>{distanceMeters}m</strong> away (within 750m zone).{" "}
-                    {isInProgress ? "Ready to complete visit!" : "Ready to check in!"}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />
-                  <span>
-                    You are far away: <strong>{formatDistance(distanceKm!)}</strong> ({distanceMeters}m). You must be within 750m to{" "}
-                    {isInProgress ? "complete this visit" : "check in"}.
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-
-          <p className="mt-1.5 text-[11px] text-beige-muted">
-            {isCompleted
-              ? "Visit completion was verified against a fresh GPS reading and the saved site location."
-              : isInProgress
-              ? "Your check-in was recorded. Live GPS range (750m) is strictly verified when completing the visit."
-              : "Allow GPS when prompted. Check-in is accepted only within 750m of the customer's coordinates."}
-          </p>
-        </div>
+    <section className="space-y-3 rounded-2xl border border-[#E3E2EE] bg-white p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        {distanceMeters !== null ? (
+          <span className={inZone ? "text-[#00843E]" : "text-[#B7791F]"}>
+            {inZone ? "In check-in zone" : `${formatDistance(distanceKm!)} away`}
+          </span>
+        ) : locationStatus === "granted" || locationStatus === "checking" ? (
+          <span className="flex items-center gap-1.5 text-[#62607A]">
+            <Loader2 className="h-4 w-4 animate-spin" /> Finding you…
+          </span>
+        ) : (
+          <span className="text-red-700">Location is off</span>
+        )}
+        {isInProgress && (
+          <span className="ml-auto flex items-center gap-1 text-[#393185]">
+            <CheckCircle2 className="h-4 w-4" /> Checked in
+          </span>
+        )}
       </div>
 
-      {!isCompleted && !isInProgress && (
+      {!isInProgress && (
         <button
           type="button"
           onClick={handleCheckIn}
           disabled={isCheckingIn}
-          className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-bold text-white shadow-md transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${isWithinGeofence ? "bg-emerald-600 hover:bg-emerald-700" : "bg-beige-terracotta hover:bg-beige-terracotta-light"}`}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#00843E] text-sm font-bold text-white transition hover:bg-[#006F34] disabled:opacity-60 cursor-pointer"
         >
-          {isCheckingIn ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Acquiring GPS &amp; checking radius…
-            </>
-          ) : (
-            <>
-              <MapPin className="h-4 w-4" />
-              {isWithinGeofence ? "Check in now (Inside 750m)" : "Verify GPS & Check In"}
-            </>
-          )}
+          {isCheckingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+          {isCheckingIn ? "Checking…" : "Check in"}
         </button>
-      )}
-
-      {isCompleted && visit.geofenceVerified && (
-        <p className="flex items-center gap-1.5 rounded-xl border border-beige-olive/30 bg-beige-olive-subtle p-2.5 text-[11px] font-semibold text-beige-olive">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Inside the 750m geofence at the last verified GPS check.
-        </p>
       )}
     </section>
   );

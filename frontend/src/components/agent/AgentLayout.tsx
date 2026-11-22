@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
 import DutyToggleButton from "@/components/agent/DutyToggleButton";
 import InstallAppBanner from "@/components/agent/InstallAppBanner";
+import LocationPrompt from "@/components/agent/LocationPrompt";
 import BrandMark from "@/components/shell/BrandMark";
 import PageBand from "@/components/shell/PageBand";
 import { useAuth } from "@/context/AuthContext";
@@ -245,6 +246,7 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
 
       <main className="relative mx-auto w-full max-w-[1400px] px-4 pt-4 pb-28 md:-mt-12 md:px-10 md:pb-12 md:pt-0">
         <div className="md:rounded-3xl md:bg-[#F5F5FA] md:p-6 md:shadow-[0_20px_50px_-30px_rgba(22,21,31,.45)]">
+          <LocationPrompt />
           <div className="md:hidden">
             <InstallAppBanner />
           </div>

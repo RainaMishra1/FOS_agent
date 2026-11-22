@@ -48,11 +48,11 @@ function getFreshFix(): Promise<GpsFix> {
         reject(
           new Error(
             err.code === err.PERMISSION_DENIED
-              ? "Location permission is off. Allow location for this site to create leads."
+              ? "Location is blocked. Allow it to create leads."
               : "Could not get your GPS location. Move outdoors and try again."
           )
         ),
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 10_000 }
     );
   });
 }
@@ -116,7 +116,7 @@ export default function AgentLeadsPage() {
       (err) =>
         setGpsError(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission is off. Allow location for this site to create leads."
+            ? "Location is blocked. Allow it to create leads."
             : "Waiting for GPS…"
         ),
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 5_000 }
@@ -184,7 +184,8 @@ export default function AgentLeadsPage() {
     setSubmitting(true);
     try {
       // Take a fresh fix right now and record it, so the server checks where the agent actually is.
-      const fix = await getFreshFix();
+      // A fix from the live watch in the last 20 s is fresh enough; otherwise ask the device.
+      const fix = gps && Date.now() - gps.at < 20000 ? gps : await getFreshFix();
       setGps(fix);
       await updateAgentLocation(
         { latitude: fix.latitude, longitude: fix.longitude, gps_accuracy: fix.accuracy, location_source: "gps" },
