@@ -1,0 +1,209 @@
+{
+ "status": "SUCCESS",
+ "geocoded_waypoints": [
+  {
+   "geocoder_status": "OK",
+   "place_id": "tekj26dyz",
+   "types": []
+  },
+  {
+   "geocoder_status": "OK",
+   "place_id": "tekj2kn8w",
+   "types": []
+  }
+ ],
+ "routes": [
+  {
+   "summary": "",
+   "legs": [
+    {
+     "steps": [
+      {
+       "instructions": "Head north on Chinchpada Road",
+       "distance": 515,
+       "readable_distance": "0 km 515 metres",
+       "maneuver": "depart",
+       "duration": 309,
+       "readable_duration": "0 hours 6 minutes",
+       "start_location": {
+        "lat": 19.219,
+        "lng": 73.14009
+       },
+       "end_location": {
+        "lat": 19.223620000000004,
+        "lng": 73.14038000000002
+       },
+       "bearing_before": 0,
+       "bearing_after": 346
+      },
+      {
+       "instructions": "Turn right",
+       "distance": 132,
+       "readable_distance": "0 km 132 metres",
+       "maneuver": "turn-right",
+       "duration": 79,
+       "readable_duration": "0 hours 2 minutes",
+       "start_location": {
+        "lat": 19.22362,
+        "lng": 73.14038
+       },
+       "end_location": {
+        "lat": 19.22369,
+        "lng": 73.14163
+       },
+       "bearing_before": 5,
+       "bearing_after": 90
+      },
+      {
+       "instructions": "Turn left onto Hanuman Nagar - Jaibhai Marathi School Rd",
+       "distance": 28,
+       "readable_distance": "0 km 28 metres",
+       "maneuver": "turn-left",
+       "duration": 17,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22369,
+        "lng": 73.14163
+       },
+       "end_location": {
+        "lat": 19.223930000000003,
+        "lng": 73.14153
+       },
+       "bearing_before": 74,
+       "bearing_after": 338
+      },
+      {
+       "instructions": "Turn right",
+       "distance": 168,
+       "readable_distance": "0 km 168 metres",
+       "maneuver": "turn-right",
+       "duration": 101,
+       "readable_duration": "0 hours 2 minutes",
+       "start_location": {
+        "lat": 19.22393,
+        "lng": 73.14153
+       },
+       "end_location": {
+        "lat": 19.22367,
+        "lng": 73.14307000000002
+       },
+       "bearing_before": 338,
+       "bearing_after": 78
+      },
+      {
+       "instructions": "Turn left",
+       "distance": 70,
+       "readable_distance": "0 km 70 metres",
+       "maneuver": "turn-left",
+       "duration": 42,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22367,
+        "lng": 73.14307
+       },
+       "end_location": {
+        "lat": 19.22414,
+        "lng": 73.14351999999998
+       },
+       "bearing_before": 98,
+       "bearing_after": 43
+      },
+      {
+       "instructions": "Continue straight",
+       "distance": 387,
+       "readable_distance": "0 km 387 metres",
+       "maneuver": "continue",
+       "duration": 232,
+       "readable_duration": "0 hours 4 minutes",
+       "start_location": {
+        "lat": 19.22414,
+        "lng": 73.14352
+       },
+       "end_location": {
+        "lat": 19.22446,
+        "lng": 73.14633000000002
+       },
+       "bearing_before": 33,
+       "bearing_after": 45
+      },
+      {
+       "instructions": "Turn left",
+       "distance": 201,
+       "readable_distance": "0 km 201 metres",
+       "maneuver": "turn-left",
+       "duration": 121,
+       "readable_duration": "0 hours 3 minutes",
+       "start_location": {
+        "lat": 19.22446,
+        "lng": 73.14633
+       },
+       "end_location": {
+        "lat": 19.22622,
+        "lng": 73.14587999999999
+       },
+       "bearing_before": 84,
+       "bearing_after": 357
+      },
+      {
+       "instructions": "Turn left",
+       "distance": 72,
+       "readable_distance": "0 km 72 metres",
+       "maneuver": "turn-left",
+       "duration": 43,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22622,
+        "lng": 73.14588
+       },
+       "end_location": {
+        "lat": 19.226010000000006,
+        "lng": 73.14523000000001
+       },
+       "bearing_before": 352,
+       "bearing_after": 244
+      },
+      {
+       "instructions": "You have arrived at your destination, on the right",
+       "distance": 0,
+       "readable_distance": "0 km 0 metres",
+       "maneuver": "arrive",
+       "duration": 0,
+       "readable_duration": "0 hours 0 minutes",
+       "start_location": {
+        "lat": 19.22601,
+        "lng": 73.14523
+       },
+       "end_location": {
+        "lat": 19.22601,
+        "lng": 73.14523
+       },
+       "bearing_before": 262,
+       "bearing_after": 0
+      }
+     ],
+     "distance": 1578,
+     "readable_distance": "1.58",
+     "duration": 947,
+     "readable_duration": "0 hours 16 minutes",
+     "start_location": {
+      "lat": 19.218999,
+      "lng": 73.140094
+     },
+     "end_location": {
+      "lat": 19.226014,
+      "lng": 73.145227
+     },
+     "start_address": "19.218999,73.140094",
+     "end_address": "19.226014,73.145227"
+    }
+   ],
+   "overview_polyline": "wuhtBqdl}L]FgAPc@Dm@GO?iA?_@Em@GGAeACOAuAKgKo@B{CGw@Ie@o@RKeAJ}AJQ^sAFS?UIE}@eAUM[_@a@e@CCGAOAs@@C?QOIESQ@UVUJEFI`@aATw@DSFm@D_@HqA@c@Co@U?U@g@JSFi@Nq@TIBa@Jo@Dk@DS@X|@FP@LDb@",
+   "travel_advisory": "0,63,0",
+   "bounds": {},
+   "copyrights": "OLA Map data ©2024",
+   "warnings": []
+  }
+ ],
+ "source_from": "Ola Maps",
+ "language_code": "en"
+}

@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # Colour the route by live traffic (green/amber/red). Google bills this at its Enterprise
     # rate (7,000 free requests/month in India) instead of Pro (35,000 free). Turn off to save quota.
     GOOGLE_ROUTES_TRAFFIC_ON_POLYLINE: bool = True
+    # Ola Maps (free tier, India): traffic-aware car, motorcycle and walking routes. Used first when set.
+    OLA_MAPS_API_KEY: Optional[str] = None
+    OLA_MAPS_BASE_URL: str = "https://api.olamaps.io"
     # Free OSRM foot-profile server for walking directions (FOSSGIS, max 1 request/second).
     OSRM_FOOT_URL: str = "https://routing.openstreetmap.de/routed-foot"
     GEOCODING_SEARCH_URL: str = "https://nominatim.openstreetmap.org/search"

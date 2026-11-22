@@ -33,6 +33,7 @@ import {
   ManeuverKind,
   announceThresholds,
   buildInstruction,
+  isAnnounced,
   distanceMeters,
   formatDuration,
   maneuverKind,
@@ -350,15 +351,16 @@ export default function AgentRoadRouteMap({
   useEffect(() => {
     if (!isNavigating || !bannerStep || distanceToManeuver == null) return;
     if (bannerStep.iconType === "arrive") return; // arrival has its own message below
+    if (!isAnnounced(bannerStep.iconType)) return; // don't speak "continue straight"
     let spoken = spokenRef.current.get(bannerStep.id);
     if (!spoken) {
       spoken = new Set();
       spokenRef.current.set(bannerStep.id, spoken);
       // Don't announce the long-range threshold right after the previous turn if we're already past it.
     }
-    const text = nextAnnouncement(distanceToManeuver, bannerStep.instruction, announceThresholds(travelMode), spoken);
+    const text = nextAnnouncement(distanceToManeuver, bannerStep.instruction, announceThresholds(travelMode, gpsSpeedMps), spoken);
     if (text) speak(text);
-  }, [isNavigating, bannerStep, distanceToManeuver, travelMode, speak]);
+  }, [isNavigating, bannerStep, distanceToManeuver, travelMode, gpsSpeedMps, speak]);
 
   useEffect(() => {
     if (!isNavigating || arrivedSpokenRef.current) return;
@@ -623,8 +625,9 @@ export default function AgentRoadRouteMap({
         let nextStart = 0;
         for (const interval of trafficSpeedIntervals) {
           const start = interval.startPolylinePointIndex ?? nextStart;
-          const end = Math.min(interval.endPolylinePointIndex, routeLatLngs.length);
-          const segment = routeLatLngs.slice(start, end);
+          const end = Math.min(interval.endPolylinePointIndex, routeLatLngs.length - 1);
+          // Include the end point so consecutive stretches join up (short slow sections stay visible).
+          const segment = routeLatLngs.slice(start, end + 1);
           nextStart = end;
           if (segment.length < 2) continue;
           const color = interval.speed === "TRAFFIC_JAM" ? "#D93025" : interval.speed === "SLOW" ? "#F9AB00" : "#188038";

@@ -126,8 +126,9 @@ export function buildInstruction(opts: {
   provided?: string;
   destinationName?: string;
 }): string {
-  if (opts.provided) return opts.provided; // Google gives ready-made instructions
   const kind = maneuverKind(opts.type, opts.modifier);
+  // Ola / Google give ready-made instructions; arrival uses our own wording with the customer's name.
+  if (opts.provided && kind !== "arrive") return opts.provided;
   const name = (opts.name || "").trim();
   const onto = name ? ` onto ${name}` : "";
   switch (kind) {
@@ -159,8 +160,16 @@ export function buildInstruction(opts: {
 }
 
 /** Distances (m) at which an upcoming maneuver is announced, by travel mode. */
-export function announceThresholds(mode: "car" | "bike" | "walk"): number[] {
-  return mode === "walk" ? [150, 40] : [600, 250, 60];
+export function announceThresholds(mode: "car" | "bike" | "walk", speedMps?: number | null): number[] {
+  if (mode === "walk") return [150, 40];
+  // The final "Turn right" must fire before the turn even at speed: at least ~6 s of travel ahead.
+  const final = Math.max(60, Math.min(200, (speedMps ?? 0) * 6));
+  return [600, 250, Math.round(final)];
+}
+
+/** Only real decisions are spoken; "continue straight" and the departure step stay silent. */
+export function isAnnounced(kind: ManeuverKind): boolean {
+  return kind !== "straight" && kind !== "depart";
 }
 
 /** "500 metres" / "1.2 kilometres", rounded the way navigation apps speak distances. */
@@ -188,8 +197,10 @@ export function nextAnnouncement(
   if (!due.length) return null;
   due.forEach((t) => spoken.add(t));
   // A threshold only a little closer than now would repeat almost at once ("In 300 m" then "In 250 m"): skip it.
+  // The final "turn now" prompt is never skipped this way.
+  const finalThreshold = Math.min(...thresholds);
   thresholds.forEach((t) => {
-    if (t >= distanceToManeuver * 0.75) spoken.add(t);
+    if (t !== finalThreshold && t >= distanceToManeuver * 0.75) spoken.add(t);
   });
   const smallest = Math.min(...thresholds);
   if (distanceToManeuver <= smallest) return instruction;

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import math
 from datetime import date, datetime, timezone
@@ -33,6 +34,8 @@ from app.api.v1.agents import _to_agent_response
 from app.services.travel_modes import (
     BIKE_TIME_FACTOR,
     GOOGLE_TRAVEL_MODE,
+    OLA_TRAVEL_MODE,
+    ola_route_response,
     google_maneuver,
     normalize_mode,
     osrm_route_response,
@@ -325,6 +328,45 @@ async def _osrm_route(mode: str, coordinates: list[tuple[float, float]], *, full
     return scale_route_time(route, BIKE_TIME_FACTOR) if mode == "bike" else route
 
 
+async def _ola_route(mode: str, coordinates: list[tuple[float, float]]) -> dict:
+    """Traffic-aware route from Ola Maps. coordinates are (longitude, latitude); origin first."""
+    if not settings.OLA_MAPS_API_KEY:
+        raise RuntimeError("Ola Maps is not configured.")
+    as_text = lambda point: f"{point[1]},{point[0]}"
+    params = {
+        "origin": as_text(coordinates[0]),
+        "destination": as_text(coordinates[-1]),
+        "mode": OLA_TRAVEL_MODE[mode],
+        "steps": "true",
+        "overview": "full",
+        "traffic_metadata": "true",
+        "language": "en",
+        "api_key": settings.OLA_MAPS_API_KEY,
+    }
+    if len(coordinates) > 2:
+        params["waypoints"] = "|".join(as_text(point) for point in coordinates[1:-1])
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{settings.OLA_MAPS_BASE_URL.rstrip('/')}/routing/v1/directions",
+            params=params,
+            headers={"X-Request-Id": str(uuid.uuid4())},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    return ola_route_response(payload, mode)
+
+
+async def _best_route(mode: str, coordinates: list[tuple[float, float]]) -> dict:
+    """Ola Maps (free, live traffic) -> free OSRM. Raises if every provider fails."""
+    if settings.OLA_MAPS_API_KEY:
+        try:
+            return await _ola_route(mode, coordinates)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError):
+            pass  # quota reached or Ola unavailable: fall back to the free router
+    route = await _osrm_route(mode, coordinates)
+    return osrm_route_response(route, mode, estimated=(mode == "bike"))
+
+
 async def _ordered_route_visits(agent: Agent, db: AsyncSession, visit_ids: str) -> list[Visit]:
     ids = [part.strip() for part in visit_ids.split(",") if part.strip()]
     if not ids:
@@ -474,7 +516,16 @@ async def get_agent_route_geometry(
     if not ordered:
         return {"geometry": None, "distance_meters": 0, "duration_seconds": 0, "legs": [], "mode": mode}
 
-    # Live traffic (Google) for car and bike. Walking has no traffic, so it always uses the free router.
+    coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+
+    # 1. Ola Maps: free tier with live traffic for car and bike, plus real walking routes.
+    if settings.OLA_MAPS_API_KEY:
+        try:
+            return await _ola_route(mode, coordinates)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError):
+            pass  # fall through to Google / free router
+
+    # 2. Google Routes (paid beyond its free cap) for car and bike, when configured.
     if settings.GOOGLE_ROUTES_API_KEY and mode in ("car", "bike"):
         destination_visit = ordered[-1]
         try:
@@ -492,7 +543,7 @@ async def get_agent_route_geometry(
             # Quota used up or Google unavailable: fall back to the free road router below.
             pass
 
-    coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+    # 3. Free OSRM road router (no traffic).
     try:
         route = await _osrm_route(mode, coordinates)
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
@@ -505,7 +556,7 @@ async def get_agent_route_estimates(
     visit_ids: str = Query(..., description="Comma-separated visit UUIDs in route order"),
     current_user: Profile = Depends(require_agent), db: AsyncSession = Depends(get_db),
 ):
-    """Distance and travel time for car, bike and walk, from the free road router (no traffic, no API cost)."""
+    """Distance and travel time for car, bike and walk (Ola Maps with traffic when configured, else the free router)."""
     agent = current_user.agent
     if not agent:
         raise HTTPException(status_code=404, detail="Agent profile not found.")
@@ -514,6 +565,24 @@ async def get_agent_route_estimates(
     estimates: dict[str, Optional[dict]] = {"car": None, "bike": None, "walk": None}
     if not ordered:
         return {"estimates": estimates}
+    coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
+
+    async def estimate(mode: str) -> Optional[dict]:
+        try:
+            route = await _best_route(mode, coordinates)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError):
+            return None
+        return {
+            "distance_meters": route["distance_meters"],
+            "duration_seconds": route["duration_seconds"],
+            "estimated": bool(route.get("estimated")),
+            "traffic_aware": bool(route.get("traffic_aware")),
+            "provider": route.get("provider"),
+        }
+
+    results = await asyncio.gather(*(estimate(mode) for mode in ("car", "bike", "walk")))
+    estimates.update(dict(zip(("car", "bike", "walk"), results)))
+    return {"estimates": estimates}
     coordinates = [(origin["longitude"], origin["latitude"])] + [(v.customer.longitude, v.customer.latitude) for v in ordered]
 
     try:

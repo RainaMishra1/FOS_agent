@@ -1,0 +1,191 @@
+{
+ "status": "SUCCESS",
+ "geocoded_waypoints": [
+  {
+   "geocoder_status": "OK",
+   "place_id": "tekj26dyz",
+   "types": []
+  },
+  {
+   "geocoder_status": "OK",
+   "place_id": "tekj2kn8w",
+   "types": []
+  }
+ ],
+ "routes": [
+  {
+   "summary": "",
+   "legs": [
+    {
+     "steps": [
+      {
+       "instructions": "Head north on Chinchpada Road",
+       "distance": 862,
+       "readable_distance": "0 km 862 metres",
+       "maneuver": "depart",
+       "duration": 188,
+       "readable_duration": "0 hours 4 minutes",
+       "start_location": {
+        "lat": 19.219,
+        "lng": 73.14009
+       },
+       "end_location": {
+        "lat": 19.226710000000008,
+        "lng": 73.14054
+       },
+       "bearing_before": 0,
+       "bearing_after": 346
+      },
+      {
+       "instructions": "Turn left onto Hanuman Nagar Road",
+       "distance": 43,
+       "readable_distance": "0 km 43 metres",
+       "maneuver": "turn-left",
+       "duration": 19,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22671,
+        "lng": 73.14054
+       },
+       "end_location": {
+        "lat": 19.22702,
+        "lng": 73.14032
+       },
+       "bearing_before": 15,
+       "bearing_after": 333
+      },
+      {
+       "instructions": "Turn right onto Pune Link Road",
+       "distance": 276,
+       "readable_distance": "0 km 276 metres",
+       "maneuver": "turn-right",
+       "duration": 41,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22702,
+        "lng": 73.14032
+       },
+       "end_location": {
+        "lat": 19.228479999999994,
+        "lng": 73.14226000000001
+       },
+       "bearing_before": 298,
+       "bearing_after": 324
+      },
+      {
+       "instructions": "Turn left onto Katemanivali Road",
+       "distance": 323,
+       "readable_distance": "0 km 323 metres",
+       "maneuver": "turn-left",
+       "duration": 61,
+       "readable_duration": "0 hours 2 minutes",
+       "start_location": {
+        "lat": 19.22848,
+        "lng": 73.14226
+       },
+       "end_location": {
+        "lat": 19.22937,
+        "lng": 73.14512
+       },
+       "bearing_before": 90,
+       "bearing_after": 47
+      },
+      {
+       "instructions": "Continue onto Pune Link Road",
+       "distance": 422,
+       "readable_distance": "0 km 422 metres",
+       "maneuver": "continue",
+       "duration": 92,
+       "readable_duration": "0 hours 2 minutes",
+       "start_location": {
+        "lat": 19.22937,
+        "lng": 73.14512
+       },
+       "end_location": {
+        "lat": 19.228360000000002,
+        "lng": 73.14867000000004
+       },
+       "bearing_before": 71,
+       "bearing_after": 74
+      },
+      {
+       "instructions": "Turn right",
+       "distance": 417,
+       "readable_distance": "0 km 417 metres",
+       "maneuver": "turn-right",
+       "duration": 86,
+       "readable_duration": "0 hours 2 minutes",
+       "start_location": {
+        "lat": 19.22836,
+        "lng": 73.14867
+       },
+       "end_location": {
+        "lat": 19.226220000000005,
+        "lng": 73.14587999999999
+       },
+       "bearing_before": 127,
+       "bearing_after": 219
+      },
+      {
+       "instructions": "Turn right",
+       "distance": 72,
+       "readable_distance": "0 km 72 metres",
+       "maneuver": "turn-right",
+       "duration": 20,
+       "readable_duration": "0 hours 1 minutes",
+       "start_location": {
+        "lat": 19.22622,
+        "lng": 73.14588
+       },
+       "end_location": {
+        "lat": 19.226010000000006,
+        "lng": 73.14523000000001
+       },
+       "bearing_before": 181,
+       "bearing_after": 244
+      },
+      {
+       "instructions": "You have arrived at your destination, on the right",
+       "distance": 0,
+       "readable_distance": "0 km 0 metres",
+       "maneuver": "arrive",
+       "duration": 0,
+       "readable_duration": "0 hours 0 minutes",
+       "start_location": {
+        "lat": 19.22601,
+        "lng": 73.14523
+       },
+       "end_location": {
+        "lat": 19.22601,
+        "lng": 73.14523
+       },
+       "bearing_before": 262,
+       "bearing_after": 0
+      }
+     ],
+     "distance": 2418,
+     "readable_distance": "2.42",
+     "duration": 509,
+     "readable_duration": "0 hours 9 minutes",
+     "start_location": {
+      "lat": 19.218999,
+      "lng": 73.140094
+     },
+     "end_location": {
+      "lat": 19.226014,
+      "lng": 73.145227
+     },
+     "start_address": "19.218999,73.140094",
+     "end_address": "19.226014,73.145227"
+    }
+   ],
+   "overview_polyline": "wuhtBqdl}L]FSDUFa@LO@M?o@MS?cAEa@Am@EMAeAEI?uAG_Ii@[Ck@EYCm@?w@?uB?s@Ai@CcA@q@@aA@}A[u@ZGNUNGKOQqAyBEIwAwBOWm@_AGI?WEGIKOSMMEGOKYgCGe@U}BKy@i@kCOw@MiAQsACg@?k@Dg@Hk@Rg@DIZe@zAyBzAuBJHl@b@j@\\p@^b@Pf@TZRBF@F?JMvBDVFt@f@t@T^^^b@Z@BPLN?X|@FP@L?BD^",
+   "travel_advisory": "0,20,0|20,23,5|23,24,0|24,25,5|25,28,0|28,29,5|29,30,0|30,31,5|31,34,0|34,35,5|35,40,0|40,41,5|41,44,0|44,45,5|45,88,0",
+   "bounds": {},
+   "copyrights": "OLA Map data ©2024",
+   "warnings": []
+  }
+ ],
+ "source_from": "Ola Maps",
+ "language_code": "en"
+}
