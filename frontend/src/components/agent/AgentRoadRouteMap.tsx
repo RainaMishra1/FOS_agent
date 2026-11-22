@@ -95,6 +95,8 @@ interface AgentRoadRouteMapProps {
   onReroute?: () => void;
   gpsHeading?: number | null;
   gpsSpeedMps?: number | null;
+  /** True while navigation is being prepared (GPS + route), to show progress on the Start button. */
+  isStarting?: boolean;
 }
 
 function formatDist(meters: number) {
@@ -131,6 +133,7 @@ export default function AgentRoadRouteMap({
   onReroute,
   gpsHeading = null,
   gpsSpeedMps = null,
+  isStarting = false,
 }: AgentRoadRouteMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<any>(null);
@@ -710,46 +713,56 @@ export default function AgentRoadRouteMap({
       }).addTo(layer);
     }
 
-    // Camera bounds framing
-    if (isNavigating) {
-      const navBounds: [number, number][] = currentPos ? [currentPos] : [];
-      if (activeDestinationStop?.customer_latitude != null && activeDestinationStop?.customer_longitude != null) {
-        navBounds.push([activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude]);
-      }
-      if (routeLatLngs.length > 0) {
-        const end = Math.min(routeLatLngs.length, 15);
-        for (let i = 0; i < end; i++) {
-          navBounds.push(routeLatLngs[i]);
+    // Camera framing. Leaflet can only fit correctly once it knows the container size, so frame
+    // now and again after the layout settles (the container may have just resized or moved).
+    const frame = () => {
+      const m = instanceRef.current;
+      if (!m) return;
+      m.invalidateSize();
+      if (isNavigating) {
+        if (navFramedRef.current) return;
+        const navBounds: [number, number][] = currentPos ? [currentPos] : [];
+        if (activeDestinationStop?.customer_latitude != null && activeDestinationStop?.customer_longitude != null) {
+          navBounds.push([activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude]);
         }
-      }
-
-      if (!navFramedRef.current) {
-        navFramedRef.current = true;
+        routeLatLngs.slice(0, 15).forEach((point) => navBounds.push(point));
         if (navBounds.length > 1) {
-          map.fitBounds(L.latLngBounds(navBounds), {
-            paddingTopLeft: [40, 170],
-            paddingBottomRight: [80, 300],
-            maxZoom: 17,
-          });
+          m.fitBounds(L.latLngBounds(navBounds), { paddingTopLeft: [40, 170], paddingBottomRight: [80, 300], maxZoom: 17 });
         } else if (currentPos) {
-          map.setView(currentPos, 17, { animate: true });
+          m.setView(currentPos, 17);
         }
+        return;
       }
-    } else {
-      if (currentPos) bounds.push(currentPos);
-      if (bounds.length > 1) {
+      // Preview of one visit: frame you, the route and that customer. Otherwise frame all stops.
+      const focus: [number, number][] = [];
+      if (singleDestinationMode && activeDestinationStop?.customer_latitude != null && activeDestinationStop?.customer_longitude != null) {
+        focus.push([activeDestinationStop.customer_latitude, activeDestinationStop.customer_longitude]);
+        routeLatLngs.forEach((point) => focus.push(point));
+      } else {
+        bounds.forEach((point) => focus.push(point));
+        routeLatLngs.forEach((point) => focus.push(point));
+      }
+      if (currentPos) focus.push(currentPos);
+      if (focus.length > 1) {
         const hasPreviewCard = Boolean(activeDestinationStop && onStartNavigation);
-        map.fitBounds(L.latLngBounds(bounds), {
+        m.fitBounds(L.latLngBounds(focus), {
           paddingTopLeft: [40, 60],
-          paddingBottomRight: [40, hasPreviewCard ? (onTravelModeChange ? 310 : 230) : 40],
-          maxZoom: 15,
+          paddingBottomRight: [70, hasPreviewCard ? (onTravelModeChange ? 310 : 230) : 40],
+          maxZoom: 17,
         });
-      } else if (bounds.length === 1) {
-        map.setView(bounds[0], 14);
+      } else if (focus.length === 1) {
+        m.setView(focus[0], 15);
       }
-    }
+    };
+    frame();
+    const settle = setTimeout(() => {
+      if (isNavigating) navFramedRef.current = false;
+      frame();
+      if (isNavigating) navFramedRef.current = true;
+    }, 250);
+    if (isNavigating) navFramedRef.current = true;
 
-    setTimeout(() => instanceRef.current?.invalidateSize(), 150);
+    return () => clearTimeout(settle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, stopsKey, routeLatLngs, isNavigating, selectedStopId, activeDestinationStop?.id, trafficAware, trafficSpeedIntervals, travelMode, hasPosition]);
 
@@ -1062,10 +1075,15 @@ export default function AgentRoadRouteMap({
               <button
                 type="button"
                 onClick={() => onStartNavigation(activeDestinationStop)}
-                className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99] cursor-pointer"
+                disabled={isStarting}
+                className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-black text-[15px] font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99] cursor-pointer disabled:opacity-70"
               >
-                <Navigation className="h-4 w-4" />
-                Start navigation
+                {isStarting ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <Navigation className="h-4 w-4" />
+                )}
+                {isStarting ? "Getting your location…" : "Start navigation"}
               </button>
             </div>
           ) : (

@@ -44,6 +44,7 @@ interface AgentContextType {
   resetDemoData: () => void;
   notification: { type: "success" | "error" | "info"; message: string } | null;
   clearNotification: () => void;
+  showNotification: (type: "success" | "error" | "info", message: string) => void;
   stats: {
     todayTotal: number;
     todayCompleted: number;
@@ -738,6 +739,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         resetDemoData,
         notification,
         clearNotification,
+        showNotification,
         stats,
         liveGpsCoords,
         refreshLiveGps,

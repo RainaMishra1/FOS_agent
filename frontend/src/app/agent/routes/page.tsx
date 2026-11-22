@@ -67,7 +67,9 @@ function AgentRoutePageContent() {
   const preselectedVisitId = searchParams.get("visitId");
 
   const { session } = useAuth();
-  const { checkInVisit, isOnDuty } = useAgent();
+  const { checkInVisit, isOnDuty, showNotification } = useAgent();
+  const [startingStopId, setStartingStopId] = useState<string | null>(null);
+  const liveFixAtRef = useRef(0);
 
   const [routeData, setRouteData] = useState<AgentRouteData | null>(null);
   const [roadRoute, setRoadRoute] = useState<RoadRouteData | null>(null);
@@ -123,6 +125,7 @@ function AgentRoutePageContent() {
           heading: pos.coords.heading,
           speed: pos.coords.speed,
         });
+        liveFixAtRef.current = Date.now();
       },
       (err) => console.warn("GPS watch notice:", err.message),
       // Turn-by-turn needs fresh, precise fixes; the overview can save battery.
@@ -386,7 +389,9 @@ function AgentRoutePageContent() {
       lastRoutedTargetRef.current = `${taskStop.id}:${travelModeRef.current}`;
       return true;
     } catch (err: any) {
-      setError(err?.detail || err?.message || "Could not calculate the road route to this customer.");
+      const message = err?.detail || err?.message || "Could not calculate the road route to this customer.";
+      setError(message);
+      showNotification("error", message);
       setRoadRoute(null);
       return false;
     } finally {
@@ -398,13 +403,43 @@ function AgentRoutePageContent() {
     if (!session?.access_token || typeof navigator === "undefined" || !navigator.geolocation) {
       throw new Error("Allow location access before starting navigation.");
     }
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        resolve,
-        () => reject(new Error("Could not get your current GPS location. Check location permission and try again.")),
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
-      );
-    });
+    // 1. A fix from the live GPS watch in the last minute is good enough — no waiting.
+    // 2. Otherwise ask for a precise fix, then a coarse one. Never wait more than ~20 s in total,
+    //    because some browsers never answer while a permission prompt is open.
+    const askOnce = (options: PositionOptions, limitMs: number) =>
+      new Promise<GeolocationPosition>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timeout")), limitMs);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            clearTimeout(timer);
+            resolve(pos);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+          options
+        );
+      });
+
+    let position: { coords: { latitude: number; longitude: number; accuracy: number } } | null = null;
+    if (liveGpsCoords && Date.now() - liveFixAtRef.current < 60000) {
+      position = { coords: { latitude: liveGpsCoords.latitude, longitude: liveGpsCoords.longitude, accuracy: liveGpsCoords.accuracy ?? 50 } };
+    }
+    if (!position) {
+      try {
+        position = await askOnce({ enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }, 9000);
+      } catch {
+        try {
+          position = await askOnce({ enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }, 11000);
+        } catch (err: any) {
+          if (err?.code === 1) {
+            throw new Error("Location permission is blocked. Allow location for this site in your browser settings, then try again.");
+          }
+          throw new Error("Could not get your GPS location. Move near a window or outdoors and try again.");
+        }
+      }
+    }
     const coords = {
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
@@ -436,18 +471,28 @@ function AgentRoutePageContent() {
     if (!target) return;
     if (!isOnDuty) {
       setError("Turn on duty to start GPS navigation and keep your location current.");
+      showNotification("error", "Turn on duty (top right) to start navigation.");
       return;
     }
-    setRouteLoading(true);
+    if (startingStopId) return;
+    setStartingStopId(target.id);
     setError(null);
     let routeReady = false;
     try {
-      await syncCurrentGpsForRoute();
-      routeReady = await handleGetRouteForTask(target, true);
+      try {
+        await syncCurrentGpsForRoute();
+      } catch (gpsError: any) {
+        // The server still has the last GPS reading; route from there rather than refusing to start.
+        if (!routeData?.origin) throw gpsError;
+        showNotification("info", `${gpsError?.message || "GPS not available."} Using your last known location.`);
+      }
+      routeReady = await handleGetRouteForTask(target, true); // shows its own error message
     } catch (err: any) {
-      setError(err?.detail || err?.message || "Could not refresh your GPS location.");
+      const message = err?.detail || err?.message || "Could not start navigation.";
+      setError(message);
+      showNotification("error", message);
     } finally {
-      setRouteLoading(false);
+      setStartingStopId(null);
     }
     if (!routeReady) return;
     setIsNavigating(true);
@@ -564,6 +609,7 @@ function AgentRoutePageContent() {
     if (!routeData) return;
     if (!isOnDuty) {
       setError("Turn on duty before starting GPS navigation.");
+      showNotification("error", "Turn on duty (top right) to start navigation.");
       return;
     }
     setOptimizing(true);
@@ -590,7 +636,9 @@ function AgentRoutePageContent() {
       setIsNavigating(true);
       setTimeout(() => document.getElementById("agent-navigation-map-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     } catch (err: any) {
-      setError(err?.detail || err?.message || "Route optimization failed.");
+      const message = err?.detail || err?.message || "Route optimization failed.";
+      setError(message);
+      showNotification("error", message);
     } finally {
       setOptimizing(false);
     }
@@ -766,7 +814,7 @@ function AgentRoutePageContent() {
                     <button
                       type="button"
                       onClick={() => handleStartNavigation(nearestPendingTask)}
-                      disabled={routeLoading}
+                      disabled={Boolean(startingStopId)}
                       className="inline-flex items-center gap-2 rounded-xl bg-[#1E3F35] hover:bg-[#162F27] px-4 py-2.5 text-xs font-bold text-white shadow-md transition transform hover:scale-102 cursor-pointer disabled:opacity-50"
                     >
                       <Navigation className="h-4 w-4 text-white" />
@@ -839,6 +887,7 @@ function AgentRoutePageContent() {
               onReroute={handleReroute}
               gpsHeading={liveGpsCoords?.heading ?? null}
               gpsSpeedMps={liveGpsCoords?.speed ?? null}
+              isStarting={Boolean(startingStopId)}
               onCheckIn={async (stop) => {
                 if (isOnDuty) {
                   const res = await checkInVisit(stop.id);
@@ -940,15 +989,19 @@ function AgentRoutePageContent() {
                               handleStartNavigation(raw);
                             }
                           }}
-                          disabled={routeLoading}
+                          disabled={Boolean(startingStopId)}
                           className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition shadow-xs cursor-pointer ${
                             isNavigating && selectedTaskStopId === raw.id
                               ? "bg-red-600 hover:bg-red-700 text-white"
                               : "bg-[#1E3F35] hover:bg-[#162F27] text-white"
                           }`}
                         >
-                          <Navigation className="h-3.5 w-3.5" />
-                          {isNavigating && selectedTaskStopId === raw.id ? "Stop Nav" : "Start"}
+                          {startingStopId === raw.id ? (
+                            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          ) : (
+                            <Navigation className="h-3.5 w-3.5" />
+                          )}
+                          {isNavigating && selectedTaskStopId === raw.id ? "Stop Nav" : startingStopId === raw.id ? "Starting…" : "Start"}
                         </button>
 
                         <button
