@@ -112,7 +112,7 @@ export default function AdminProfilePage() {
       <button
         type="button"
         onClick={handleSignOut}
-        className="w-full sm:w-auto h-12 px-6 rounded-2xl bg-white border border-red-200 text-[#9E3F3F] text-sm font-bold flex items-center justify-center gap-2 hover:bg-red-50 transition cursor-pointer"
+        className="w-full h-12 px-6 rounded-2xl bg-white border border-red-200 text-[#9E3F3F] text-sm font-bold flex items-center justify-center gap-2 hover:bg-red-50 transition cursor-pointer"
       >
         <LogOut className="h-4 w-4" />
         Log out

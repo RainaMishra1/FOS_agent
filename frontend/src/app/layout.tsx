@@ -14,7 +14,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "FOS — Field Operations & Agent Management System",
+  title: "SK Finance FOS — Field Operations",
   description:
     "Location-based field agent tracking, geofenced 750m customer visits, and multi-stop route optimization.",
   applicationName: "FOS Agent",

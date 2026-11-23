@@ -119,10 +119,8 @@ export default function UnifiedSignupForm() {
       <div className="w-full max-w-md space-y-5">
         {/* Brand Header */}
         <header className="text-center space-y-2">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-[#00843E] text-white flex items-center justify-center shadow-md">
-            <Compass className="w-7 h-7" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-beige-text">FOS Enterprise</h1>
+          <img src="/brand/sk-finance-logo.png" alt="SK Finance" width={88} height={121} className="mx-auto h-[104px] w-auto" />
+          <h1 className="text-2xl font-bold tracking-tight text-beige-text">SK Finance FOS</h1>
           <p className="text-xs text-beige-muted">Account Registration</p>
         </header>
 

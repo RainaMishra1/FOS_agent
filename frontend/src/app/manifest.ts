@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/agent/dashboard",
-    name: "FOS Agent — Field Operations",
+    name: "SK Finance FOS — Field Operations",
     short_name: "FOS Agent",
     description: "Visits, navigation and geofenced check-ins for field agents.",
     start_url: "/agent/dashboard",

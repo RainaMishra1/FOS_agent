@@ -2,7 +2,7 @@
  * Network-first: the app always loads fresh data and code when online.
  * Only an offline fallback page and static icons are cached, so a new
  * deploy is never hidden behind a stale cache. API calls are never cached. */
-const CACHE = "fos-shell-v1";
+const CACHE = "fos-shell-v2"; // bumped: new SK Finance icons
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/icon-512.png"];
 

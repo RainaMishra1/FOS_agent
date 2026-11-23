@@ -117,11 +117,9 @@ export default function UnifiedLoginForm() {
         <section className="lg:col-span-7 flex flex-col justify-between space-y-8 py-2">
           {/* Top Brand Bar */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#00843E] flex items-center justify-center text-white shadow-xs">
-              <Compass className="w-5 h-5" />
-            </div>
+            <img src="/brand/sk-mark.png" alt="SK Finance" width={44} height={44} className="h-11 w-11 rounded-xl bg-white ring-1 ring-[#E3E2EE]" />
             <div>
-              <h2 className="text-sm sm:text-base font-bold text-[#16151F] leading-none">FOS Enterprise</h2>
+              <h2 className="text-sm sm:text-base font-bold text-[#16151F] leading-none">SK Finance · FOS</h2>
               <p className="text-[11px] sm:text-xs text-[#62607A] mt-0.5">Field Operations &amp; Agent Management Portal</p>
             </div>
           </div>
@@ -218,15 +216,13 @@ export default function UnifiedLoginForm() {
         {/* Right Column: Clean Login Card */}
         <section className="lg:col-span-5 flex justify-center">
           <div className="w-full max-w-md bg-white rounded-3xl border border-[#E3E2EE] p-7 sm:p-9 shadow-lg space-y-5">
-            {/* Compass Icon */}
-            <div className="mx-auto w-12 h-12 rounded-2xl bg-[#00843E] flex items-center justify-center text-white shadow-xs">
-              <Compass className="w-6 h-6" />
-            </div>
+            {/* Company logo */}
+            <img src="/brand/sk-finance-logo.png" alt="SK Finance" width={88} height={121} className="mx-auto h-[104px] w-auto" />
 
             {/* Header Titles */}
             <div className="text-center space-y-1">
               <h2 className="text-2xl font-bold text-[#16151F] tracking-tight">Welcome Back</h2>
-              <p className="text-xs text-[#62607A]">Sign in to your FOS Enterprise account</p>
+              <p className="text-xs text-[#62607A]">Sign in to SK Finance FOS</p>
             </div>
 
             {/* Feedback Message */}

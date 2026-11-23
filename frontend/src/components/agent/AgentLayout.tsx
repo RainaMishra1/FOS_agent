@@ -28,7 +28,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
-  LogOut,
   Loader2,
   ChevronLeft,
 } from "lucide-react";
@@ -100,10 +99,6 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
     );
   }
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/login");
-  };
 
   const agentName = profile?.full_name || currentAgent.name;
   const agentInitials = agentName
@@ -179,15 +174,12 @@ export default function AgentLayout({ children }: AgentLayoutProps) {
       <div className="hidden md:block bg-black text-white/90 text-xs">
         <div className="mx-auto flex h-9 max-w-[1400px] items-center justify-end gap-6 px-10">
           <span>{today}</span>
-          <span className="flex items-center gap-1.5">
+          {/* Name opens Profile; Log out is at the end of that page. */}
+          <Link href="/agent/profile" className="flex items-center gap-1.5 hover:text-white">
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#00843E] text-[9px] font-bold">{agentInitials}</span>
             {agentName}
             {agentCode && <span className="text-white/50">· {agentCode}</span>}
-          </span>
-          <button onClick={handleSignOut} className="flex items-center gap-1.5 hover:text-white cursor-pointer">
-            <LogOut className="w-3.5 h-3.5 text-[#00A651]" />
-            Log out
-          </button>
+          </Link>
         </div>
       </div>
 

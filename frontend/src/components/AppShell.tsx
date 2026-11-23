@@ -13,10 +13,8 @@ import {
   Menu,
   X,
   Bell,
-  ChevronDown,
   Calendar,
   Search,
-  LogOut,
   Loader2,
   Smartphone,
   ShieldCheck,
@@ -148,10 +146,6 @@ export default function AppShell({ children }: AppShellProps) {
     year: "numeric",
   }).format(new Date());
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/login");
-  };
 
   const displayName = profile?.full_name || (isAdminAccount ? "Operations Admin" : "Field Agent");
   const initials = displayName
@@ -280,41 +274,14 @@ export default function AppShell({ children }: AppShellProps) {
               onEnableDesktop={alerts.enableDesktopAlerts}
             />
 
-            <div className="relative z-30">
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 hover:bg-[#F1F0F8] transition cursor-pointer"
-              >
-                <span className="w-8 h-8 rounded-full bg-[#393185] text-white flex items-center justify-center font-bold text-xs">{initials}</span>
-                <ChevronDown className="w-4 h-4 text-[#62607A]" />
-              </button>
-              {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white border border-[#E3E2EE] shadow-xl p-2 text-sm animate-rise">
-                  <div className="px-3 py-2 border-b border-[#E3E2EE] mb-1">
-                    <p className="font-bold truncate">{displayName}</p>
-                    <p className="text-xs text-[#62607A] truncate">{user?.email}</p>
-                  </div>
-                  <Link
-                    href="/profile"
-                    onClick={() => setShowUserMenu(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-[#F1F0F8] transition"
-                  >
-                    <UserCircle className="w-4 h-4 text-[#62607A]" />
-                    Profile &amp; settings
-                  </Link>
-                  <button
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      handleSignOut();
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[#9E3F3F] hover:bg-[#F1F0F8] transition font-medium text-left cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Log out
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Avatar opens Profile; Log out is at the end of that page. */}
+            <Link
+              href="/profile"
+              aria-label="Profile"
+              className={`relative z-30 flex items-center rounded-full p-1 transition hover:bg-[#F1F0F8] ${isActive("/profile") ? "ring-2 ring-[#393185]/30" : ""}`}
+            >
+              <span className="w-8 h-8 rounded-full bg-[#393185] text-white flex items-center justify-center font-bold text-xs">{initials}</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -369,14 +336,12 @@ export default function AppShell({ children }: AppShellProps) {
                 );
               })}
             </nav>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button onClick={() => { setMobileMenuOpen(false); setShowHealthModal(true); }} className="h-11 rounded-2xl border border-[#E3E2EE] text-sm font-semibold">
-                System status
-              </button>
-              <button onClick={handleSignOut} className="h-11 rounded-2xl border border-red-200 text-sm font-semibold text-[#9E3F3F]">
-                Log out
-              </button>
-            </div>
+            <button
+              onClick={() => { setMobileMenuOpen(false); setShowHealthModal(true); }}
+              className="mt-3 h-11 w-full rounded-2xl border border-[#E3E2EE] text-sm font-semibold"
+            >
+              System status
+            </button>
           </div>
         </div>
       )}
