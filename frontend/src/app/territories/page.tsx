@@ -143,7 +143,12 @@ export default function TerritoriesPage() {
     }
     setSaving(true);
     try {
-      if (mode.kind === "create") {
+      const existing = regionByAgent.get(agentId);
+      if (mode.kind === "create" && existing) {
+        // One region per agent: assigning a new area moves the agent's region there.
+        const moved = await updateTerritory(existing.id, { name: name.trim(), agent_id: agentId, color, ...boundary }, token);
+        setNotice(`${moved.agent_name || "The agent"}'s region is now "${moved.name}".`);
+      } else if (mode.kind === "create") {
         const created = await createTerritory({ name: name.trim(), agent_id: agentId, color, ...boundary }, token);
         setNotice(`Region "${created.name}" assigned to ${created.agent_name || "the agent"}.`);
       } else if (mode.kind === "edit") {
@@ -234,14 +239,23 @@ export default function TerritoriesPage() {
                   {agents.map((a) => {
                     const existing = regionByAgent.get(a.id);
                     const taken = Boolean(existing && existing.id !== editingId);
+                    // New region: an agent who has one can be chosen; theirs gets replaced.
+                    // Editing: can't hand this region to an agent who already holds another.
+                    const blocked = taken && mode.kind === "edit";
                     return (
-                      <option key={a.id} value={a.id} disabled={taken}>
+                      <option key={a.id} value={a.id} disabled={blocked}>
                         {a.name} ({a.agent_code || a.id.slice(0, 8)}){taken ? ` · has "${existing!.name}"` : ""}
                         {a.status !== "active" ? ` · ${a.status}` : ""}
                       </option>
                     );
                   })}
                 </select>
+                {mode.kind === "create" && agentId && regionByAgent.get(agentId) && (
+                  <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                    Replaces their region &quot;{regionByAgent.get(agentId)!.name}&quot;.
+                  </p>
+                )}
+                {agents.length === 0 && <p className="mt-1.5 text-xs text-red-700">Add a field agent first.</p>}
               </div>
 
               {defining ? (
