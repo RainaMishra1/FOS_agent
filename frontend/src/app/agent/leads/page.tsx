@@ -15,7 +15,7 @@ import {
   updateAgentLocation,
 } from "@/lib/api";
 import { isPointInPolygon } from "@/lib/geoUtils";
-import { reversePhotonAddress } from "@/lib/photon";
+import { reversePhotonAddress, searchPhotonAddress } from "@/lib/photon";
 import { describeTerritory, metresOutsideTerritory } from "@/lib/territoryText";
 
 interface GpsFix {
@@ -186,14 +186,41 @@ export default function AgentLeadsPage() {
     if (!token) return;
     setSubmitting(true);
     try {
-      // Take a fresh fix right now and record it, so the server checks where the agent actually is.
-      // A fix from the live watch in the last 20 s is fresh enough; otherwise ask the device.
-      const fix = gps && Date.now() - gps.at < 20000 ? gps : await getFreshFix();
-      setGps(fix);
-      await updateAgentLocation(
-        { latitude: fix.latitude, longitude: fix.longitude, gps_accuracy: fix.accuracy, location_source: "gps" },
-        token
-      );
+      // Leads can be created from anywhere. The agent's GPS is recorded when available (never required).
+      let fix: GpsFix | null = gps && Date.now() - gps.at < 60000 ? gps : null;
+      if (!fix) {
+        try {
+          fix = await getFreshFix();
+          setGps(fix);
+        } catch {
+          fix = null;
+        }
+      }
+      if (fix) {
+        await updateAgentLocation(
+          { latitude: fix.latitude, longitude: fix.longitude, gps_accuracy: fix.accuracy, location_source: "gps" },
+          token
+        ).catch(() => undefined);
+      }
+
+      // The lead's location is the customer's address; the agent's GPS is the fallback.
+      let point: { latitude: number; longitude: number } | null = null;
+      try {
+        const [place] = await searchPhotonAddress(`${address.trim()}, ${city.trim()}`, {
+          limit: 1,
+          biasLat: fix?.latitude,
+          biasLon: fix?.longitude,
+        });
+        if (place) point = { latitude: place.latitude, longitude: place.longitude };
+      } catch {
+        point = null;
+      }
+      if (!point && fix) point = { latitude: fix.latitude, longitude: fix.longitude };
+      if (!point) {
+        setFormError("Couldn't find this address on the map. Check the address or turn on location.");
+        return;
+      }
+
       const lead = await createAgentLead(
         {
           customer_name: customerName.trim(),
@@ -202,8 +229,8 @@ export default function AgentLeadsPage() {
           email: email.trim() || undefined,
           address: address.trim(),
           city: city.trim(),
-          latitude: fix.latitude,
-          longitude: fix.longitude,
+          latitude: point.latitude,
+          longitude: point.longitude,
           priority,
           notes: notes.trim() || undefined,
         },
@@ -401,7 +428,7 @@ export default function AgentLeadsPage() {
           >
             {submitting ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Checking your location…
+                <Loader2 className="h-4 w-4 animate-spin" /> Sending…
               </>
             ) : (
               "Submit for verification"

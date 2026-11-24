@@ -363,7 +363,7 @@ export default function AppShell({ children }: AppShellProps) {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Main"
       >
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-4">
           {mobileTabs.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.href);

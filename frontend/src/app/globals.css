@@ -94,3 +94,10 @@ a, button, [role="button"], label, summary {
     font-size: 16px !important;
   }
 }
+
+/* Keep every Leaflet map's layers (z-index 400-1000) inside the map box, so maps
+   never draw over the app bar, bottom tabs, menus or pop-ups. */
+.leaflet-container {
+  isolation: isolate;
+  z-index: 0;
+}

@@ -27,7 +27,7 @@ from app.schemas.territory import (
     LeadReviewResponse,
     TerritoryListResponse,
 )
-from app.services.territory_rules import GpsReading, RuleViolation, check_lead_gps
+from app.services.territory_rules import haversine_m
 
 router = APIRouter(prefix="/agent", tags=["Field Agent Leads"])
 
@@ -79,8 +79,8 @@ async def create_lead(
     """Submit a lead for admin verification.
 
     Accepted only when all of these hold, checked on the server:
-      1. the agent's latest location is live device GPS, fresh and accurate;
-      2. the lead location is within the geofence radius of that GPS point;
+      1. no location rule: agents may create leads from anywhere; their latest GPS is recorded;
+      2. the lead location is the customer's address (or the agent's GPS if it can't be found);
       3. leads outside the agent's own region are allowed; they are stored without
          a region so admins can spot them (the app warns the agent).
     """
@@ -90,29 +90,21 @@ async def create_lead(
         select(AgentLocation).where(AgentLocation.agent_id == agent.id)
         .order_by(AgentLocation.recorded_at.desc()).limit(1)
     )
-    reading = (
-        GpsReading(latest.latitude, latest.longitude, latest.gps_accuracy, latest.recorded_at) if latest else None
+    # Agents may create leads from anywhere. The agent's latest GPS (if any) is only
+    # recorded with the lead, together with its distance, so admins can review it.
+    distance = (
+        haversine_m(latest.latitude, latest.longitude, payload.latitude, payload.longitude)
+        if latest and latest.latitude is not None and latest.longitude is not None
+        else None
     )
-    try:
-        distance = check_lead_gps(
-            reading,
-            payload.latitude,
-            payload.longitude,
-            max_accuracy_m=settings.MAX_ACCEPTABLE_GPS_ACCURACY_METERS,
-            max_age_seconds=settings.LOCATION_STALE_THRESHOLD_SECONDS,
-            max_distance_m=settings.GEOFENCE_RADIUS_METERS,
-        )
-    except RuleViolation as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
 
     lead_pt = _point(payload.latitude, payload.longitude)
-    gps_pt = _point(latest.latitude, latest.longitude)
+    # The lead's region, if its location is inside one of the agent's regions (else none: "outside region").
     territory = await db.scalar(
         select(Territory).where(
             Territory.agent_id == agent.id,
             Territory.is_active.is_(True),
             func.ST_Covers(Territory.boundary, lead_pt),
-            func.ST_Covers(Territory.boundary, gps_pt),
         ).limit(1)
     )
     # Leads outside the agent's region are allowed; they are saved without a region
@@ -154,10 +146,10 @@ async def create_lead(
         verification_status="pending",
         created_by_agent_id=agent.id,
         territory_id=territory.id if territory else None,
-        captured_latitude=latest.latitude,
-        captured_longitude=latest.longitude,
-        captured_accuracy_meters=latest.gps_accuracy,
-        captured_distance_meters=round(distance, 1),
+        captured_latitude=latest.latitude if latest else None,
+        captured_longitude=latest.longitude if latest else None,
+        captured_accuracy_meters=latest.gps_accuracy if latest else None,
+        captured_distance_meters=round(distance, 1) if distance is not None else None,
         submitted_at=datetime.now(timezone.utc),
     )
     db.add(lead)
