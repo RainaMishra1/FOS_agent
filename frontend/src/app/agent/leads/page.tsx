@@ -184,6 +184,8 @@ export default function AgentLeadsPage() {
     event.preventDefault();
     setFormError(null);
     if (!token) return;
+    if (!customerName.trim()) return setFormError("Enter the customer's name.");
+    if (phone.replace(/\D/g, "").length < 6) return setFormError("Enter the customer's phone number.");
     setSubmitting(true);
     try {
       // Leads can be created from anywhere. The agent's GPS is recorded when available (never required).
@@ -203,10 +205,28 @@ export default function AgentLeadsPage() {
         ).catch(() => undefined);
       }
 
+      // No address typed: use the address of where the agent is now.
+      let leadAddress = address.trim();
+      let leadCity = city.trim();
+      if ((leadAddress.length < 5 || !leadCity) && fix) {
+        const here = await reversePhotonAddress(fix.latitude, fix.longitude).catch(() => null);
+        if (here) {
+          if (leadAddress.length < 5) leadAddress = here.formattedAddress || here.label || here.name || leadAddress;
+          if (!leadCity) leadCity = here.city || here.locality || "";
+          setAddress(leadAddress);
+          setCity(leadCity);
+        }
+      }
+      if (leadAddress.length < 5) {
+        setFormError("Enter the customer's address (or turn on location to use where you are).");
+        return;
+      }
+      if (!leadCity) leadCity = leadAddress.split(",").map((part) => part.trim()).filter(Boolean).pop() || "Unknown";
+
       // The lead's location is the customer's address; the agent's GPS is the fallback.
       let point: { latitude: number; longitude: number } | null = null;
       try {
-        const [place] = await searchPhotonAddress(`${address.trim()}, ${city.trim()}`, {
+        const [place] = await searchPhotonAddress(`${leadAddress}, ${leadCity}`, {
           limit: 1,
           biasLat: fix?.latitude,
           biasLon: fix?.longitude,
@@ -227,8 +247,8 @@ export default function AgentLeadsPage() {
           phone: phone.trim(),
           company: company.trim() || undefined,
           email: email.trim() || undefined,
-          address: address.trim(),
-          city: city.trim(),
+          address: leadAddress,
+          city: leadCity,
           latitude: point.latitude,
           longitude: point.longitude,
           priority,
@@ -248,12 +268,8 @@ export default function AgentLeadsPage() {
   };
 
   const hasTerritory = territories.length > 0;
-  const canSubmit =
-    customerName.trim().length > 0 &&
-    phone.trim().length >= 6 &&
-    address.trim().length >= 5 &&
-    city.trim().length > 0 &&
-    !submitting;
+  // Always tappable: on submit the agent is told exactly what's missing.
+  const canSubmit = !submitting;
 
   return (
     <div className="space-y-4 pb-10">
