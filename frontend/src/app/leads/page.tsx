@@ -214,7 +214,8 @@ export default function LeadApprovalsPage() {
                 </span>
               </div>
               <div className="text-[#62607A] mt-0.5">
-                {lead.created_by_agent_name || "Unknown agent"} · {lead.territory_name || "no territory"}
+                {lead.created_by_agent_name || "Unknown agent"} ·{" "}
+                {lead.territory_name || <span className="font-semibold text-red-700">Outside region</span>}
               </div>
               <div className="text-[11px] text-[#9A98AE]">{formatWhen(lead.submitted_at || lead.created_at)}</div>
             </button>
@@ -252,7 +253,7 @@ export default function LeadApprovalsPage() {
                     Created by <strong className="text-[#16151F]">{selected.created_by_agent_name || "—"}</strong>
                     {selected.created_by_agent_code ? ` (${selected.created_by_agent_code})` : ""}
                   </div>
-                  <div>Territory: <strong className="text-[#16151F]">{selected.territory_name || "—"}</strong></div>
+                  <div>Region: {selected.territory_name ? <strong className="text-[#16151F]">{selected.territory_name}</strong> : <strong className="text-red-700">Outside region</strong>}</div>
                   <div>Submitted: {formatWhen(selected.submitted_at)}</div>
                   <div>Priority: <span className="capitalize text-[#16151F]">{selected.priority}</span></div>
                   <div className="rounded-lg border border-[#D7D4EE] bg-[#F7F7FB] p-2 text-[#393185]">

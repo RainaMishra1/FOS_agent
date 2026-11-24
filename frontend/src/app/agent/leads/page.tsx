@@ -222,7 +222,6 @@ export default function AgentLeadsPage() {
 
   const hasTerritory = territories.length > 0;
   const canSubmit =
-    hasTerritory &&
     customerName.trim().length > 0 &&
     phone.trim().length >= 6 &&
     address.trim().length >= 5 &&
@@ -236,11 +235,8 @@ export default function AgentLeadsPage() {
           <h1 className="text-xl font-bold text-[#16151F] flex items-center gap-2">
             <ClipboardList className="h-5 w-5" /> My leads
           </h1>
-          <p className="text-xs text-[#62607A] mt-0.5">
-            Create leads while you&apos;re at the customer, inside your territory. Your admin verifies each one.
-          </p>
         </div>
-        {hasTerritory && !formOpen && (
+        {!formOpen && (
           <button
             onClick={() => {
               setFormOpen(true);
@@ -264,7 +260,7 @@ export default function AgentLeadsPage() {
       <div className="rounded-2xl border border-[#E3E2EE] bg-white p-3 space-y-3">
         {!loading && !hasTerritory ? (
           <p className="flex items-center gap-1.5 text-xs text-amber-800">
-            <AlertCircle className="h-4 w-4" /> You don&apos;t have a territory yet. Ask your admin to assign one before creating leads.
+            <AlertCircle className="h-4 w-4" /> You don&apos;t have a region yet.
           </p>
         ) : (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -326,11 +322,6 @@ export default function AgentLeadsPage() {
             >
               <X className="h-4 w-4" />
             </button>
-          </div>
-
-          <div className="rounded-xl bg-[#F7F7FB] px-3 py-2 text-[11px] text-[#62607A] flex items-start gap-1.5">
-            <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            The lead is saved at your current GPS location. You must be at the customer and inside your territory.
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -398,8 +389,8 @@ export default function AgentLeadsPage() {
             </div>
           )}
           {gps && !currentTerritory && (
-            <p className="text-[11px] text-amber-800">
-              Your GPS shows you outside your territory, so the lead will be refused. Move inside it and try again.
+            <p className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> You are creating this lead outside your area.
             </p>
           )}
 

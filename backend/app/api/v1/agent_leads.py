@@ -81,16 +81,10 @@ async def create_lead(
     Accepted only when all of these hold, checked on the server:
       1. the agent's latest location is live device GPS, fresh and accurate;
       2. the lead location is within the geofence radius of that GPS point;
-      3. both the lead location and the agent's GPS point are inside one of
-         the agent's own territories (PostGIS polygon test).
+      3. leads outside the agent's own region are allowed; they are stored without
+         a region so admins can spot them (the app warns the agent).
     """
     agent = current_user.agent
-
-    territories_count = await db.scalar(
-        select(func.count(Territory.id)).where(Territory.agent_id == agent.id, Territory.is_active.is_(True))
-    ) or 0
-    if territories_count == 0:
-        raise HTTPException(status_code=403, detail="You don't have an assigned territory yet. Ask your admin to assign one.")
 
     latest = await db.scalar(
         select(AgentLocation).where(AgentLocation.agent_id == agent.id)
@@ -121,33 +115,8 @@ async def create_lead(
             func.ST_Covers(Territory.boundary, gps_pt),
         ).limit(1)
     )
-    if territory is None:
-        nearest = (await db.execute(
-            select(
-                Territory.name,
-                func.ST_Distance(cast(Territory.boundary, GEOGRAPHY), cast(lead_pt, GEOGRAPHY)),
-                Territory.definition_type,
-                Territory.radius_meters,
-                Territory.start_label,
-                Territory.end_label,
-            )
-            .where(Territory.agent_id == agent.id, Territory.is_active.is_(True))
-            .order_by(func.ST_Distance(cast(Territory.boundary, GEOGRAPHY), cast(lead_pt, GEOGRAPHY)))
-            .limit(1)
-        )).first()
-        where = ""
-        if nearest:
-            name, edge_m, kind, radius, start_label, end_label = nearest
-            if kind == "radius" and radius:
-                where = f" {name} covers {radius / 1000:g} km around {start_label}."
-            elif kind == "box" and radius:
-                where = f" {name} covers the area from {start_label} to {end_label} (plus {radius / 1000:g} km)."
-            if edge_m:
-                where += f" The lead is {edge_m:.0f}m outside it."
-        raise HTTPException(
-            status_code=403,
-            detail="Leads can only be created inside your assigned territory, and you must be inside it too." + where,
-        )
+    # Leads outside the agent's region are allowed; they are saved without a region
+    # (territory_id empty) so the admin can see that when approving.
 
     phone_digits = _digits(payload.phone)
     if phone_digits:
@@ -184,7 +153,7 @@ async def create_lead(
         source="agent",
         verification_status="pending",
         created_by_agent_id=agent.id,
-        territory_id=territory.id,
+        territory_id=territory.id if territory else None,
         captured_latitude=latest.latitude,
         captured_longitude=latest.longitude,
         captured_accuracy_meters=latest.gps_accuracy,
