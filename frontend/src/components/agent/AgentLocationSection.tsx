@@ -10,7 +10,9 @@ import DutyToggleButton from "@/components/agent/DutyToggleButton";
 
 export default function AgentLocationSection() {
   const { session } = useAuth();
-  const { currentAgent, isOnDuty } = useAgent();
+  const { currentAgent, isOnDuty, locationStatus } = useAgent();
+  const allowedRef = useRef(false);
+  allowedRef.current = locationStatus === "granted";
   const [tracking, setTracking] = useState(false);
   const [liveCoords, setLiveCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(() => {
     if (currentAgent?.currentCoordinates?.lat && currentAgent?.currentCoordinates?.lng) {
@@ -88,6 +90,7 @@ export default function AgentLocationSection() {
       stopWatching();
       return;
     }
+    if (!allowedRef.current) return; // never trigger the permission prompt from here
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
 
     // Immediately fetch initial fix
@@ -120,7 +123,7 @@ export default function AgentLocationSection() {
     } else {
       startWatching();
     }
-  }, [isOnDuty, stopWatching, startWatching]);
+  }, [isOnDuty, locationStatus, stopWatching, startWatching]);
 
   useEffect(() => {
     mountedRef.current = true;

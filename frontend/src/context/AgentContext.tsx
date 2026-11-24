@@ -282,6 +282,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("checking");
   const liveFixRef = useRef<Fix | null>(null);
   const [watchKey, setWatchKey] = useState(0);
+  // Start tracking only when location is already allowed, or after the agent taps Allow.
+  // Asking on every app open makes Chrome auto-block the site after a few dismissed prompts.
+  const [watchAllowed, setWatchAllowed] = useState(false);
 
   const acceptPosition = useCallback((pos: GeolocationPosition) => {
     const fix: Fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, at: Date.now() };
@@ -310,16 +313,25 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       if (!permission) return;
       if (permission.state === "denied") setLocationStatus("denied");
       else if (permission.state === "prompt") setLocationStatus((current) => (current === "granted" ? current : "prompt"));
-      else setWatchKey((key) => key + 1); // granted (possibly just now): restart tracking
+      else {
+        // granted (possibly just now, from settings): start / restart tracking
+        setWatchAllowed(true);
+        setWatchKey((key) => key + 1);
+      }
     };
+    if (!navigator.permissions?.query) {
+      // Older Safari: no Permissions API, so we can't know without asking. Track as before.
+      setWatchAllowed(true);
+      return;
+    }
     navigator.permissions
-      ?.query({ name: "geolocation" as PermissionName })
+      .query({ name: "geolocation" as PermissionName })
       .then((status) => {
         permission = status;
         apply();
         status.onchange = apply;
       })
-      .catch(() => undefined); // Older Safari: no Permissions API; the watch below tells us instead.
+      .catch(() => setWatchAllowed(true));
     return () => {
       if (permission) permission.onchange = null;
     };
@@ -327,6 +339,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   // One live GPS watch for the whole agent app.
   useEffect(() => {
+    if (!watchAllowed) return;
     if (typeof navigator === "undefined" || !navigator.geolocation || (typeof window !== "undefined" && !window.isSecureContext)) return;
     const watchId = navigator.geolocation.watchPosition(acceptPosition, rejectPosition, {
       enableHighAccuracy: true,
@@ -334,7 +347,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       maximumAge: 5000,
     });
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [acceptPosition, rejectPosition, watchKey]);
+  }, [acceptPosition, rejectPosition, watchKey, watchAllowed]);
 
   /** Best current position: a fix from the last 20 s, otherwise ask the device (up to `waitMs`). */
   const getFix = useCallback(
@@ -381,6 +394,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const requestLocation = useCallback(async () => {
     try {
       await getFix(20000);
+      setWatchAllowed(true);
       setWatchKey((key) => key + 1);
       return true;
     } catch (err: any) {

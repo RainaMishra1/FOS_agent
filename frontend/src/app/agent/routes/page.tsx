@@ -67,7 +67,7 @@ function AgentRoutePageContent() {
   const preselectedVisitId = searchParams.get("visitId");
 
   const { session } = useAuth();
-  const { checkInVisit, isOnDuty, showNotification } = useAgent();
+  const { checkInVisit, isOnDuty, showNotification, locationStatus } = useAgent();
   const [startingStopId, setStartingStopId] = useState<string | null>(null);
   const liveFixAtRef = useRef(0);
 
@@ -114,7 +114,7 @@ function AgentRoutePageContent() {
 
   // Watch device GPS in real time only if on duty
   useEffect(() => {
-    if (!isOnDuty) return;
+    if (!isOnDuty || locationStatus !== "granted") return; // don't prompt on page load
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -134,7 +134,7 @@ function AgentRoutePageContent() {
         : { enableHighAccuracy: false, maximumAge: 30000, timeout: 15000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnDuty, isNavigating]);
+  }, [isOnDuty, isNavigating, locationStatus]);
 
   // Sync GPS location in the background if moved
   const syncLocationIfMoved = useCallback(async (token: string, lat: number, lng: number, accuracy?: number) => {

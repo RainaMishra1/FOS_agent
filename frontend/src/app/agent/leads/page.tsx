@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, ClipboardList, Loader2, LocateFixed, MapPin, Plus, X } from "lucide-react";
 import TerritoryMap, { MapMarker, MapTerritory } from "@/components/TerritoryMap";
 import { useAuth } from "@/context/AuthContext";
+import { useAgent } from "@/context/AgentContext";
 import {
   LeadReviewItem,
   TerritoryApiItem,
@@ -59,6 +60,7 @@ function getFreshFix(): Promise<GpsFix> {
 
 export default function AgentLeadsPage() {
   const { session } = useAuth();
+  const { locationStatus } = useAgent();
   const token = session?.access_token;
 
   const [territories, setTerritories] = useState<TerritoryApiItem[]>([]);
@@ -102,8 +104,9 @@ export default function AgentLeadsPage() {
     void load();
   }, [load]);
 
-  // Live GPS while the page is open
+  // Live GPS while the page is open (only once location is allowed, so opening the page never prompts)
   useEffect(() => {
+    if (locationStatus !== "granted") return;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setGpsError("This device cannot share GPS location.");
       return;
@@ -122,7 +125,7 @@ export default function AgentLeadsPage() {
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 5_000 }
     );
     return () => navigator.geolocation.clearWatch(id);
-  }, []);
+  }, [locationStatus]);
 
   const currentTerritory = useMemo(
     () => (gps ? territories.find((t) => isPointInPolygon(gps.latitude, gps.longitude, t.points)) || null : null),

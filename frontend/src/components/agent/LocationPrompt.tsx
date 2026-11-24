@@ -28,8 +28,17 @@ function fixSteps(platform: Platform, installed: boolean): string[] {
   }
   if (platform === "android") {
     return installed
-      ? ["Press and hold the FOS app icon → App info → Permissions → Location → Allow.", "Make sure Location is on in your quick settings.", "Come back here and tap Try again."]
-      : ["Tap the icon left of the address bar → Permissions → Location → Allow.", "Make sure Location is on in your quick settings.", "Come back here and tap Try again."];
+      ? [
+          "Open Chrome → ⋮ menu → Settings → Site settings → Location.",
+          "Find fos-agent.vercel.app under Blocked → tap it → Allow.",
+          "Phone Settings → Apps → Chrome → Permissions → Location → Allow.",
+          "Turn on Location in quick settings, come back and tap Try again.",
+        ]
+      : [
+          "Tap the icon left of the address bar → Permissions → Location → Allow.",
+          "Phone Settings → Apps → Chrome → Permissions → Location → Allow.",
+          "Turn on Location in quick settings, come back and tap Try again.",
+        ];
   }
   return ["Click the icon left of the address bar → Location → Allow.", "Then click Try again."];
 }

@@ -221,7 +221,7 @@ export default function UnifiedLoginForm() {
 
             {/* Header Titles */}
             <div className="text-center space-y-1">
-              <h2 className="text-2xl font-bold text-[#16151F] tracking-tight">Welcome Back</h2>
+              <h2 className="text-2xl font-bold text-[#16151F] tracking-tight">Login</h2>
               <p className="text-xs text-[#62607A]">Sign in to SK Finance FOS</p>
             </div>
 
